@@ -1,0 +1,11 @@
+torch>=1.9.0
+transformers>=4.21.0
+pandas>=1.3.0
+numpy>=1.21.0
+scikit-learn>=0.24.2
+pytorch-lightning>=1.5.0
+yfinance>=0.1.63
+python-binance>=1.0.15
+alpaca-trade-api>=2.3.0
+finrl>=0.3.1
+fingpt @ git+https://github.com/AI4Finance-Foundation/FinGPT.git
