@@ -1,56 +1,43 @@
-import psutil
-import torch
-import logging
+from ..base_service import BaseService
 from typing import Dict, List
+import psutil
+import logging
 from datetime import datetime
 import asyncio
 
-class SystemMonitor:
-    def __init__(self, config: Dict):
-        self.config = config
-        self.metrics_history = []
-        self.alert_thresholds = config.get('alert_thresholds', {
-            'gpu_memory_percent': 90,
-            'cpu_usage_percent': 80,
-            'processing_time_seconds': 5
-        })
-        
-    async def monitor_resources(self) -> Dict:
-        """Monitor system resources"""
-        metrics = {
-            'timestamp': datetime.now(),
+class SystemMonitor(BaseService):
+    def _validate_config(self) -> None:
+        self.log_path = self.config.get('log_path', 'logs/system.log')
+        self.check_interval = self.config.get('check_interval', 60)
+
+    def initialize(self) -> None:
+        logging.basicConfig(
+            filename=self.log_path,
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s'
+        )
+        self.metrics = {}
+        self.running = False
+
+    async def shutdown(self) -> None:
+        self.running = False
+        await asyncio.sleep(0.1)  # Allow final metrics to be collected
+
+    async def start_monitoring(self) -> None:
+        self.running = True
+        while self.running:
+            metrics = self.collect_metrics()
+            self.metrics = metrics
+            logging.info(f"System metrics: {metrics}")
+            await asyncio.sleep(self.check_interval)
+
+    def collect_metrics(self) -> Dict:
+        return {
             'cpu_percent': psutil.cpu_percent(),
             'memory_percent': psutil.virtual_memory().percent,
-            'disk_percent': psutil.disk_usage('/').percent
+            'disk_usage': psutil.disk_usage('/').percent,
+            'timestamp': datetime.now().isoformat()
         }
-        
-        if torch.cuda.is_available():
-            metrics['gpu_memory'] = {
-                i: torch.cuda.memory_allocated(i) / torch.cuda.get_device_properties(i).total_memory * 100
-                for i in range(torch.cuda.device_count())
-            }
-            
-        self.metrics_history.append(metrics)
-        return metrics
-        
-    def check_alerts(self, metrics: Dict) -> List[Dict]:
-        """Check for alert conditions"""
-        alerts = []
-        
-        if metrics['cpu_percent'] > self.alert_thresholds['cpu_usage_percent']:
-            alerts.append({
-                'level': 'warning',
-                'type': 'cpu_usage',
-                'message': f"CPU usage at {metrics['cpu_percent']}%"
-            })
-            
-        if 'gpu_memory' in metrics:
-            for device, usage in metrics['gpu_memory'].items():
-                if usage > self.alert_thresholds['gpu_memory_percent']:
-                    alerts.append({
-                        'level': 'warning',
-                        'type': 'gpu_memory',
-                        'message': f"GPU {device} memory at {usage:.1f}%"
-                    })
-                    
-        return alerts
+
+    def get_latest_metrics(self) -> Dict:
+        return self.metrics

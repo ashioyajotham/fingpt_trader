@@ -3,6 +3,8 @@ import pandas as pd
 from datetime import datetime
 import asyncio
 from dataclasses import dataclass
+from ..base_service import BaseService
+import aiohttp
 
 @dataclass
 class Order:
@@ -14,46 +16,44 @@ class Order:
     status: str = 'pending'
     timestamp: datetime = None
     
-class BrokerService:
-    def __init__(self, config: Dict):
-        self.api_key = config['api_key']
-        self.api_secret = config['api_secret']
-        self.orders = []
+class BrokerService(BaseService):
+    def _validate_config(self) -> None:
+        required = ['api_key', 'api_secret', 'base_url']
+        missing = [k for k in required if k not in self.config]
+        if missing:
+            raise ValueError(f"Missing required config keys: {missing}")
+
+    def initialize(self) -> None:
+        self.session = None
+        self.orders = {}
         self.positions = {}
-        self.max_retries = 3
-        
-    async def place_order(self, order: Order) -> Dict:
-        """Place a new order"""
-        try:
-            # Implement actual broker API calls here
-            order.timestamp = datetime.now()
-            self.orders.append(order)
-            
-            # Update positions
-            position_delta = order.quantity if order.side == 'buy' else -order.quantity
-            self.positions[order.symbol] = self.positions.get(order.symbol, 0) + position_delta
-            
-            return {
-                'status': 'success',
-                'order_id': len(self.orders),
-                'timestamp': order.timestamp
-            }
-            
-        except Exception as e:
-            return {
-                'status': 'error',
-                'message': str(e)
-            }
-            
-    async def get_positions(self) -> Dict[str, float]:
-        """Get current positions"""
-        return self.positions.copy()
-        
-    async def cancel_order(self, order_id: int) -> Dict:
-        """Cancel an existing order"""
-        if 0 <= order_id < len(self.orders):
-            order = self.orders[order_id]
-            if order.status == 'pending':
-                order.status = 'cancelled'
-                return {'status': 'success'}
-        return {'status': 'error', 'message': 'Order not found'}
+
+    async def shutdown(self) -> None:
+        if self.session:
+            await self.session.close()
+
+    async def _ensure_session(self) -> None:
+        if not self.session:
+            self.session = aiohttp.ClientSession(
+                headers={"Authorization": f"Bearer {self.config['api_key']}"}
+            )
+
+    async def place_order(self, order: Dict) -> Dict:
+        await self._ensure_session()
+        async with self.session.post(
+            f"{self.config['base_url']}/orders",
+            json=order
+        ) as response:
+            result = await response.json()
+            if response.status == 200:
+                self.orders[result['order_id']] = result
+            return result
+
+    async def get_positions(self) -> List[Dict]:
+        await self._ensure_session()
+        async with self.session.get(
+            f"{self.config['base_url']}/positions"
+        ) as response:
+            positions = await response.json()
+            self.positions = {p['symbol']: p for p in positions}
+            return positions
