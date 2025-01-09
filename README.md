@@ -60,63 +60,75 @@ graph TD
 fingpt-trader/
 │
 ├── data/
-│   ├── raw/                # Raw market data, news feeds, financial statements
+│   ├── raw/                # Raw market data, news feeds
 │   ├── processed/          # Processed and engineered features
-│   └── external/           # External market indicators, indices
+│   └── logs/              # System and performance logs
 │
 ├── models/
-│   ├── sentiment_analysis/ 
-│   │   ├── fingpt_model/      # FinGPT model implementation
-│   │   │   ├── model.py       # FinGPT model class
-│   │   │   └── utils.py       # Model utilities
-│   │   └── sentiment_preprocessor.py
-│   ├── trading/
-│   │   ├── market_inefficiency/
-│   │   │   ├── detector.py    # Market inefficiency detection
-│   │   │   └── patterns.py    # Trading patterns analysis
-│   │   └── signal_generator.py
+│   ├── sentiment/
+│   │   ├── fingpt/        # FinGPT model implementation
+│   │   └── preprocessor.py
+│   ├── market_analysis/
+│   │   ├── inefficiency/
+│   │   │   ├── detector.py
+│   │   │   └── patterns.py
+│   │   └── signals.py
+│   ├── portfolio/
+│   │   ├── optimization.py
+│   │   └── risk.py
 │   └── robo_advisor/
-│       ├── portfolio_optimization/
-│       │   ├── optimizer.py    # Portfolio optimization
-│       │   └── constraints.py  # Investment constraints
-│       └── risk_management/
-│           ├── risk_analyzer.py  # Risk analysis
-│           └── alerts.py         # Risk alerts
+│       ├── profile_manager.py     # Client profile management
+│       ├── recommendation.py      # Investment recommendations
+│       ├── rebalancing.py        # Portfolio rebalancing
+│       └── tax_harvesting.py     # Tax-loss harvesting
 │
 ├── services/
+│   ├── base_service.py    # Base service interface
 │   ├── data_feeds/
 │   │   ├── market_data_service.py  # Market data integration
-│   │   └── news_service.py         # News API integration
+│   │   └── news_service.py         # News aggregation service
 │   ├── trading/
 │   │   ├── broker_service.py       # Broker API integration
-│   │   └── order_manager.py        # Order management
+│   │   └── order_manager.py        # Order lifecycle management
+│   │   └── robo_service.py         # Robo advisor service
 │   └── monitoring/
-│       ├── system_monitor.py       # System health monitoring
-│       └── performance_tracker.py   # Trading performance monitoring
+│       ├── system_monitor.py       # System health tracking
+│       └── performance_tracker.py   # Trading performance analytics
 │
-├── scripts/
-│   ├── data_preprocessing.py
-│   ├── train_models.py
-│   ├── evaluate_models.py
-│   ├── trading_bot.py
-│   └── backtest.py
+├── strategies/
+│   ├── base_strategy.py   # Strategy interface
+│   ├── sentiment/         # Sentiment-based strategies
+│   ├── inefficiency/      # Market inefficiency strategies
+│   ├── hybrid/           # Combined strategy implementations
+│   └── robo/
+│       ├── allocation.py      # Asset allocation strategies
+│       ├── rebalancing.py     # Rebalancing strategies
+│       └── tax_aware.py       # Tax-aware trading strategies
+│
+├── utils/
+│   ├── config.py         # Configuration management
+│   ├── logging.py        # Logging utilities
+│   └── validation.py     # Data validation helpers
 │
 ├── config/
-│   ├── fingpt_config.yaml     # FinGPT model configuration
-│   ├── trading_config.yaml    # Trading parameters
-│   ├── broker_config.yaml     # Broker API credentials
-│   └── robo_config.yaml       # Robo advisor settings
+│   ├── services.yaml     # Service configurations
+│   ├── strategies.yaml   # Strategy parameters
+│   └── logging.yaml      # Logging configuration
 │
 ├── tests/
-│   ├── test_sentiment.py
-│   ├── test_trading.py
-│   ├── test_portfolio.py
-│   └── test_risk.py
+│   ├── services/         # Service unit tests
+│   ├── strategies/       # Strategy unit tests
+│   └── integration/      # Integration tests
 │
-├── requirements.txt           # Project dependencies
-├── setup.py                  # Package setup
-├── LICENSE.md                # License information
-└── CONTRIBUTING.md           # Contribution guidelines
+├── scripts/
+│   ├── backtest.py      # Backtesting framework
+│   ├── live_trade.py    # Live trading entry point
+│   └── analyze.py       # Performance analysis
+│
+├── requirements.txt
+├── setup.py
+├── LICENSE
+└── README.md
 ```
 
 ## Technical Implementation
@@ -178,3 +190,48 @@ An edge is a market anomaly that consistently, and non-randomly, makes you money
 
 Algorithmic trading is a constant cycle of hypothesis formation and testing. This is why you learned Minimum Viable Python. 
 You need to cycle through ideas as fast as you can since most of them will not work.
+
+## Service Architecture
+
+The system is built on a service-oriented architecture with the following core services:
+
+1. **Data Feed Services**
+   - MarketDataService: Real-time market data integration
+   - NewsService: Multi-source news aggregation and preprocessing
+
+2. **Trading Services**
+   - BrokerService: Broker API integration and order execution
+   - OrderManager: Order lifecycle and position management
+   - RoboAdvisorService: Automated portfolio management and recommendations
+
+3. **Monitoring Services**
+   - SystemMonitor: System health and resource monitoring
+   - PerformanceTracker: Trading performance analytics
+
+## Implementation Details
+
+### Service Layer
+- All services inherit from BaseService
+- Async/await pattern for improved performance
+- Robust error handling and logging
+- Configurable through YAML files
+- Built-in monitoring and metrics
+
+### Robo Advisor Components
+- Client profile management and risk assessment
+- Automated portfolio construction and rebalancing
+- Tax-loss harvesting optimization
+- Custom investment recommendations
+- Regular portfolio review and adjustments
+
+### Data Processing
+- Real-time market data processing
+- News aggregation and deduplication
+- Sentiment analysis using FinGPT
+- Market inefficiency detection
+
+### Trading Logic
+- Order lifecycle management
+- Position tracking and risk management
+- Performance monitoring and reporting
+- Automated trading signals
