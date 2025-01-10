@@ -1,59 +1,48 @@
 from typing import Dict, List, Optional
-import pandas as pd
-from datetime import datetime
-import asyncio
-from dataclasses import dataclass
-from ..base_service import BaseService
-import aiohttp
+from enum import Enum
+from ...services.base_service import BaseService
 
-@dataclass
-class Order:
-    symbol: str
-    side: str  # 'buy' or 'sell'
-    quantity: float
-    order_type: str  # 'market', 'limit'
-    price: Optional[float] = None
-    status: str = 'pending'
-    timestamp: datetime = None
-    
+class OrderType(Enum):
+    MARKET = "market"
+    LIMIT = "limit"
+    STOP = "stop"
+    STOP_LIMIT = "stop_limit"
+
+class OrderSide(Enum):
+    BUY = "buy"
+    SELL = "sell"
+
 class BrokerService(BaseService):
-    def _validate_config(self) -> None:
-        required = ['api_key', 'api_secret', 'base_url']
-        missing = [k for k in required if k not in self.config]
-        if missing:
-            raise ValueError(f"Missing required config keys: {missing}")
-
-    def initialize(self) -> None:
-        self.session = None
-        self.orders = {}
+    def __init__(self, config: Optional[Dict] = None):
+        super().__init__(config)
         self.positions = {}
+        self.orders = {}
+        self.account_info = {}
 
-    async def shutdown(self) -> None:
-        if self.session:
-            await self.session.close()
+    async def _setup(self) -> None:
+        await self._connect()
+        await self._sync_positions()
+        
+    async def submit_order(self, order: Dict) -> str:
+        """Submit new order to broker"""
+        self._validate_order(order)
+        order_id = await self._submit_to_broker(order)
+        self.orders[order_id] = order
+        return order_id
 
-    async def _ensure_session(self) -> None:
-        if not self.session:
-            self.session = aiohttp.ClientSession(
-                headers={"Authorization": f"Bearer {self.config['api_key']}"}
-            )
+    async def cancel_order(self, order_id: str) -> bool:
+        """Cancel existing order"""
+        if order_id not in self.orders:
+            return False
+        success = await self._cancel_at_broker(order_id)
+        if success:
+            del self.orders[order_id]
+        return success
 
-    async def place_order(self, order: Dict) -> Dict:
-        await self._ensure_session()
-        async with self.session.post(
-            f"{self.config['base_url']}/orders",
-            json=order
-        ) as response:
-            result = await response.json()
-            if response.status == 200:
-                self.orders[result['order_id']] = result
-            return result
+    async def get_positions(self) -> Dict:
+        """Get current positions"""
+        return self.positions
 
-    async def get_positions(self) -> List[Dict]:
-        await self._ensure_session()
-        async with self.session.get(
-            f"{self.config['base_url']}/positions"
-        ) as response:
-            positions = await response.json()
-            self.positions = {p['symbol']: p for p in positions}
-            return positions
+    async def get_account_info(self) -> Dict:
+        """Get account information"""
+        return self.account_info

@@ -65,22 +65,22 @@ fingpt-trader/
 │   └── logs/              # System and performance logs
 │
 ├── models/
+│   ├── llm/
+│   │   ├── base.py           # Base LLM interface
+│   │   ├── fingpt.py         # FinGPT implementation
+│   │   └── utils/
+│   │       ├── tokenizer.py  # Tokenization utilities
+│   │       └── inference.py  # Inference helpers
 │   ├── sentiment/
-│   │   ├── fingpt/        # FinGPT model implementation
-│   │   └── preprocessor.py
-│   ├── market_analysis/
-│   │   ├── inefficiency/
-│   │   │   ├── detector.py
-│   │   │   └── patterns.py
-│   │   └── signals.py
-│   ├── portfolio/
-│   │   ├── optimization.py
-│   │   └── risk.py
-│   └── robo_advisor/
-│       ├── profile_manager.py     # Client profile management
-│       ├── recommendation.py      # Investment recommendations
-│       ├── rebalancing.py        # Portfolio rebalancing
-│       └── tax_harvesting.py     # Tax-loss harvesting
+│   │   ├── analyzer.py       # Sentiment analysis logic
+│   │   └── preprocessor.py   # Text preprocessing
+│   ├── market/
+│   │   ├── inefficiency.py   # Market inefficiency detection
+│   │   └── patterns.py       # Pattern recognition
+│   └── portfolio/
+│       ├── optimization.py   # Portfolio optimization
+│       ├── risk.py          # Risk modeling
+│       └── rebalancing.py   # Rebalancing logic
 │
 ├── services/
 │   ├── base_service.py    # Base service interface

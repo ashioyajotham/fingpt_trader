@@ -1,98 +1,57 @@
-import yfinance as yf
+from typing import Dict, List, Optional, Union
 import pandas as pd
-from typing import Dict, List, Optional
 import asyncio
-import aiohttp
 from datetime import datetime, timedelta
+from ...services.base_service import BaseService
 
-class MarketDataService:
-    def __init__(self, config: Dict):
-        self.cache = {}
-        self.cache_duration = config.get('cache_duration', 300)  # 5 minutes default
-        self.news_sources = config.get('news_sources', ['reuters', 'bloomberg', 'wsj'])
+class MarketDataService(BaseService):
+    def __init__(self, config: Optional[Dict] = None):
+        super().__init__(config)
+        self.data_cache = {}
+        self.subscribers = []
+        self.rate_limits = {
+            'api_calls_per_minute': 60,
+            'max_historical_days': 365
+        }
         
-    async def get_market_data(self, 
-                            symbols: List[str], 
-                            interval: str = '1d',
-                            period: str = '1mo') -> Dict[str, pd.DataFrame]:
-        """Fetch market data for multiple symbols"""
-        results = {}
-        async with aiohttp.ClientSession() as session:
-            tasks = [
-                self._fetch_symbol_data(session, symbol, interval, period)
-                for symbol in symbols
-            ]
-            completed = await asyncio.gather(*tasks)
-            
-            for symbol, data in zip(symbols, completed):
-                if data is not None:
-                    results[symbol] = data
-                    
-        return results
-    
-    async def _fetch_symbol_data(self, 
-                               session: aiohttp.ClientSession,
-                               symbol: str,
-                               interval: str,
-                               period: str) -> Optional[pd.DataFrame]:
-        """Fetch data for a single symbol"""
-        cache_key = f"{symbol}_{interval}_{period}"
+    async def _setup(self) -> None:
+        self.session = None  # Initialize API session
+        self.last_update = datetime.now()
+        await self._init_cache()
         
-        # Check cache
-        if cache_key in self.cache:
-            cache_time, data = self.cache[cache_key]
-            if datetime.now() - cache_time < timedelta(seconds=self.cache_duration):
-                return data
-                
-        try:
-            # Using yfinance for demonstration
-            data = yf.download(symbol, interval=interval, period=period)
-            self.cache[cache_key] = (datetime.now(), data)
-            return data
-        except Exception as e:
-            print(f"Error fetching data for {symbol}: {str(e)}")
-            return None
+    async def _cleanup(self) -> None:
+        if self.session:
+            await self.session.close()
             
-    async def get_news_data(self, symbols: List[str], 
-                           lookback_days: int = 7) -> Dict[str, List[Dict]]:
-        """Fetch news data for symbols"""
-        results = {}
-        async with aiohttp.ClientSession() as session:
-            tasks = [
-                self._fetch_symbol_news(session, symbol, lookback_days)
-                for symbol in symbols
-            ]
-            completed = await asyncio.gather(*tasks)
-            
-            for symbol, news in zip(symbols, completed):
-                if news:
-                    results[symbol] = news
-                    
-        return results
-    
-    async def _fetch_symbol_news(self,
-                               session: aiohttp.ClientSession,
-                               symbol: str,
-                               lookback_days: int) -> List[Dict]:
-        """Fetch news for a single symbol"""
-        try:
-            ticker = yf.Ticker(symbol)
-            news = ticker.news
-            
-            # Filter and format news
-            formatted_news = []
-            cutoff_date = datetime.now() - timedelta(days=lookback_days)
-            
-            for article in news:
-                if datetime.fromtimestamp(article['providerPublishTime']) >= cutoff_date:
-                    formatted_news.append({
-                        'title': article['title'],
-                        'timestamp': article['providerPublishTime'],
-                        'source': article.get('source', ''),
-                        'url': article.get('link', '')
-                    })
-                    
-            return formatted_news
-        except Exception as e:
-            print(f"Error fetching news for {symbol}: {str(e)}")
-            return []
+    async def get_realtime_quote(self, symbol: str) -> Dict:
+        """Get real-time market data for symbol"""
+        await self._check_rate_limit()
+        # Implement real provider API call here
+        return {'symbol': symbol, 'price': 0.0, 'timestamp': datetime.now()}
+        
+    async def get_historical_data(
+        self, 
+        symbol: str, 
+        start_date: datetime,
+        end_date: Optional[datetime] = None
+    ) -> pd.DataFrame:
+        """Get historical market data"""
+        if symbol in self.data_cache:
+            return self._filter_cached_data(symbol, start_date, end_date)
+        # Implement historical data fetching
+        return pd.DataFrame()
+        
+    async def subscribe(self, callback, symbols: List[str]) -> None:
+        """Subscribe to real-time updates"""
+        self.subscribers.append((callback, symbols))
+        
+    async def _init_cache(self) -> None:
+        """Initialize data cache"""
+        self.data_cache = {}
+        
+    async def _check_rate_limit(self) -> None:
+        """Check and enforce rate limits"""
+        current_time = datetime.now()
+        if (current_time - self.last_update).seconds < 1:
+            await asyncio.sleep(1)
+        self.last_update = current_time
