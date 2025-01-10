@@ -1,0 +1,19 @@
+api:
+  market_data:
+    provider: "alphavantage"
+    api_key: "${ALPHA_VANTAGE_KEY}"
+    rate_limit: 5
+    cache_duration: 3600
+    
+  news:
+    provider: "newsapi"
+    api_key: "${NEWS_API_KEY}"
+    update_interval: 300
+    max_articles: 100
+
+broker:
+  name: "alpaca"
+  api_key: "${ALPACA_KEY_ID}"
+  api_secret: "${ALPACA_SECRET_KEY}"
+  paper_trading: true
+  base_url: "https://paper-api.alpaca.markets"

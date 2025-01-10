@@ -1,63 +1,76 @@
-from .base import BaseLLM
-from typing import List, Dict, Any
-import torch
-from transformers import LlamaForCausalLM, LlamaTokenizerFast
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
+import torch
+from typing import List, Optional
 
-class FinGPT(BaseLLM):
-    def load_model(self) -> None:
-        """Load FinGPT model and tokenizer"""
-        base_model = self.config['base_model']
-        peft_model = self.config['peft_model']
+class FinGPT:
+    def __init__(self, base_model: str, peft_model: str):
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
-        # Load tokenizer
-        self.tokenizer = LlamaTokenizerFast.from_pretrained(
-            base_model, 
-            trust_remote_code=True
-        )
-        self.tokenizer.pad_token = self.tokenizer.eos_token
-        
-        # Load model
-        self.model = LlamaForCausalLM.from_pretrained(
+        # Load base model
+        self.model = AutoModelForCausalLM.from_pretrained(
             base_model,
-            trust_remote_code=True,
+            torch_dtype=torch.float16,
             device_map="auto"
         )
-        self.model = PeftModel.from_pretrained(self.model, peft_model)
-        self.model = self.model.eval()
-        self.model = self.model.to(self.device)
-
-    def preprocess(self, texts: List[str]) -> Dict[str, torch.Tensor]:
-        """Preprocess input texts"""
-        prompts = [
-            f'''Instruction: What is the sentiment of this news? Please choose an answer from {{negative/neutral/positive}}
-            Input: {text}
-            Answer: ''' for text in texts
-        ]
         
-        return self.tokenizer(
-            prompts,
-            return_tensors='pt',
-            padding=True,
-            max_length=512
+        # Load PEFT adapter
+        self.model = PeftModel.from_pretrained(
+            self.model,
+            peft_model
         )
-
-    def generate(self, inputs: Dict[str, torch.Tensor]) -> List[str]:
-        """Generate sentiment predictions"""
-        inputs = self.to_device(inputs)
-        outputs = self.model.generate(
-            **inputs,
-            max_length=512
-        )
-        return [self.tokenizer.decode(output) for output in outputs]
-
+        
+        # Load tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(base_model)
+        
+    def preprocess(self, texts: List[str]) -> List[str]:
+        """Format inputs for sentiment analysis"""
+        prompts = []
+        for text in texts:
+            prompt = f"Analyze the sentiment of this text: {text}\nAnswer:"
+            prompts.append(prompt)
+        return prompts
+        
+    def generate(self, inputs: List[str]) -> List[str]:
+        """Generate predictions"""
+        outputs = []
+        
+        for text in inputs:
+            # Tokenize
+            tokens = self.tokenizer(
+                text, 
+                return_tensors="pt",
+                truncation=True,
+                max_length=512
+            ).to(self.device)
+            
+            # Generate
+            with torch.no_grad():
+                output_ids = self.model.generate(
+                    **tokens,
+                    max_new_tokens=32,
+                    temperature=0.1,
+                    num_return_sequences=1
+                )
+            
+            # Decode
+            output = self.tokenizer.decode(output_ids[0], skip_special_tokens=True)
+            outputs.append(output)
+            
+        return outputs
+        
     def postprocess(self, outputs: List[str]) -> List[str]:
         """Extract sentiment labels from outputs"""
         return [output.split("Answer: ")[1].strip() for output in outputs]
-
+        
     def predict_sentiment(self, texts: List[str]) -> List[str]:
         """End-to-end sentiment prediction"""
         inputs = self.preprocess(texts)
-        outputs = self.generate(inputs)
+        outputs = self.generate(inputs) 
         sentiments = self.postprocess(outputs)
         return sentiments
+
+# Initialize model
+base_model = "meta-llama/Meta-Llama-3-8B"
+peft_model = "FinGPT/fingpt-mt_llama3-8b_lora"
+model = FinGPT(base_model, peft_model)

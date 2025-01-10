@@ -1,0 +1,23 @@
+sentiment:
+  lookback_window: 24
+  signal_threshold: 0.5
+  min_confidence: 0.6
+  position_sizing:
+    base_size: 1000
+    max_size: 10000
+    
+inefficiency:
+  window: 20
+  z_threshold: 2.0
+  pairs:
+    - ["AAPL", "MSFT"]
+    - ["GOOGL", "META"]
+    
+robo:
+  rebalance_threshold: 0.05
+  tax_harvest_threshold: -0.05
+  risk_profile: "moderate"
+  target_weights:
+    stocks: 0.6
+    bonds: 0.3
+    cash: 0.1

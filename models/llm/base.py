@@ -14,22 +14,36 @@ class BaseLLM(ABC):
     def load_model(self) -> None:
         """Load the model and tokenizer"""
         pass
-    
+        
     @abstractmethod
-    def preprocess(self, texts: List[str]) -> Dict[str, torch.Tensor]:
-        """Preprocess input texts"""
+    def generate(self, prompts: List[str]) -> List[str]:
+        """Generate text from prompts"""
         pass
+        
+    def batch_process(self, texts: List[str], batch_size: int = 8) -> List[str]:
+        """Process texts in batches"""
+        results = []
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            outputs = self.generate(batch)
+            results.extend(outputs)
+        return results
     
-    @abstractmethod
-    def generate(self, inputs: Dict[str, torch.Tensor]) -> List[str]:
-        """Generate model outputs"""
-        pass
-    
-    @abstractmethod
-    def postprocess(self, outputs: List[str]) -> List[Any]:
-        """Postprocess model outputs"""
-        pass
-
-    def to_device(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """Move inputs to device"""
+    def _prepare_inputs(self, texts: List[str]) -> Dict[str, torch.Tensor]:
+        """Tokenize and prepare inputs"""
+        if not self.tokenizer:
+            raise ValueError("Tokenizer not initialized")
+            
+        inputs = self.tokenizer(
+            texts,
+            padding=True,
+            truncation=True,
+            return_tensors="pt",
+            max_length=self.config.get("max_length", 512)
+        )
         return {k: v.to(self.device) for k, v in inputs.items()}
+    
+    def _clear_cuda_cache(self) -> None:
+        """Clear CUDA cache if using GPU"""
+        if self.device.type == "cuda":
+            torch.cuda.empty_cache()
