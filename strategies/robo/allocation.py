@@ -1,7 +1,15 @@
 from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
-from ...strategies.base_strategy import BaseStrategy
+
+import sys
+from pathlib import Path
+
+# Add project root to path
+root_dir = str(Path(__file__).parent.parent)
+sys.path.insert(0, root_dir)
+
+from strategies.base_strategy import BaseStrategy
 
 class AssetAllocationStrategy(BaseStrategy):
     def __init__(self, config: Optional[Dict] = None):

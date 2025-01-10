@@ -1,8 +1,14 @@
 from typing import Dict, List, Optional
 import numpy as np
-from ...strategies.base_strategy import BaseStrategy
-from ...strategies.sentiment.sentiment_strategy import SentimentStrategy
-from ...strategies.inefficiency.inefficiency_strategy import InefficiencyStrategy
+
+import sys
+from pathlib import Path
+# Add project root to path
+root_dir = str(Path(__file__).parent.parent)
+sys.path.insert(0, root_dir)
+from strategies.base_strategy import BaseStrategy
+from strategies.sentiment.sentiment_strategy import SentimentStrategy
+from strategies.inefficiency.inefficiency_strategy import InefficiencyStrategy
 
 class HybridStrategy(BaseStrategy):
     def __init__(self, config: Optional[Dict] = None):

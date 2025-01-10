@@ -1,6 +1,12 @@
 from typing import Dict, List, Optional
-from ...services.base_service import BaseService
-from ...models.portfolio.rebalancing import Portfolio
+import sys
+from pathlib import Path
+# Add project root to path
+root_dir = str(Path(__file__).parent.parent)
+sys.path.insert(0, root_dir)
+
+from services.base_service import BaseService
+from models.portfolio.rebalancing import Portfolio
 
 class RoboService(BaseService):
     def __init__(self, config: Optional[Dict] = None):

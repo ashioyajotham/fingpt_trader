@@ -1,11 +1,20 @@
 from typing import Dict, List, Optional, Union
 import pandas as pd
 import asyncio
+
+import os
+import sys
+from pathlib import Path
+
+# Add project root to path
+root_dir = str(Path(__file__).parent.parent)
+sys.path.insert(0, root_dir)
+
 from datetime import datetime, timedelta
-from ...services.base_service import BaseService
+from services.base_service import BaseService
 import aiohttp
 import os
-from ...utils.config import ConfigManager
+from utils.config import ConfigManager
 
 class MarketDataService(BaseService):
     def __init__(self, config: Optional[Dict] = None):

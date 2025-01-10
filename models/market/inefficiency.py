@@ -2,6 +2,12 @@ from typing import Dict, List, Optional
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass
+
+import sys
+from pathlib import Path
+# Add project root to path
+root_dir = str(Path(__file__).parent.parent)
+sys.path.insert(0, root_dir)
 from .patterns import PatternDetector
 
 @dataclass

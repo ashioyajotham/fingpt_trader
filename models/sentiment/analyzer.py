@@ -2,8 +2,14 @@ from typing import List, Dict, Union
 from datetime import datetime
 import pandas as pd
 import numpy as np
-from ..llm.fingpt import FinGPT
-from ..llm.utils.tokenizer import TokenizerConfig
+
+import sys
+from pathlib import Path
+# Add project root to path
+root_dir = str(Path(__file__).parent.parent)
+sys.path.insert(0, root_dir)
+from llm.fingpt import FinGPT
+from llm.utils.tokenizer import TokenizerConfig
 
 class SentimentAnalyzer:
     def __init__(self, model_config: Dict):

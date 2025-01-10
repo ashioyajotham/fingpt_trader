@@ -2,7 +2,13 @@ from typing import Dict, List, Optional
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from ...services.base_service import BaseService
+
+import sys
+from pathlib import Path
+# Add project root to path
+root_dir = str(Path(__file__).parent.parent)
+sys.path.insert(0, root_dir)
+from services.base_service import BaseService
 
 class PerformanceTracker(BaseService):
     def __init__(self, config: Dict = None):

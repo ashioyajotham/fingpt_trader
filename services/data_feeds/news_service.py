@@ -1,8 +1,15 @@
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
+
+import sys
+from pathlib import Path
+# Add project root to path
+root_dir = str(Path(__file__).parent.parent)
+sys.path.insert(0, root_dir)
+
 import aiohttp
 import asyncio
-from ...services.base_service import BaseService
+from services.base_service import BaseService
 
 class NewsService(BaseService):
     def __init__(self, config: Optional[Dict] = None):

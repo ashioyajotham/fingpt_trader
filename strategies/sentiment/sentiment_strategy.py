@@ -1,8 +1,15 @@
 from typing import Dict, List, Optional
 import pandas as pd
-from ...strategies.base_strategy import BaseStrategy
-from ...models.sentiment.preprocessor import TextPreprocessor
-from ...models.sentiment.analyzer import SentimentAnalyzer
+
+import sys
+from pathlib import Path
+
+# Add project root to path
+root_dir = str(Path(__file__).parent.parent)
+sys.path.insert(0, root_dir)
+from strategies.base_strategy import BaseStrategy
+from models.sentiment.preprocessor import TextPreprocessor
+from models.sentiment.analyzer import SentimentAnalyzer
 
 class SentimentStrategy(BaseStrategy):
     def __init__(self, config: Optional[Dict] = None):

@@ -1,6 +1,13 @@
 from typing import Dict, List, Optional
 from enum import Enum
-from ...services.base_service import BaseService
+
+from pathlib import Path
+import sys
+
+# Add project root to path
+root_dir = str(Path(__file__).parent.parent)
+sys.path.insert(0, root_dir)
+from services.base_service import BaseService
 
 class OrderType(Enum):
     MARKET = "market"
