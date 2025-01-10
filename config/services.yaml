@@ -1,19 +1,23 @@
 api:
   market_data:
     provider: "alphavantage"
-    api_key: "${ALPHA_VANTAGE_KEY}"
-    rate_limit: 5
-    cache_duration: 3600
+    key: ${ALPHAVANTAGE_API_KEY}
     
   news:
     provider: "newsapi"
-    api_key: "${NEWS_API_KEY}"
-    update_interval: 300
-    max_articles: 100
+    key: ${NEWS_API_KEY}
+    
+  huggingface:
+    token: ${HUGGINGFACE_TOKEN}
+    
+  crypto:
+    provider: "binance"
+    key: ${BINANCE_API_KEY}
+    secret: ${BINANCE_SECRET_KEY}
 
 broker:
-  name: "alpaca"
-  api_key: "${ALPACA_KEY_ID}"
-  api_secret: "${ALPACA_SECRET_KEY}"
+  provider: "alpaca"
+  key_id: ${ALPACA_KEY_ID}
+  secret_key: ${ALPACA_SECRET_KEY}
   paper_trading: true
   base_url: "https://paper-api.alpaca.markets"
