@@ -20,6 +20,7 @@ from models.market.inefficiency import MarketInefficencyDetector
 from models.sentiment.analyzer import SentimentAnalyzer
 from models.portfolio.optimization import PortfolioOptimizer
 from models.portfolio.risk import RiskManager
+from services.trading.robo_service import RoboService, RoboAdvisor
 
 class TradingSystem:
     def __init__(self, config_path: str):
@@ -35,6 +36,10 @@ class TradingSystem:
         self.market_state = {}
         self.exchange_clients = {}
         self.is_running = False
+        
+        # Add robo advisor components
+        self.robo_service = RoboService(self.config.get('robo', {}))
+        self.client_profiles = {}
 
     def _load_config(self, config_path: str) -> Dict:
         with open(config_path, 'r') as f:
@@ -54,6 +59,9 @@ class TradingSystem:
             # Initialize model components
             await self.sentiment_analyzer.initialize()
             await self.market_detector.initialize()
+            
+            # Initialize robo service
+            await self.robo_service._setup()
 
             self.is_running = True
             print("Trading system initialized successfully")
@@ -304,3 +312,47 @@ class TradingSystem:
             if await exchange.has_symbol(symbol):
                 return True
         return False
+
+    # Add robo advisor methods
+    async def register_client(self, client_id: str, profile: Dict) -> None:
+        """Register a new client for robo advisory"""
+        await self.robo_service.register_client(client_id, profile)
+        self.client_profiles[client_id] = profile
+
+    async def get_portfolio_recommendation(self, client_id: str) -> Dict:
+        """Get personalized portfolio recommendation"""
+        return await self.robo_service.get_portfolio_recommendation(client_id)
+
+    async def analyze_client_portfolio(self, client_id: str) -> Dict:
+        """Analyze client portfolio including ESG and tax considerations"""
+        return await self.robo_service.analyze_portfolio(client_id)
+
+    async def generate_client_trades(self, client_id: str) -> List[Dict]:
+        """Generate trades for client portfolio rebalancing"""
+        robo_trades = await self.robo_service.generate_trades(client_id)
+        
+        # Combine with market inefficiency trades if needed
+        market_data = await self.get_market_data()
+        signals = await self.detect_inefficiencies(market_data)
+        system_trades = self.generate_trades(signals)
+        
+        # Merge and validate trades
+        return self._merge_trade_recommendations(robo_trades, system_trades)
+
+    def _merge_trade_recommendations(self, robo_trades: List[Dict], 
+                                   system_trades: List[Dict]) -> List[Dict]:
+        """Merge and prioritize trade recommendations"""
+        merged = []
+        seen_symbols = set()
+        
+        # Prioritize robo advisor trades (rebalancing, tax-loss harvesting)
+        for trade in robo_trades:
+            merged.append(trade)
+            seen_symbols.add(trade['symbol'])
+        
+        # Add system trades for symbols not covered by robo trades
+        for trade in system_trades:
+            if trade['symbol'] not in seen_symbols:
+                merged.append(trade)
+        
+        return merged

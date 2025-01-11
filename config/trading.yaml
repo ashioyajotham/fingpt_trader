@@ -57,3 +57,17 @@ robo_advisor:
     risk_free_rate: 0.02
     min_sharpe: 1.0
     max_volatility: 0.15
+
+robo:
+  rebalance_threshold: 0.05
+  tax_impact_factor: 0.3
+  base_threshold: 0.02
+  max_position_size: 0.2
+  risk:
+    max_drawdown: 0.1
+    var_limit: 0.02
+  esg:
+    min_score: 0.7
+    environmental_weight: 0.4
+    social_weight: 0.3
+    governance_weight: 0.3
