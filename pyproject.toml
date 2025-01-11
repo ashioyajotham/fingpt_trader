@@ -19,19 +19,6 @@ skips = ["test_*.py"]
 [tool.bandit.hardcoded_bind_all_interfaces]
 skips = ["start_bot.py"]
 
-[coverage:run]
-branch = True
-source = fingpt_trader
-
-[coverage:report]
-show_missing = True
-skip_covered = True
-fail_under = 100
-exclude_lines =
-    pragma: no cover
-    def __repr__
-    raise NotImplementedError
-
 [build-system]
 requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
