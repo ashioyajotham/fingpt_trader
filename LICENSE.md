@@ -1,6 +1,6 @@
 # FinGPT Trader License
 
-Copyright (c) 2024 [Victor Jotham Ashioya]
+Copyright (c) 2024 Victor Jotham Ashioya
 
 ## Permissions
 
@@ -29,10 +29,10 @@ If you use this software or derivatives in academic or research work, please cit
 
 ```
 @software{fingpt_trader,
-  author = {[Victor Jotham Ashioya]},
+  author = {Victor Jotham Ashioya},
   title = {FinGPT Trader},
   year = {2024},
-  url = {https://github.com/[ashioyajotham]/fingpt-trader}
+  url = {https://github.com/ashioyajotham/fingpt-trader}
 }
 ```
 
