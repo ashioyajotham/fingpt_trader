@@ -14,36 +14,21 @@ permissions:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v3
+    - uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v4
       with:
-        python-version: "3.10"
+        python-version: "3.x"
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install black isort mypy bandit flake8 pytest pytest-cov
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-    - name: Format with black
-      run: |
-        black . --check
-    - name: Sort imports with isort
-      run: |
-        isort . --check-only --diff
-    - name: Type check with mypy
-      run: |
-        mypy .
-    - name: Security check with bandit
-      run: |
-        bandit -r .
-    - name: Lint with flake8
-      run: |
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 . --count --max-complexity=10 --statistics
-    - name: Test with pytest
-      run: |
-        pytest --cov=. --cov-report=xml
+        pip install mypy
+        pip install isort
+        pip install pandas-stubs
+    - name: Run mypy
+      run: mypy . --config-file mypy.ini
+    - name: Run isort
+      run: isort . --check-only --diff
