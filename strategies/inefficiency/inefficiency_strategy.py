@@ -1,3 +1,6 @@
+import sys
+from pathlib import Path
+
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -5,7 +8,11 @@ import pandas as pd
 from scipy import stats
 from statsmodels.tsa.stattools import coint
 
-from ..base_strategy import BaseStrategy
+# Add project root to path
+root_dir = str(Path(__file__).parent.parent)
+sys.path.insert(0, root_dir)
+
+from base_strategy import BaseStrategy
 
 
 class InefficiencyStrategy(BaseStrategy):

@@ -22,6 +22,17 @@ warn_no_return = true
 warn_unreachable = true
 packages = ["fingpt_trader"]
 
+[tool.bandit]
+exclude_dirs = ["tests", "venv", ".git", "__pycache__"]
+skips = ["B101", "B104"]  # Skip assert statements and hardcoded bind
+targets = ["fingpt_trader"]
+
+[tool.bandit.assert_used]
+skips = ["test_*.py"]
+
+[tool.bandit.hardcoded_bind_all_interfaces]
+skips = ["start_bot.py"]
+
 [build-system]
 requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -31,4 +42,4 @@ name = "fingpt_trader"
 version = "0.1.0"
 description = "FinGPT Market Inefficiency Detection System"
 readme = "README.md"
-requires-python = ">=3.11" 
+requires-python = ">=3.11"
