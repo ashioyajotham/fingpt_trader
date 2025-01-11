@@ -1,8 +1,14 @@
 import asyncio
-import os
 import platform
 import sys
 from pathlib import Path
+from services.data_feeds.market_data_service import MarketDataService
+from services.data_feeds.news_service import NewsService
+from services.trading.broker_service import BrokerService
+from strategies.hybrid.hybrid_strategy import HybridStrategy
+from utils.config import ConfigManager
+from utils.logging import LogManager
+
 
 from dotenv import load_dotenv
 
@@ -13,13 +19,6 @@ if platform.system() == "Windows":
 # Add project root to path
 root_dir = str(Path(__file__).parent.parent)
 sys.path.insert(0, root_dir)
-
-from services.data_feeds.market_data_service import MarketDataService
-from services.data_feeds.news_service import NewsService
-from services.trading.broker_service import BrokerService
-from strategies.hybrid.hybrid_strategy import HybridStrategy
-from utils.config import ConfigManager
-from utils.logging import LogManager
 
 
 def parse_interval(interval_str: str) -> int:

@@ -1,9 +1,16 @@
 import asyncio
-from typing import Dict, List
+import sys
+from pathlib import Path
+from typing import Dict
 
-from ..services.trading.broker_service import BrokerService
-from ..strategies.base_strategy import BaseStrategy
-from ..utils.config import ConfigManager
+
+from services.trading.broker_service import BrokerService
+from strategies.base_strategy import BaseStrategy
+from utils.config import ConfigManager
+
+# Add project root to path
+root_dir = str(Path(__file__).parent.parent)
+sys.path.append(root_dir)
 
 
 class LiveTrader:

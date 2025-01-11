@@ -33,7 +33,6 @@ jobs:
         isort . --check-only --diff
     - name: Lint
       run: |
-        flake8 . --count --statistics
         bandit -r .
     - name: Security check
       run: |

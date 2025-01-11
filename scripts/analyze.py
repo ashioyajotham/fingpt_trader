@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -8,7 +8,6 @@ import pandas as pd
 # Add project root to path
 root_dir = str(Path(__file__).parent.parent)
 sys.path.insert(0, root_dir)
-from utils.config import ConfigManager
 
 
 class PerformanceAnalyzer:

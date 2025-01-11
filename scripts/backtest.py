@@ -1,15 +1,12 @@
-import asyncio
 import sys
 from pathlib import Path
-from typing import Dict, List
-
+from strategies.base_strategy import BaseStrategy
 import pandas as pd
+from typing import Dict
 
 # Add project root to path
 root_dir = str(Path(__file__).parent.parent)
-sys.path.insert(0, root_dir)
-from strategies.base_strategy import BaseStrategy
-from utils.config import ConfigManager
+sys.path.append(root_dir)
 
 
 class Backtester:
