@@ -19,11 +19,6 @@ skips = ["test_*.py"]
 [tool.bandit.hardcoded_bind_all_interfaces]
 skips = ["start_bot.py"]
 
-[tool.flake8]
-max-line-length = 88
-extend-ignore = E203, W503
-exclude = .git,__pycache__,venv,tests, dist
-
 [coverage:run]
 branch = True
 source = fingpt_trader
