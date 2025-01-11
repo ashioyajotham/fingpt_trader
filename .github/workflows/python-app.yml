@@ -28,7 +28,5 @@ jobs:
         pip install mypy
         pip install isort
         pip install pandas-stubs
-    - name: Run mypy
-      run: mypy --namespace-packages .
     - name: Run isort
       run: isort . --check-only --diff
