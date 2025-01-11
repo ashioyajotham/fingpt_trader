@@ -228,8 +228,7 @@ tests/
 
 ## Getting Help
 
-- Join our [Discord](https://discord.gg/fingpt-trading)
-- Check [Discussions](https://github.com/org/fingpt-trader/discussions)
+- Check [Discussions](https://github.com/ashioyajotham/fingpt-trader/discussions)
 - Tag maintainers in issues
 
 ## License
