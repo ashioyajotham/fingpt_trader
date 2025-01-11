@@ -1,6 +1,6 @@
 # FinGPT Trader License
 
-Copyright (c) 2024 [Your Name]
+Copyright (c) 2024 [Victor Jotham Ashioya]
 
 ## Permissions
 
