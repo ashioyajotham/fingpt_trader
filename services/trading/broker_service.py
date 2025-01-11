@@ -1,18 +1,19 @@
-from typing import Dict, List, Optional
-from enum import Enum
-from datetime import datetime
-import aiohttp
-import os
 import asyncio
-import ccxt
-
-from pathlib import Path
+import os
 import sys
+from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import aiohttp
+import ccxt
 
 # Add project root to path
 root_dir = str(Path(__file__).parent.parent)
 sys.path.insert(0, root_dir)
 from services.base_service import BaseService
+
 
 class OrderType(Enum):
     MARKET = "market"
@@ -20,21 +21,23 @@ class OrderType(Enum):
     STOP = "stop"
     STOP_LIMIT = "stop_limit"
 
+
 class OrderSide(Enum):
     BUY = "buy"
     SELL = "sell"
 
+
 class BrokerService(BaseService):
     def __init__(self, config: Optional[Dict] = None):
         super().__init__(config or {})
-        self.exchange = ccxt.binance({
-            'apiKey': os.getenv('BINANCE_API_KEY'),
-            'secret': os.getenv('BINANCE_SECRET_KEY'),
-            'enableRateLimit': True,
-            'options': {
-                'defaultType': 'spot'
+        self.exchange = ccxt.binance(
+            {
+                "apiKey": os.getenv("BINANCE_API_KEY"),
+                "secret": os.getenv("BINANCE_SECRET_KEY"),
+                "enableRateLimit": True,
+                "options": {"defaultType": "spot"},
             }
-        })
+        )
         self.max_retries = 3
         self.retry_delay = 5
         self.positions = {}
@@ -70,12 +73,12 @@ class BrokerService(BaseService):
         """Submit order to exchange"""
         try:
             response = self.exchange.create_order(
-                symbol=order['symbol'],
-                type='market',
-                side=order['side'],
-                amount=order['amount']
+                symbol=order["symbol"],
+                type="market",
+                side=order["side"],
+                amount=order["amount"],
             )
-            self.orders[response['id']] = response
+            self.orders[response["id"]] = response
             return response
         except Exception as e:
             raise RuntimeError(f"Order submission failed: {str(e)}")
