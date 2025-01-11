@@ -95,3 +95,62 @@ class RiskAnalyzer:
     ) -> float:
         """Calculate tracking error"""
         return (returns - benchmark_returns).std() * np.sqrt(252)
+
+
+class RiskManager:
+    def __init__(self, max_drawdown: float = 0.1, var_limit: float = 0.02):
+        self.max_drawdown = max_drawdown
+        self.var_limit = var_limit
+        self.historical_values = []
+
+    def calculate_risk_metrics(self, portfolio: Dict) -> Dict:
+        """Calculate portfolio risk metrics"""
+        positions = portfolio.get('positions', np.array([]))
+        values = portfolio.get('values', np.array([]))
+        
+        if len(values) == 0:
+            return {'var': 0.0, 'current_drawdown': 0.0}
+        
+        # Calculate Value at Risk (VaR)
+        var = self._calculate_var(values)
+        
+        # Calculate current drawdown
+        self.historical_values.append(np.sum(values))
+        current_drawdown = self._calculate_drawdown()
+        
+        return {
+            'var': var,
+            'current_drawdown': current_drawdown,
+            'position_concentration': self._calculate_concentration(values),
+            'total_exposure': self._calculate_exposure(values)
+        }
+
+    def _calculate_var(self, values: np.ndarray, confidence: float = 0.95) -> float:
+        """Calculate Value at Risk"""
+        if len(self.historical_values) < 2:
+            return 0.0
+        
+        returns = np.diff(self.historical_values) / self.historical_values[:-1]
+        var = np.percentile(returns, (1 - confidence) * 100)
+        return abs(var * np.sum(values))
+
+    def _calculate_drawdown(self) -> float:
+        """Calculate current drawdown from peak"""
+        if len(self.historical_values) < 2:
+            return 0.0
+        
+        peak = np.maximum.accumulate(self.historical_values)
+        drawdown = (peak - self.historical_values) / peak
+        return float(drawdown[-1])
+
+    def _calculate_concentration(self, values: np.ndarray) -> float:
+        """Calculate Herfindahl index for position concentration"""
+        total = np.sum(values)
+        if total == 0:
+            return 0.0
+        weights = values / total
+        return float(np.sum(weights ** 2))
+
+    def _calculate_exposure(self, values: np.ndarray) -> float:
+        """Calculate total market exposure"""
+        return float(np.sum(np.abs(values)))

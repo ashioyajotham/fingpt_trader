@@ -37,3 +37,8 @@ jobs:
     - name: Security check
       run: |
         safety check
+    - name: Test
+      run: |
+        pytest --cov=src tests
+
+      
