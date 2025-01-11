@@ -2,6 +2,62 @@
 
 A sophisticated crypto trading system combining FinGPT with market inefficiency detection and robo-advisory capabilities.
 
+## Market Inefficiencies in Crypto Markets
+
+Market inefficiencies represent deviations from the Efficient Market Hypothesis (EMH) where prices don't fully reflect all available information. In crypto markets, these inefficiencies are particularly pronounced due to:
+
+### Information Asymmetry
+```math
+IA(t) = |P(t) - E[P(t)|Ω(t)]|
+where:
+- P(t): Observed price at time t
+- Ω(t): Complete information set
+- E[P(t)|Ω(t)]: Expected price given full information
+```
+
+Crypto markets often exhibit significant information gaps due to:
+- Fragmented exchange landscapes
+- Varying regulatory environments
+- Complex technical foundations
+- Rapid technological evolution
+
+### Market Microstructure Inefficiencies
+Common in crypto due to:
+1. **Order Book Fragmentation**
+   - Multiple exchanges
+   - Varying liquidity pools
+   - Cross-chain complexities
+
+2. **Price Formation Dynamics**
+   ```math
+   P(t) = P(t-1) + λ(D(t) + η(t))
+   where:
+   - λ: Market impact parameter
+   - D(t): Order flow imbalance
+   - η(t): Noise trader impact
+   ```
+
+3. **Arbitrage Opportunities**
+   - Cross-exchange pricing discrepancies
+   - Cross-chain value transfers
+   - Market maker inventory imbalances
+
+### Why These Matter
+1. **Alpha Generation**
+   - Short-term price prediction
+   - Statistical arbitrage opportunities
+   - Mean reversion strategies
+
+2. **Risk Management**
+   - Liquidity risk assessment
+   - Market impact estimation
+   - Portfolio rebalancing costs
+
+3. **Market Making**
+   - Optimal spread determination
+   - Inventory management
+   - Cross-exchange arbitrage
+
 ## Core Components
 
 ### 1. Market Inefficiency Detection
