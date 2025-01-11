@@ -1,6 +1,6 @@
 # FinGPT Market Inefficiency Trading System
 
-A sophisticated crypto trading system combining FinGPT with market inefficiency detection and robo-advisory capabilities.
+An algorithmic crypto trading system combining FinGPT with market inefficiency detection and robo-advisory capabilities.
 
 ## Market Inefficiencies in Crypto Markets
 
