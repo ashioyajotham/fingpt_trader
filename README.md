@@ -5,9 +5,70 @@ A sophisticated crypto trading system combining FinGPT with market inefficiency 
 ## Core Components
 
 ### 1. Market Inefficiency Detection
+We focus on four key types of market inefficiencies:
+
+#### a) Sentiment-Price Divergence
+When market sentiment and price movements show significant disparity:
+```math
+SPD(t) = |S(t) - P'(t)| > θ
+where:
+- S(t): Normalized sentiment score at time t
+- P'(t): Normalized price change
+- θ: Divergence threshold
+```
+
+#### b) Order Flow Imbalance
+Detects unusual buying/selling pressure:
+```math
+OFI(t) = Σ[V_b(i) - V_a(i)] / Σ[V_b(i) + V_a(i)]
+where:
+- V_b(i): Volume at bid level i
+- V_a(i): Volume at ask level i
+```
+
+#### c) Microstructure Mean Reversion
+Based on mean-reverting behavior in market microstructure:
+```math
+MR(t) = -λ(P(t) - μ) + ε(t)
+where:
+- λ: Mean reversion rate
+- μ: Long-term mean price
+- ε(t): Random noise
+```
+
+#### d) Cross-Exchange Arbitrage
+Identifies price discrepancies across exchanges:
+```math
+XA(t) = max(|P_i(t) - P_j(t)| - c_ij)
+where:
+- P_i(t): Price on exchange i
+- P_j(t): Price on exchange j
+- c_ij: Transaction costs
+```
+
 ### 2. Robo Advisory System
-### 3. Portfolio Management
-### 4. Risk Management
+Our robo advisor implements modern portfolio theory with ESG and tax considerations:
+
+#### a) Portfolio Optimization
+```math
+w* = argmax_w(w'μ - λw'Σw)
+subject to:
+- Σw_i = 1
+- w_i ≥ 0
+- ESG_score(w) ≥ threshold
+```
+
+#### b) Tax-Loss Harvesting
+```math
+TaxSavings = Losses × TaxRate
+Execute if: TaxSavings > TransactionCosts + OpportunityCost
+```
+
+#### c) Dynamic Rebalancing
+```math
+Rebalance if: |w_current - w_target| > min(base_threshold, tax_adjusted_threshold)
+where: tax_adjusted_threshold = base_threshold × (1 + tax_impact_factor)
+```
 
 ## System Architecture
 
@@ -17,12 +78,14 @@ graph TB
         MD[Market Data Stream] --> PP[Price Processor]
         NF[News Feed] --> NP[News Processor]
         OB[Order Book] --> OP[Order Flow Processor]
+        XE[Cross-Exchange Data] --> XA[Arbitrage Detector]
     end
 
     subgraph Analysis Layer
         PP --> TA[Technical Analysis]
         NP --> SA[Sentiment Analysis]
         OP --> MA[Microstructure Analysis]
+        XA --> CA[Cross-Exchange Analysis]
         
         subgraph LLM Module
             SA --> FG[FinGPT]
@@ -33,13 +96,18 @@ graph TB
             TA --> ID[Inefficiency Detector]
             MA --> ID
             SS --> ID
+            CA --> ID
         end
 
         subgraph Robo Advisory
-            CP[Client Profiles] --> PA[Portfolio Analysis]
+            CP[Client Profiles] --> RA[Risk Assessment]
+            RA --> PA[Portfolio Analysis]
+            PA --> PO[Portfolio Optimization]
             PA --> TH[Tax Harvesting]
             PA --> ESG[ESG Optimization]
-            PA --> RB[Rebalancing]
+            PO --> RB[Rebalancing]
+            TH --> RB
+            ESG --> RB
         end
     end
 
@@ -55,6 +123,8 @@ graph TB
         OE --> PT[Performance Tracker]
         PT --> RA[Risk Analyzer]
         RA --> AA[Alpha Attribution]
+        PT --> TC[Tax Calculator]
+        PT --> EC[ESG Compliance]
     end
 ```
 
