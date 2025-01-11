@@ -8,20 +8,6 @@ profile = "black"
 multi_line_output = 3
 py_version = 311
 
-[tool.mypy]
-python_version = "3.11"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
-check_untyped_defs = true
-disallow_incomplete_defs = true
-no_implicit_optional = true
-warn_redundant_casts = true
-warn_unused_ignores = true
-warn_no_return = true
-warn_unreachable = true
-packages = ["fingpt_trader"]
-
 [tool.bandit]
 exclude_dirs = ["tests", "venv", ".git", "__pycache__"]
 skips = ["B101", "B104"]  # Skip assert statements and hardcoded bind
@@ -32,6 +18,24 @@ skips = ["test_*.py"]
 
 [tool.bandit.hardcoded_bind_all_interfaces]
 skips = ["start_bot.py"]
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = E203, W503
+exclude = .git,__pycache__,venv,tests, dist
+
+[coverage:run]
+branch = True
+source = fingpt_trader
+
+[coverage:report]
+show_missing = True
+skip_covered = True
+fail_under = 100
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
 
 [build-system]
 requires = ["setuptools>=45", "wheel"]
