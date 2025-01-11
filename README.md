@@ -58,6 +58,115 @@ Common in crypto due to:
    - Inventory management
    - Cross-exchange arbitrage
 
+## Trading Strategies
+
+### 1. Sentiment-Driven Market Making
+Exploits sentiment-price divergences in crypto markets:
+
+```math
+Signal_{sentiment} = \begin{cases}
+    1, & \text{if } |S(t) - \beta P'(t)| > \theta \text{ and } S(t) > P'(t) \\
+    -1, & \text{if } |S(t) - \beta P'(t)| > \theta \text{ and } S(t) < P'(t) \\
+    0, & \text{otherwise}
+\end{cases}
+
+where:
+- S(t): Normalized sentiment score
+- P'(t): Price return
+- β: Sentiment-price sensitivity
+- θ: Divergence threshold
+```
+
+**Implementation Details:**
+- Uses FinGPT for real-time sentiment analysis
+- Monitors news, social media, and on-chain metrics
+- Adapts β based on market volatility regime
+- Dynamic θ threshold using market microstructure
+
+### 2. Microstructure Alpha
+Captures order flow imbalances and liquidity provision opportunities:
+
+```math
+OFI_{\alpha} = \sum_{i=1}^n w_i \cdot \frac{V_b^i - V_a^i}{V_b^i + V_a^i}
+
+where:
+- w_i: Level-specific weights
+- V_b^i: Bid volume at level i
+- V_a^i: Ask volume at level i
+```
+
+**Key Features:**
+- Multi-level order book analysis
+- Volume-weighted price impact estimation
+- Adaptive order placement
+- Cross-exchange liquidity aggregation
+
+### 3. Statistical Arbitrage
+Exploits temporary price dislocations:
+
+```math
+Z_{spread}(t) = \frac{P_1(t) - P_2(t) - \mu_{spread}}{\sigma_{spread}}
+
+Trade when: |Z_{spread}| > Z_{threshold}
+```
+
+**Implementation:**
+- Pairs trading across exchanges
+- Cointegration-based pair selection
+- Dynamic spread modeling
+- Transaction cost optimization
+
+### 4. Portfolio Management Strategies
+
+#### a) Dynamic Asset Allocation
+```math
+w^*_t = argmax_w \{ w'\mu_t - \frac{\lambda}{2}w'\Sigma_t w \}
+s.t. \begin{cases}
+    w'1 = 1 \\
+    w_i \geq 0 \\
+    w_i \leq w_{max} \\
+    ESG(w) \geq ESG_{min}
+\end{cases}
+```
+
+#### b) Tax-Loss Harvesting
+```math
+Harvest_{value} = \sum_{i \in Losses} |P_i^{current} - P_i^{basis}| \cdot Q_i \cdot TaxRate
+Execute \text{ if } Harvest_{value} > Costs_{transaction} + Costs_{opportunity}
+```
+
+#### c) Risk Parity Portfolio
+```math
+w_i \propto \frac{1}{\sigma_i} \text{ where } \sum w_i = 1
+```
+
+### Strategy Integration
+
+1. **Signal Generation**
+```python
+combined_signal = w_1 * sentiment_signal + w_2 * micro_signal + w_3 * stat_arb_signal
+where w_1 + w_2 + w_3 = 1
+```
+
+2. **Position Sizing**
+```math
+size = min(Kelly_{fraction} \cdot capital, position_{limit}, liquidity_{constraint})
+where:
+Kelly_{fraction} = p - \frac{1-p}{r}
+```
+
+3. **Risk Management**
+- Per-trade stop loss
+- Portfolio-level VaR limits
+- Drawdown controls
+- Exposure limits per strategy
+
+4. **Execution Optimization**
+- Smart order routing
+- Transaction cost analysis
+- Liquidity-aware execution
+- Cross-exchange netting
+
 ## Core Components
 
 ### 1. Market Inefficiency Detection
