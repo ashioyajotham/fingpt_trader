@@ -16,12 +16,25 @@ class MarketDataService(BaseService):
             'apiKey': self.api_key,
             'secret': self.api_secret,
             'enableRateLimit': True,
-            'options': {'defaultType': 'spot'}
+            'options': {
+                'defaultType': 'spot',
+                'adjustForTimeDifference': True,
+                'testnet': True  # Use testnet
+            },
+            'urls': {
+                'api': {
+                    'public': 'https://testnet.binance.vision/api/v3',
+                    'private': 'https://testnet.binance.vision/api/v3'
+                }
+            }
         })
         self.last_update = datetime.now()
         self.rate_limit = self.config.get('rate_limits', {}).get('requests_per_minute', 1200)
         self.update_interval = 1
         self.cache = {}
+        self.max_retries = 3
+        self.retry_delay = 5
+        self.fallback_exchanges = ['kucoin', 'huobi']
 
     async def start(self) -> None:
         """Start market data service"""
@@ -53,15 +66,22 @@ class MarketDataService(BaseService):
         quotes = {}
         
         for symbol in symbols:
-            try:
-                ticker = await self.exchange.fetch_ticker(symbol)
-                quotes[symbol] = {
-                    'price': ticker['last'],
-                    'volume': ticker['baseVolume'],
-                    'timestamp': ticker['timestamp']
-                }
-            except Exception as e:
-                print(f"Error fetching {symbol}: {str(e)}")
+            for attempt in range(self.max_retries):
+                try:
+                    ticker = await self.exchange.fetch_ticker(symbol)
+                    quotes[symbol] = {
+                        'price': ticker['last'],
+                        'volume': ticker['baseVolume'],
+                        'timestamp': ticker['timestamp']
+                    }
+                    break
+                except Exception as e:
+                    if attempt == self.max_retries - 1:
+                        print(f"Error fetching {symbol} after {self.max_retries} attempts")
+                        # Try fallback exchanges
+                        quotes[symbol] = await self._try_fallback_exchanges(symbol)
+                    else:
+                        await asyncio.sleep(self.retry_delay)
                 
         return quotes
 

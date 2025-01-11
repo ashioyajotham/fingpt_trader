@@ -2,6 +2,7 @@ broker:
   exchange: "binance"
   test_mode: true
   base_url: "https://testnet.binance.vision"
+  fallback_exchanges: ["kucoin", "huobi"]
   rate_limits:
     orders_per_second: 10
     requests_per_minute: 1200
@@ -47,3 +48,12 @@ strategy:
     technical: 0.4
   signal_threshold: 0.5
   max_history: 1000
+
+robo_advisor:
+  risk_profile: "moderate"
+  rebalance_threshold: 0.05
+  max_position_size: 0.2
+  optimization:
+    risk_free_rate: 0.02
+    min_sharpe: 1.0
+    max_volatility: 0.15

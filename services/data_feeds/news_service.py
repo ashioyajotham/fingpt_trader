@@ -16,6 +16,12 @@ class NewsService(BaseService):
         super().__init__(config or {})
         self.api_key = os.getenv('NEWS_API_KEY')
         self.base_url = "https://newsapi.org/v2"
+        self.fallback_urls = [
+            "https://cryptopanic.com/api/v1",
+            "https://api.alternative.me/v2"
+        ]
+        self.max_retries = 3
+        self.retry_delay = 5
         self.session = None
         self.cache = {}
         self.cache_ttl = timedelta(minutes=15)
@@ -40,23 +46,25 @@ class NewsService(BaseService):
         """Get latest news for query"""
         await self._check_rate_limit()
         
-        try:
-            params = {
-                "q": query,
-                "apiKey": self.api_key,
-                "sortBy": "publishedAt",
-                "language": "en"
-            }
-            
-            async with self.session.get(f"{self.base_url}/everything", params=params) as response:
-                if response.status != 200:
-                    raise Exception(f"API Error: {response.status}")
-                data = await response.json()
-                return data.get('articles', [])
+        for attempt in range(self.max_retries):
+            try:
+                params = {
+                    "q": query,
+                    "apiKey": self.api_key,
+                    "sortBy": "publishedAt",
+                    "language": "en"
+                }
                 
-        except Exception as e:
-            print(f"Error fetching news: {str(e)}")
-            return []
+                async with self.session.get(f"{self.base_url}/everything", params=params, timeout=10) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get('articles', [])
+            except Exception as e:
+                if attempt == self.max_retries - 1:
+                    print(f"Error fetching news, trying fallback sources")
+                    return await self._try_fallback_sources(query)
+                await asyncio.sleep(self.retry_delay)
+        return []
 
     async def _check_rate_limit(self) -> None:
         """Check and enforce rate limits"""
