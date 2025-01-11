@@ -1,30 +1,49 @@
 broker:
-  api_key: ${ALPACA_API_KEY}
-  api_secret: ${ALPACA_API_SECRET}
-  base_url: "https://paper-api.alpaca.markets"
-  paper_trading: true
+  exchange: "binance"
+  test_mode: true
+  base_url: "https://testnet.binance.vision"
+  rate_limits:
+    orders_per_second: 10
+    requests_per_minute: 1200
 
 market_data:
-  symbols: ["AAPL", "MSFT", "GOOGL"]
-  interval: 60
+  symbols: ["BTC/USDT", "ETH/USDT", "BNB/USDT"]
+  interval: "1m"
+  timeframe: "1h"
+  limit: 1000
 
 news:
   update_interval: 300
   max_articles: 10
+  sources: ["cryptopanic", "newsapi"]
 
 strategy:
   sentiment_config:
+    model_config:
+      fingpt_config:
+        model_name: "falcon"
+        peft_model: "FinGPT/fingpt-mt_falcon-7b_lora"
+      min_confidence: 0.6
     threshold: 0.3
     lookback: 24
-    min_confidence: 0.6
-    fingpt_config:
-      model_name: "falcon"
-      peft_model: "FinGPT/fingpt-mt_falcon-7b_lora"
+    history_size: 100
+    
   technical_config:
-    rsi_period: 14
-    ma_fast: 20
-    ma_slow: 50
+    window: 20
+    z_threshold: 2.0
+    pairs: [
+      ["BTC/USDT", "ETH/USDT"],
+      ["ETH/USDT", "BNB/USDT"]
+    ]
+    
+  risk:
+    max_position_size: 0.1  # 10% of portfolio
+    stop_loss: 0.02        # 2% per trade
+    take_profit: 0.05      # 5% per trade
+    max_drawdown: 0.15     # 15% maximum drawdown
+
   weights:
     sentiment: 0.6
     technical: 0.4
   signal_threshold: 0.5
+  max_history: 1000

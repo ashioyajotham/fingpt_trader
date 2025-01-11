@@ -1,4 +1,4 @@
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Optional
 from datetime import datetime
 import pandas as pd
 import numpy as np
@@ -8,14 +8,31 @@ from pathlib import Path
 # Add project root to path
 root_dir = str(Path(__file__).parent.parent)
 sys.path.insert(0, root_dir)
-from llm.fingpt import FinGPT
+from models.llm.fingpt import FinGPT
 from llm.utils.tokenizer import TokenizerConfig
 
 class SentimentAnalyzer:
     def __init__(self, model_config: Dict):
-        self.model = FinGPT(model_config)
-        self.model.load_model()
+        self.config = model_config or {}
+        self.fingpt = FinGPT(self.config.get('fingpt_config', {}))
+        self.min_confidence = self.config.get('min_confidence', 0.6)
         self.batch_size = model_config.get('batch_size', 16)
+        
+    async def analyze(self, texts: List[str]) -> Dict:
+        scores = []
+        confidences = []
+        
+        for text in texts:
+            result = await self.fingpt.predict_sentiment(text)
+            if result['confidence'] >= self.min_confidence:
+                scores.append(result['sentiment'])
+                confidences.append(result['confidence'])
+                
+        return {
+            'sentiment': np.mean(scores) if scores else 0.0,
+            'confidence': np.mean(confidences) if confidences else 0.0,
+            'samples': len(scores)
+        }
         
     def analyze_text(self, text: Union[str, List[str]]) -> Dict:
         """Analyze sentiment of single text or list of texts"""

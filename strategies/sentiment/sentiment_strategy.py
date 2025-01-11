@@ -17,7 +17,7 @@ class SentimentStrategy(BaseStrategy):
     def __init__(self, config: Optional[Dict] = None):
         super().__init__(config or {})
         self.preprocessor = TextPreprocessor()
-        self.analyzer = SentimentAnalyzer()
+        self.analyzer = SentimentAnalyzer(self.config.get('model_config', {}))
         self.sentiment_scores = {}
         self.signal_threshold = self.config.get('signal_threshold', 0.5)
         self.lookback_window = self.config.get('lookback_window', 24)

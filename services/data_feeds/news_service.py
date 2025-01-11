@@ -13,7 +13,7 @@ from services.base_service import BaseService
 
 class NewsService(BaseService):
     def __init__(self, config: Optional[Dict] = None):
-        super().__init__(config)
+        super().__init__(config or {})
         self.api_key = os.getenv('NEWS_API_KEY')
         self.base_url = "https://newsapi.org/v2"
         self.session = None
@@ -21,7 +21,8 @@ class NewsService(BaseService):
         self.cache_ttl = timedelta(minutes=15)
         self.last_call = datetime.now()
         self.calls_today = 0
-        self.daily_limit = 100
+        self.rate_limit = self.config.get('rate_limits', {}).get('daily_limit', 100)
+        self.update_interval = self.config.get('rate_limits', {}).get('update_interval', 1)
 
     async def _setup(self) -> None:
         """Initialize news service"""
@@ -35,58 +36,47 @@ class NewsService(BaseService):
             await self.session.close()
         self.cache.clear()
 
-    async def get_news(self, query: str, limit: int = 10) -> List[Dict]:
+    async def get_news(self, query: str) -> List[Dict]:
         """Get latest news for query"""
         await self._check_rate_limit()
         
-        params = {
-            "q": query,
-            "apiKey": self.api_key,
-            "language": "en",
-            "sortBy": "publishedAt",
-            "pageSize": limit
-        }
-        
-        cache_key = f"{query}_{limit}"
-        if self._is_cache_valid(cache_key):
-            return self.news_cache[cache_key]['data']
-            
         try:
+            params = {
+                "q": query,
+                "apiKey": self.api_key,
+                "sortBy": "publishedAt",
+                "language": "en"
+            }
+            
             async with self.session.get(f"{self.base_url}/everything", params=params) as response:
                 if response.status != 200:
                     raise Exception(f"API Error: {response.status}")
-                    
                 data = await response.json()
-                articles = data.get('articles', [])
-                
-                # Cache results
-                self.news_cache[cache_key] = {
-                    'timestamp': datetime.now(),
-                    'data': articles
-                }
-                
-                return articles
+                return data.get('articles', [])
                 
         except Exception as e:
-            self.logger.error(f"Error fetching news: {str(e)}")
-            raise
-            
-    def _is_cache_valid(self, key: str) -> bool:
-        """Check if cached data is still valid"""
-        if key not in self.news_cache:
-            return False
-        return datetime.now() - self.news_cache[key]['timestamp'] < self.cache_ttl
-        
+            print(f"Error fetching news: {str(e)}")
+            return []
+
     async def _check_rate_limit(self) -> None:
         """Check and enforce rate limits"""
-        if datetime.now().date() > self.last_call.date():
+        current_time = datetime.now()
+        
+        # Reset daily counter
+        if current_time.date() > self.last_call.date():
             self.calls_today = 0
             
+        # Check daily limit
         if self.calls_today >= self.rate_limit:
-            raise Exception("Daily rate limit exceeded")
+            raise Exception("Daily API call limit exceeded")
+            
+        # Check interval
+        time_diff = (current_time - self.last_call).total_seconds()
+        if time_diff < self.update_interval:
+            await asyncio.sleep(self.update_interval - time_diff)
             
         self.calls_today += 1
-        self.last_call = datetime.now()
+        self.last_call = current_time
         
     async def _validate_credentials(self) -> None:
         """Validate API credentials"""

@@ -1,25 +1,32 @@
 from typing import Dict, List, Optional, Tuple
 import numpy as np
-import pandas as pd
 from scipy import stats
 from statsmodels.tsa.stattools import coint
-
-import sys
-from pathlib import Path
-# Add project root to path
-root_dir = str(Path(__file__).parent.parent)
-sys.path.insert(0, root_dir)
-from strategies.base_strategy import BaseStrategy
+from ..base_strategy import BaseStrategy
 
 class InefficiencyStrategy(BaseStrategy):
     def __init__(self, config: Optional[Dict] = None):
-        super().__init__(config)
-        self.window = config.get('window', 20)
-        self.z_threshold = config.get('z_threshold', 2.0)
-        self.pairs = config.get('pairs', [])
+        super().__init__(config or {})
+        self.window = self.config.get('window', 20)
+        self.z_threshold = self.config.get('z_threshold', 2.0)
+        # Convert list pairs to tuples for hashability
+        self.pairs = [tuple(pair) for pair in self.config.get('pairs', [])]
         self.position_data = {}
         self.cointegration_scores = {}
         
+    async def process_market_data(self, data: Dict) -> None:
+        """Process market data updates"""
+        if 'close' in data:
+            symbol = data['symbol']
+            self.market_data[symbol] = data
+            await self._update_cointegration()
+            
+    async def on_trade(self, trade: Dict) -> None:
+        """Handle trade updates"""
+        symbol = trade.get('symbol')
+        if symbol in self.positions:
+            self.positions[symbol].update(trade)
+            
     async def generate_signals(self) -> List[Dict]:
         """Generate trading signals based on inefficiencies"""
         signals = []

@@ -13,6 +13,13 @@ from strategies.inefficiency.inefficiency_strategy import InefficiencyStrategy
 class HybridStrategy(BaseStrategy):
     def __init__(self, config: Optional[Dict] = None):
         super().__init__(config or {})
+        self.signal_history = []
+        self.max_history = self.config.get('max_history', 1000)
+        self.weights = self.config.get('weights', {
+            'sentiment': 0.6,
+            'technical': 0.4
+        })
+        self.signal_threshold = self.config.get('signal_threshold', 0.5)
         
         # Initialize sub-strategies with default configs
         self.strategies = {
@@ -30,45 +37,41 @@ class HybridStrategy(BaseStrategy):
         self.signals = []
 
     async def generate_signals(self) -> List[Dict]:
-        """Generate combined signals from all strategies"""
-        all_signals = []
+        sentiment_signals = await self.strategies['sentiment'].generate_signals()
+        technical_signals = await self.strategies['technical'].generate_signals()
         
-        # Collect signals from each strategy
-        for name, strategy in self.strategies.items():
-            signals = await strategy.generate_signals()
-            for signal in signals:
-                signal['strategy'] = name
-                signal['weight'] = self.weights[name]
-            all_signals.extend(signals)
-            
-        # Combine signals
-        combined = await self._combine_signals(all_signals)
+        combined = self._combine_signals(sentiment_signals, technical_signals)
         self.signal_history.append(combined)
         
+        # Maintain history size
+        if len(self.signal_history) > self.max_history:
+            self.signal_history = self.signal_history[-self.max_history:]
+            
         return combined
 
-    async def _combine_signals(self, signals: List[Dict]) -> List[Dict]:
-        """Combine signals using weights and correlations"""
-        if not signals:
-            return []
-            
-        combined = {}
-        for signal in signals:
-            symbol = signal.get('symbol')
-            if symbol not in combined:
-                combined[symbol] = {
+    def _combine_signals(self, 
+                        sentiment_signals: List[Dict], 
+                        technical_signals: List[Dict]) -> List[Dict]:
+        combined = []
+        for symbol in set([s['symbol'] for s in sentiment_signals + technical_signals]):
+            sent_score = next((s['strength'] for s in sentiment_signals 
+                             if s['symbol'] == symbol), 0)
+            tech_score = next((s['strength'] for s in technical_signals 
+                             if s['symbol'] == symbol), 0)
+                             
+            total_score = (sent_score * self.weights['sentiment'] + 
+                          tech_score * self.weights['technical'])
+                          
+            if abs(total_score) > self.signal_threshold:
+                combined.append({
                     'symbol': symbol,
-                    'direction': 0,
-                    'strength': 0,
-                    'strategies': []
-                }
+                    'strength': total_score,
+                    'direction': 1 if total_score > 0 else -1,
+                    'timestamp': datetime.now(),
+                    'type': 'hybrid'
+                })
                 
-            weight = signal['weight']
-            combined[symbol]['direction'] += signal['direction'] * weight
-            combined[symbol]['strength'] += signal['strength'] * weight
-            combined[symbol]['strategies'].append(signal['strategy'])
-            
-        return list(combined.values())
+        return combined
 
     async def _update_weights(self) -> None:
         """Update strategy weights based on performance"""
