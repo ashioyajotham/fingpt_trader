@@ -184,6 +184,148 @@ graph TB
     end
 ```
 
+### Architecture Components
+
+#### 1. Data Layer
+The foundation of our system, responsible for gathering and preprocessing all necessary data:
+
+- **Market Data Stream [MD]**
+  - Real-time cryptocurrency price feeds
+  - Order book depth data
+  - Trade execution data
+  - Volume profiles
+
+- **News Feed [NF]**
+  - Cryptocurrency news articles
+  - Social media sentiment
+  - On-chain metrics
+  - Market announcements
+
+- **Order Book [OB]**
+  - Level 2 market data
+  - Bid-ask spreads
+  - Liquidity depth analysis
+  - Order flow imbalance
+
+- **Cross-Exchange Data [XE]**
+  - Price disparities
+  - Liquidity differences
+  - Arbitrage opportunities
+  - Exchange-specific features
+
+#### 2. Analysis Layer
+Processes raw data into actionable insights:
+
+- **Technical Analysis [TA]**
+  - Price pattern recognition
+  - Trend analysis
+  - Volume profiling
+  - Momentum indicators
+
+- **Sentiment Analysis [SA]**
+  - News sentiment scoring
+  - Social media sentiment
+  - Market sentiment indicators
+  - Trend sentiment correlation
+
+- **Microstructure Analysis [MA]**
+  - Order flow analysis
+  - Market impact estimation
+  - Liquidity analysis
+  - Tick data analysis
+
+- **LLM Module**
+  - Natural language processing
+  - Context-aware analysis
+  - Multi-source integration
+  - Adaptive learning
+
+#### 3. Inefficiency Detection
+Identifies trading opportunities through:
+
+- **Signal Generation**
+  - Sentiment-price divergence
+  - Order flow imbalance
+  - Microstructure patterns
+  - Cross-exchange arbitrage
+
+- **Opportunity Scoring**
+  - Confidence metrics
+  - Execution probability
+  - Risk-adjusted returns
+  - Transaction costs
+
+#### 4. Robo Advisory
+Manages portfolio optimization and client requirements:
+
+- **Risk Assessment [RA]**
+  - Client risk profiling
+  - Market risk analysis
+  - Portfolio risk metrics
+  - Drawdown management
+
+- **Portfolio Analysis [PA]**
+  - Asset allocation
+  - Portfolio optimization
+  - Performance attribution
+  - Rebalancing needs
+
+- **Tax & ESG**
+  - Tax-loss harvesting
+  - ESG scoring
+  - Impact investing
+  - Compliance monitoring
+
+#### 5. Execution Layer
+Handles trade execution and position management:
+
+- **Position Sizing [PS]**
+  - Kelly criterion optimization
+  - Risk-based sizing
+  - Portfolio constraints
+  - Liquidity considerations
+
+- **Risk Management [RM]**
+  - Position limits
+  - Stop-loss management
+  - Exposure monitoring
+  - VaR calculations
+
+- **Order Execution [OE]**
+  - Smart order routing
+  - Transaction cost analysis
+  - Execution algorithms
+  - Post-trade analysis
+
+#### 6. Monitoring
+Tracks system performance and risk:
+
+- **Performance Tracking [PT]**
+  - Return metrics
+  - Risk metrics
+  - Attribution analysis
+  - Benchmark comparison
+
+- **Risk Analysis [RA]**
+  - Real-time risk monitoring
+  - Stress testing
+  - Scenario analysis
+  - Limit monitoring
+
+- **Compliance [TC/EC]**
+  - Tax efficiency monitoring
+  - ESG compliance
+  - Regulatory requirements
+  - Trading restrictions
+
+### Data Flow
+1. Raw data enters through the Data Layer
+2. Analysis Layer processes and enriches data
+3. Inefficiency Detection identifies opportunities
+4. Robo Advisory manages portfolio requirements
+5. Execution Layer implements trading decisions
+6. Monitoring Layer tracks performance and risk
+
 ## Project Structure
 ```
 fingpt_trader/
