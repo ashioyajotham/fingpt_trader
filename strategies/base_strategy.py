@@ -8,23 +8,15 @@ class BaseStrategy(ABC):
     def __init__(self, config: Optional[Dict] = None):
         self.config = config or {}
         self.positions = {}
-        self.signals = []
-        self.active = False
-        self.last_update = None
         
     @abstractmethod
-    async def generate_signals(self) -> List[Dict]:
-        """Generate trading signals"""
-        pass
-    
-    @abstractmethod
     async def process_market_data(self, data: Dict) -> None:
-        """Process new market data"""
+        """Process incoming market data"""
         pass
 
     @abstractmethod
     async def on_trade(self, trade: Dict) -> None:
-        """Handle trade execution"""
+        """Handle trade execution updates"""
         pass
     
     async def start(self) -> None:

@@ -1,0 +1,30 @@
+broker:
+  api_key: ${ALPACA_API_KEY}
+  api_secret: ${ALPACA_API_SECRET}
+  base_url: "https://paper-api.alpaca.markets"
+  paper_trading: true
+
+market_data:
+  symbols: ["AAPL", "MSFT", "GOOGL"]
+  interval: 60
+
+news:
+  update_interval: 300
+  max_articles: 10
+
+strategy:
+  sentiment_config:
+    threshold: 0.3
+    lookback: 24
+    min_confidence: 0.6
+    fingpt_config:
+      model_name: "falcon"
+      peft_model: "FinGPT/fingpt-mt_falcon-7b_lora"
+  technical_config:
+    rsi_period: 14
+    ma_fast: 20
+    ma_slow: 50
+  weights:
+    sentiment: 0.6
+    technical: 0.4
+  signal_threshold: 0.5

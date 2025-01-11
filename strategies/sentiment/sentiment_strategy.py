@@ -1,5 +1,6 @@
 from typing import Dict, List, Optional
 import pandas as pd
+import numpy as np
 
 import sys
 from pathlib import Path
@@ -10,10 +11,11 @@ sys.path.insert(0, root_dir)
 from strategies.base_strategy import BaseStrategy
 from models.sentiment.preprocessor import TextPreprocessor
 from models.sentiment.analyzer import SentimentAnalyzer
+from models.llm.fingpt import FinGPT
 
 class SentimentStrategy(BaseStrategy):
     def __init__(self, config: Optional[Dict] = None):
-        super().__init__(config)
+        super().__init__(config or {})
         self.preprocessor = TextPreprocessor()
         self.analyzer = SentimentAnalyzer()
         self.sentiment_scores = {}
@@ -21,9 +23,13 @@ class SentimentStrategy(BaseStrategy):
         self.lookback_window = self.config.get('lookback_window', 24)
         self.market_data = {}
         self.active = True
+        self.threshold = self.config.get('threshold', 0.3)
+        self.lookback = self.config.get('lookback', 24)
+        self.min_confidence = self.config.get('min_confidence', 0.6)
+        self.fingpt = FinGPT(self.config.get('fingpt_config', {}))
         
     async def process_market_data(self, data: Dict) -> None:
-        """Process market data update"""
+        """Process market data and news"""
         symbol = data.get('symbol')
         if not symbol:
             return
@@ -39,7 +45,10 @@ class SentimentStrategy(BaseStrategy):
         }
         
         # Process sentiment
-        await self._update_sentiment(symbol)
+        news = data.get('news', [])
+        if news:
+            sentiment = await self._analyze_sentiment(news)
+            self.sentiment_scores[symbol] = sentiment
         
         # Generate new signals
         if self.active:
@@ -115,3 +124,18 @@ class SentimentStrategy(BaseStrategy):
         if any(abs(score) > 1.0 for score in scores):
             return False
         return True
+
+    async def on_trade(self, trade: Dict) -> None:
+        """Handle trade updates"""
+        symbol = trade.get('symbol')
+        if symbol in self.positions:
+            self.positions[symbol].update(trade)
+            
+    async def _analyze_sentiment(self, news: List[str]) -> float:
+        """Analyze news sentiment using FinGPT"""
+        scores = []
+        for text in news:
+            score = await self.fingpt.predict_sentiment(text)
+            if score['confidence'] >= self.min_confidence:
+                scores.append(score['sentiment'])
+        return np.mean(scores) if scores else 0.0

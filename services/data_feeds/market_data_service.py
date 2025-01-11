@@ -33,6 +33,23 @@ class MarketDataService(BaseService):
             'max_historical_days': 365
         }
         
+    async def start(self) -> None:
+        """Initialize market data service"""
+        self.session = aiohttp.ClientSession()
+        await self._init_cache()
+        await self._validate_api_key()
+        
+    async def stop(self) -> None:
+        """Cleanup market data service"""
+        if self.session:
+            await self.session.close()
+        self.cache.clear()
+        self.data_cache.clear()
+        
+    async def _validate_api_key(self) -> None:
+        if not self.api_key:
+            raise ValueError("ALPHAVANTAGE_API_KEY not set")
+            
     async def _setup(self) -> None:
         self.session = aiohttp.ClientSession()  # Initialize API session
         self.last_update = datetime.now()
@@ -122,6 +139,7 @@ class MarketDataService(BaseService):
         
     async def _init_cache(self) -> None:
         """Initialize data cache"""
+        self.cache = {}
         self.data_cache = {}
         
     async def _check_rate_limit(self) -> None:

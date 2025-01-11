@@ -12,23 +12,22 @@ from strategies.inefficiency.inefficiency_strategy import InefficiencyStrategy
 
 class HybridStrategy(BaseStrategy):
     def __init__(self, config: Optional[Dict] = None):
-        super().__init__(config)
+        super().__init__(config or {})
         
-        # Initialize sub-strategies
+        # Initialize sub-strategies with default configs
         self.strategies = {
-            'sentiment': SentimentStrategy(config.get('sentiment_config')),
-            'inefficiency': InefficiencyStrategy(config.get('inefficiency_config'))
+            'sentiment': SentimentStrategy(self.config.get('sentiment_config', {})),
+            'technical': InefficiencyStrategy(self.config.get('technical_config', {}))
         }
         
-        # Strategy weights
-        self.weights = config.get('strategy_weights', {
-            'sentiment': 0.5,
-            'inefficiency': 0.5
-        })
+        # Get weights from config or use defaults
+        weights = self.config.get('weights', {})
+        self.sentiment_weight = weights.get('sentiment', 0.6)
+        self.technical_weight = weights.get('technical', 0.4)
         
-        # Correlation matrix
-        self.correlation_matrix = np.eye(len(self.strategies))
-        self.signal_history = []
+        self.signal_threshold = self.config.get('signal_threshold', 0.5)
+        self.market_data = {}
+        self.signals = []
 
     async def generate_signals(self) -> List[Dict]:
         """Generate combined signals from all strategies"""
@@ -91,3 +90,42 @@ class HybridStrategy(BaseStrategy):
         
         for i, strategy in enumerate(self.strategies):
             self.weights[strategy] = new_weights[i]
+
+    async def process_market_data(self, data: Dict) -> None:
+        """Process market data updates"""
+        self.market_data.update(data)
+        await self._generate_signals()
+        
+    async def on_trade(self, trade: Dict) -> None:
+        """Handle trade updates"""
+        symbol = trade.get('symbol')
+        if symbol in self.positions:
+            self.positions[symbol].update(trade)
+            
+    async def _generate_signals(self) -> List[Dict]:
+        """Generate trading signals"""
+        signals = []
+        for symbol, data in self.market_data.items():
+            signal = self._analyze_symbol(symbol, data)
+            if signal:
+                signals.append(signal)
+        return signals
+        
+    def _analyze_symbol(self, symbol: str, data: Dict) -> Optional[Dict]:
+        """Analyze single symbol"""
+        sentiment_score = data.get('sentiment', 0)
+        technical_score = data.get('technical', 0)
+        
+        combined_score = (
+            self.sentiment_weight * sentiment_score +
+            self.technical_weight * technical_score
+        )
+        
+        if abs(combined_score) > self.config.get('signal_threshold', 0.5):
+            return {
+                'symbol': symbol,
+                'direction': np.sign(combined_score),
+                'strength': abs(combined_score),
+                'type': 'hybrid'
+            }
+        return None

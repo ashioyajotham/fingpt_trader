@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import torch
-from transformers import PreTrainedModel, PreTrainedTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, PreTrainedTokenizer
 
 class BaseLLM(ABC):
     def __init__(self, model_config: Dict[str, Any]):
@@ -11,14 +11,45 @@ class BaseLLM(ABC):
         self.tokenizer: Optional[PreTrainedTokenizer] = None
         
     @abstractmethod
-    def load_model(self) -> None:
-        """Load the model and tokenizer"""
+    async def load_model(self) -> Tuple[PreTrainedModel, PreTrainedTokenizer]:
+        """Load model and tokenizer"""
         pass
         
     @abstractmethod
-    def generate(self, prompts: List[str]) -> List[str]:
-        """Generate text from prompts"""
+    async def generate(self, prompt: str, **kwargs) -> str:
+        """Generate text from prompt"""
         pass
+        
+    async def _load_falcon_model(self, base_model: str, peft_model: str, from_remote: bool) -> None:
+        """Load Falcon model with FinGPT weights"""
+        try:
+            # Load base model
+            self.model = AutoModelForCausalLM.from_pretrained(
+                base_model,
+                trust_remote_code=True,
+                torch_dtype=torch.float16,
+                device_map="auto"
+            )
+            
+            # Load tokenizer
+            self.tokenizer = AutoTokenizer.from_pretrained(base_model)
+            
+            # Load FinGPT weights
+            model_path = peft_model if from_remote else f"models/{peft_model}"
+            self.model.load_adapter(model_path)
+            
+        except Exception as e:
+            raise RuntimeError(f"Failed to load Falcon model: {str(e)}")
+            
+    async def test_inference(self, tasks: List[str], inputs: List[str], 
+                           instructions: List[str]) -> List[str]:
+        """Run inference tests"""
+        results = []
+        for task, input_text, instruction in zip(tasks, inputs, instructions):
+            prompt = f"Task: {task}\nInput: {input_text}\nInstruction: {instruction}\nOutput:"
+            output = await self.generate(prompt)
+            results.append(output)
+        return results
         
     def batch_process(self, texts: List[str], batch_size: int = 8) -> List[str]:
         """Process texts in batches"""

@@ -1,27 +1,41 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 import torch
-from typing import List, Optional
+from typing import Dict, Any, List, Optional
+from .base import BaseLLM
 
-class FinGPT:
-    def __init__(self, base_model: str, peft_model: str):
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+class FinGPT(BaseLLM):
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
+        self.base_model = 'falcon'
+        self.peft_model = 'FinGPT/fingpt-mt_falcon-7b_lora'
+        self.from_remote = True
         
-        # Load base model
-        self.model = AutoModelForCausalLM.from_pretrained(
-            base_model,
-            torch_dtype=torch.float16,
-            device_map="auto"
+    async def load_model(self) -> None:
+        """Load FinGPT Falcon model"""
+        await self._load_falcon_model(
+            self.base_model,
+            self.peft_model,
+            self.from_remote
         )
         
-        # Load PEFT adapter
-        self.model = PeftModel.from_pretrained(
-            self.model,
-            peft_model
+    async def generate(self, prompt: str, **kwargs) -> str:
+        """Generate text using FinGPT"""
+        inputs = self.tokenizer(
+            prompt,
+            return_tensors="pt",
+            truncation=True,
+            max_length=512
+        ).to(self.device)
+        
+        outputs = self.model.generate(
+            **inputs,
+            max_new_tokens=100,
+            temperature=0.1,
+            num_return_sequences=1
         )
         
-        # Load tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(base_model)
+        return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
         
     def preprocess(self, texts: List[str]) -> List[str]:
         """Format inputs for sentiment analysis"""
@@ -30,34 +44,6 @@ class FinGPT:
             prompt = f"Analyze the sentiment of this text: {text}\nAnswer:"
             prompts.append(prompt)
         return prompts
-        
-    def generate(self, inputs: List[str]) -> List[str]:
-        """Generate predictions"""
-        outputs = []
-        
-        for text in inputs:
-            # Tokenize
-            tokens = self.tokenizer(
-                text, 
-                return_tensors="pt",
-                truncation=True,
-                max_length=512
-            ).to(self.device)
-            
-            # Generate
-            with torch.no_grad():
-                output_ids = self.model.generate(
-                    **tokens,
-                    max_new_tokens=32,
-                    temperature=0.1,
-                    num_return_sequences=1
-                )
-            
-            # Decode
-            output = self.tokenizer.decode(output_ids[0], skip_special_tokens=True)
-            outputs.append(output)
-            
-        return outputs
         
     def postprocess(self, outputs: List[str]) -> List[str]:
         """Extract sentiment labels from outputs"""
@@ -69,8 +55,3 @@ class FinGPT:
         outputs = self.generate(inputs) 
         sentiments = self.postprocess(outputs)
         return sentiments
-
-# Initialize model
-base_model = "meta-llama/Meta-Llama-3-8B"
-peft_model = "FinGPT/fingpt-mt_llama3-8b_lora"
-model = FinGPT(base_model, peft_model)

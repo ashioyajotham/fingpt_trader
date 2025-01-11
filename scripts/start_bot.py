@@ -18,35 +18,29 @@ from utils.logging import LogManager
 async def main():
     # Load configs
     load_dotenv()
-    config = ConfigManager().get_config('trading')
-    LogManager(config.get('logging', {}))
+    config = ConfigManager().get_config('trading') or {}
+    logger = LogManager(config.get('logging', {}))
     
-    # Initialize services
-    market_data = MarketDataService(config.get('market_data'))
-    news_service = NewsService(config.get('news'))
-    broker = BrokerService(config.get('broker'))
+    if not config:
+        raise ValueError("Trading configuration not found")
     
-    # Initialize strategy
+    # Initialize services with default configs if none provided
+    market_data = MarketDataService(config.get('market_data', {}))
+    news_service = NewsService(config.get('news', {}))
+    broker = BrokerService(config.get('broker', {}))
     strategy = HybridStrategy(config.get('strategy'))
     
+    # Start services
+    await market_data.start()
+    await news_service.start()
+    await broker.start()
+    
     try:
-        # Start services
-        await market_data._setup()
-        await news_service._setup()
-        await broker._setup()
-        
-        # Start trading loop
         while True:
-            # Get market data
             quotes = await market_data.get_realtime_quote(config['symbols'])
-            
-            # Get news
             news = await news_service.get_news(" OR ".join(config['symbols']))
-            
-            # Generate signals
             signals = await strategy.generate_signals()
             
-            # Execute trades
             if signals:
                 for signal in signals:
                     await broker.submit_order(signal)
@@ -56,9 +50,9 @@ async def main():
     except KeyboardInterrupt:
         print("Shutting down...")
     finally:
-        await market_data._cleanup()
-        await news_service._cleanup()
-        await broker._cleanup()
+        await market_data.stop()
+        await news_service.stop()
+        await broker.stop()
 
 if __name__ == "__main__":
     print("Starting FinGPT Trader...")

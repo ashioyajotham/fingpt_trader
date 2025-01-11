@@ -14,42 +14,27 @@ class ServiceStatus(Enum):
 class BaseService(ABC):
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.config = config or {}
-        self.status = ServiceStatus.INITIALIZED
+        self.running = False
         self.logger = logging.getLogger(self.__class__.__name__)
         
-    @abstractmethod
     async def start(self) -> None:
-        """Initialize and start the service"""
-        self.status = ServiceStatus.STARTING
-        try:
-            await self._validate_config()
-            await self._setup()
-            self.status = ServiceStatus.RUNNING
-        except Exception as e:
-            self.status = ServiceStatus.ERROR
-            self.logger.error(f"Failed to start service: {str(e)}")
-            raise
-    
-    @abstractmethod
+        """Start service"""
+        await self._setup()
+        self.running = True
+        
     async def stop(self) -> None:
-        """Gracefully stop the service"""
-        self.status = ServiceStatus.STOPPING
-        try:
-            await self._cleanup()
-            self.status = ServiceStatus.STOPPED
-        except Exception as e:
-            self.status = ServiceStatus.ERROR
-            self.logger.error(f"Failed to stop service: {str(e)}")
-            raise
+        """Stop service"""
+        self.running = False
+        await self._cleanup()
     
     @abstractmethod
     async def _setup(self) -> None:
-        """Service-specific setup logic"""
+        """Initialize service resources"""
         pass
     
     @abstractmethod
     async def _cleanup(self) -> None:
-        """Service-specific cleanup logic"""
+        """Cleanup service resources"""
         pass
     
     async def _validate_config(self) -> None:
@@ -59,7 +44,7 @@ class BaseService(ABC):
     @property
     def is_running(self) -> bool:
         """Check if service is in running state"""
-        return self.status == ServiceStatus.RUNNING
+        return self.running
     
     def get_status(self) -> ServiceStatus:
         """Get current service status"""

@@ -1,34 +1,40 @@
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
+import aiohttp
+import os
 
-import sys
 from pathlib import Path
+import sys
 # Add project root to path
 root_dir = str(Path(__file__).parent.parent)
 sys.path.insert(0, root_dir)
 
-import aiohttp
-import asyncio
 from services.base_service import BaseService
 
 class NewsService(BaseService):
     def __init__(self, config: Optional[Dict] = None):
         super().__init__(config)
-        self.api_key = config.get('api_key') or os.getenv('NEWS_API_KEY')
+        self.api_key = os.getenv('NEWS_API_KEY')
         self.base_url = "https://newsapi.org/v2"
-        self.news_cache = {}
+        self.session = None
+        self.cache = {}
         self.cache_ttl = timedelta(minutes=15)
-        self.rate_limit = 100  # calls per day
-        self.calls_today = 0
         self.last_call = datetime.now()
-        
+        self.calls_today = 0
+        self.daily_limit = 100
+
     async def _setup(self) -> None:
+        """Initialize news service"""
+        if not self.api_key:
+            raise ValueError("NEWS_API_KEY not set")
         self.session = aiohttp.ClientSession()
-        await self._validate_credentials()
-        
+
     async def _cleanup(self) -> None:
-        await self.session.close()
-        
+        """Cleanup resources"""
+        if self.session:
+            await self.session.close()
+        self.cache.clear()
+
     async def get_news(self, query: str, limit: int = 10) -> List[Dict]:
         """Get latest news for query"""
         await self._check_rate_limit()
