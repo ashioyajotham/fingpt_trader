@@ -10,8 +10,8 @@ inefficiency:
   window: 20
   z_threshold: 2.0
   pairs:
-    - ["AAPL", "MSFT"]
-    - ["GOOGL", "META"]
+    - ["BTC/USDT", "ETH/USDT"]
+    - ["ETH/USDT", "BNB/USDT"]
     
 robo:
   rebalance_threshold: 0.05
