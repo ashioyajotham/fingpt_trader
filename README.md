@@ -1,6 +1,32 @@
 # FinGPT Market Inefficiency Trading System
 
-A sophisticated crypto trading system combining FinGPT with market inefficiency detection and robo-advisory capabilities.
+A comprehensive algorithmic trading platform that combines advanced Natural Language Processing (FinGPT) with quantitative trading strategies to exploit market inefficiencies in cryptocurrency markets. The system implements a multi-layered architecture:
+
+1. **Market Inefficiency Detection Layer**
+   - Sentiment-price divergence analysis
+   - Order flow imbalance detection
+   - Microstructure pattern recognition
+   - Cross-exchange arbitrage identification
+
+2. **Smart Order Routing Engine**
+   - Multi-exchange order execution
+   - Liquidity aggregation
+   - Transaction cost optimization
+   - Dynamic order splitting
+
+3. **Robo Advisory Module**
+   - Portfolio optimization with ESG constraints
+   - Tax-loss harvesting automation
+   - Dynamic rebalancing
+   - Risk-adjusted position sizing
+
+4. **Risk Management System**
+   - Real-time risk monitoring
+   - Portfolio-level risk controls
+   - Dynamic stop-loss management
+   - Exposure limits enforcement
+
+The platform leverages Large Language Models for real-time market sentiment analysis while employing statistical arbitrage and market microstructure strategies for alpha generation. A sophisticated robo-advisory layer provides automated portfolio management with ESG considerations and tax optimization.
 
 ## Market Inefficiencies in Crypto Markets
 
