@@ -356,3 +356,65 @@ class TradingSystem:
                 merged.append(trade)
         
         return merged
+
+    async def run(self):
+        """Main trading loop"""
+        try:
+            await self.initialize()
+            
+            while self.is_running:
+                try:
+                    # 1. Get market data
+                    market_data = await self.get_market_data()
+                    
+                    # 2. Detect trading opportunities
+                    signals = await self.detect_inefficiencies(market_data)
+                    
+                    # 3. Generate system trades
+                    system_trades = self.generate_trades(signals)
+                    
+                    # 4. Handle robo-advisory tasks
+                    for client_id in self.client_profiles:
+                        # Generate client-specific trades
+                        robo_trades = await self.generate_client_trades(client_id)
+                        # Execute approved trades
+                        if robo_trades:
+                            await self.execute_trades(robo_trades)
+                    
+                    # 5. Execute system trades
+                    if system_trades:
+                        await self.execute_trades(system_trades)
+                    
+                    # 6. Update portfolio state
+                    await self._update_portfolio_state()
+                    
+                    # 7. Check risk metrics
+                    risk_metrics = self.update_risk_metrics()
+                    if risk_metrics.get('max_drawdown', 0) > self.config['risk']['max_drawdown']:
+                        print("Risk limit exceeded, reducing exposure")
+                        await self._reduce_exposure()
+                    
+                    # 8. Wait for next iteration
+                    await asyncio.sleep(self.config.get('trading', {}).get('loop_interval', 60))
+                    
+                except Exception as e:
+                    print(f"Error in trading loop: {str(e)}")
+                    await asyncio.sleep(5)  # Brief pause before retrying
+                    
+        except KeyboardInterrupt:
+            print("\nShutting down gracefully...")
+        finally:
+            await self.shutdown()
+
+if __name__ == "__main__":
+    # Load config
+    config_path = "config/trading.yaml"
+    
+    # Create and run trading system
+    system = TradingSystem(config_path)
+    
+    try:
+        asyncio.run(system.run())
+    except Exception as e:
+        print(f"Fatal error: {str(e)}")
+        sys.exit(1)

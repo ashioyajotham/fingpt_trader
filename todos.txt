@@ -1,0 +1,14 @@
+1. Currently, the trading pairs come from the configuration files:
+   - `trading.yaml` has the main list of symbols (BTC/USDT, ETH/USDT, BNB/USDT)
+   - `strategies.yaml` has pairs for inefficiency detection
+
+2. The system doesn't actually take trading pairs directly from clients. Instead:
+   - The main system trades the pre-configured pairs from trading.yaml
+   - The robo-advisor component manages client portfolios using these same pairs
+   - There's no current mechanism for clients to specify custom trading pairs
+
+This could be improved by:
+1. Adding client-specific trading pair configuration
+2. Implementing validation for client-requested trading pairs
+3. Adding dynamic pair management
+4. Creating separate trading pair pools for system vs client trading
