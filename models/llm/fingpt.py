@@ -22,7 +22,7 @@ class FinGPT(BaseLLM):
         self.tokenizer = None
         # Update model paths to use base Falcon model
         self.base_model = "tiiuae/falcon-7b"
-        self.peft_model = "FinGPT/fingpt-sentiment-falcon-7b"
+        self.peft_model = "FinGPT/fingpt-mt_falcon-7b_lora"
         self.model_cache_dir = Path("models/cache")
         self.offload_folder = self.model_cache_dir / "fingpt_offload"
         self.checkpoint_dir = self.model_cache_dir / "checkpoints"
