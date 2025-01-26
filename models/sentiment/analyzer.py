@@ -16,7 +16,7 @@ from models.llm.fingpt import FinGPT
 
 class SentimentAnalyzer:
     def __init__(self, model_config: Dict):
-        self.config = model_config or {}
+        self.config = model_config or {} # gets from config/ directory
         self.fingpt = FinGPT(self.config.get("fingpt_config", {}))
         self.min_confidence = self.config.get("min_confidence", 0.6)
         self.batch_size = model_config.get("batch_size", 16)

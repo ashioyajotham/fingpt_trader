@@ -1,7 +1,11 @@
-from typing import Dict, List, Tuple
-
+from typing import Dict, List, Tuple, Optional
 import numpy as np
+import pandas as pd
 
+from models.portfolio.risk import MarketRegime, MarketRegimeDetector, CircuitBreaker
+
+import logging
+logger = logging.getLogger(__name__)
 
 class Portfolio:
     def __init__(self):
@@ -73,3 +77,79 @@ class Portfolio:
                 trades.append((symbol, trade_quantity))
 
         return trades
+
+
+class PortfolioRebalancer:
+    def __init__(self, config: Dict):
+        self.config = config
+        self.regime_detector = MarketRegimeDetector()
+        self.circuit_breaker = CircuitBreaker(config.get('risk', {}).get('thresholds', {}))
+        
+        # Regime-based rebalancing thresholds
+        self.regime_thresholds = {
+            MarketRegime.NORMAL: 0.05,        # 5% deviation trigger
+            MarketRegime.HIGH_VOL: 0.08,      # 8% in high volatility
+            MarketRegime.STRESS: 0.10,        # 10% in stress
+            MarketRegime.CRISIS: 1.0,         # No rebalancing in crisis
+            MarketRegime.LOW_LIQUIDITY: 0.15  # 15% in low liquidity
+        }
+
+    async def check_rebalance_needed(
+        self, 
+        current_weights: Dict[str, float],
+        target_weights: Dict[str, float],
+        market_data: Dict
+    ) -> bool:
+        """Check if rebalancing is needed based on market regime"""
+        # Check circuit breaker first
+        if self.circuit_breaker.check_conditions(market_data):
+            return False  # Don't rebalance if circuit breaker triggered
+            
+        # Detect current market regime
+        current_regime = self.regime_detector.detect_regime(market_data)
+        threshold = self.regime_thresholds[current_regime]
+        
+        # Calculate maximum deviation
+        max_deviation = 0.0
+        for asset in target_weights:
+            current = current_weights.get(asset, 0.0)
+            target = target_weights.get(asset, 0.0)
+            deviation = abs(current - target)
+            max_deviation = max(max_deviation, deviation)
+            
+        return max_deviation > threshold
+
+    async def calculate_rebalance_trades(
+        self,
+        current_positions: Dict[str, float],
+        target_weights: Dict[str, float],
+        market_data: Dict
+    ) -> Optional[Dict[str, float]]:
+        """Calculate required trades for rebalancing"""
+        try:
+            if not await self.check_rebalance_needed(
+                current_positions, target_weights, market_data
+            ):
+                return None
+                
+            # Calculate trades considering market impact
+            trades = {}
+            total_value = sum(current_positions.values())
+            
+            for asset, target in target_weights.items():
+                current = current_positions.get(asset, 0.0)
+                target_value = total_value * target
+                trade_size = target_value - current
+                
+                # Apply market regime-based size limits
+                regime = self.regime_detector.detect_regime(market_data)
+                if regime != MarketRegime.NORMAL:
+                    trade_size *= self.regime_thresholds[regime]
+                    
+                trades[asset] = trade_size
+                
+            return trades
+            
+        except Exception as e:
+            logger.error(f"Error calculating rebalance trades: {str(e)}")
+            return None

@@ -39,6 +39,7 @@ class FinGPT(BaseLLM):
         model_config = config.get('llm', {}).get('fingpt', {})
         self.base_model = model_config.get('base_model', "tiiuae/falcon-7b")
         self.peft_model = model_config.get('peft_model', "FinGPT/fingpt-mt_falcon-7b_lora")
+        self.from_remote = model_config.get('from_remote', True)
         
         # Setup cache directories
         cache_config = model_config.get('cache', {})
@@ -57,56 +58,89 @@ class FinGPT(BaseLLM):
     def _load_model(self):
         """Initialize model with proper device handling"""
         try:
-            # 1. Initialize tokenizer from base model
+            # Use model loading function similar to example
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+            
+            # 1. Initialize tokenizer
             self.tokenizer = AutoTokenizer.from_pretrained(
-                self.base_model,
+                "tiiuae/falcon-7b",
+                cache_dir=str(self.model_cache_dir),
+                token=self.token,
+                trust_remote_code=True
+            )
+            
+            # 2. Initialize base model with quantization
+            base_model = AutoModelForCausalLM.from_pretrained(
+                "tiiuae/falcon-7b",
+                cache_dir=str(self.model_cache_dir),
                 token=self.token,
                 trust_remote_code=True,
-                cache_dir=str(self.model_cache_dir)
+                load_in_8bit=True,  # Enable 8-bit quantization
+                device_map="auto"
             )
-
-            # 2. Initialize model with accelerate
-            with init_empty_weights():
-                model = AutoModelForCausalLM.from_pretrained(
-                    self.base_model,
-                    token=self.token,
-                    trust_remote_code=True,
-                    torch_dtype=torch.float16,
-                    cache_dir=str(self.model_cache_dir)
-                )
-
-            # 3. Download PEFT model if needed and get local path
-            peft_path = self._ensure_peft_model_downloaded()
-
-            # 4. Load and dispatch model with offload folder
-            self.model = load_checkpoint_and_dispatch(
-                model,
-                checkpoint=peft_path,
-                device_map="auto",
-                no_split_module_classes=["FalconDecoderLayer"],
-                dtype=torch.float16,
-                offload_folder=str(self.offload_folder)
+            
+            # 3. Load PEFT adapter
+            peft_model_id = self.peft_model if self.from_remote else "finetuned_models/MT-falcon-linear_202309210126"
+            self.model = PeftModel.from_pretrained(
+                base_model,
+                peft_model_id,
+                token=self.token
             )
-
+            
+            # 4. Set to evaluation mode
+            self.model.eval()
+            
         except Exception as e:
             raise RuntimeError(f"Failed to load FinGPT model: {str(e)}")
 
     def _ensure_peft_model_downloaded(self) -> str:
         """Download PEFT model and return local path"""
-        from huggingface_hub import snapshot_download
+        from huggingface_hub import snapshot_download, hf_hub_download
+        import shutil
         
         try:
-            # Download model files to checkpoint directory
-            local_path = snapshot_download(
-                repo_id=self.peft_model,
-                token=self.token,
-                cache_dir=str(self.checkpoint_dir),
-                local_files_only=False  # Force check for updates
-            )
-            return local_path
+            # Setup model directory
+            model_dir = self.checkpoint_dir / self.peft_model.split('/')[-1]
+            if model_dir.exists():
+                shutil.rmtree(model_dir)
+            model_dir.mkdir(parents=True, exist_ok=True)
             
+            # Download required files individually
+            required_files = ['config.json', 'adapter_config.json', 'adapter_model.bin']
+            for filename in required_files:
+                try:
+                    file_path = hf_hub_download(
+                        repo_id=self.peft_model,
+                        filename=filename,
+                        token=self.token,
+                        cache_dir=str(model_dir),
+                        local_files_only=False,
+                        resume_download=True
+                    )
+                    # Copy to final location if needed
+                    if Path(file_path).parent != model_dir:
+                        shutil.copy2(file_path, model_dir / filename)
+                except Exception as e:
+                    raise RuntimeError(f"Failed to download {filename}: {str(e)}")
+            
+            return str(model_dir)
+                    
         except Exception as e:
             raise RuntimeError(f"Failed to download PEFT model: {str(e)}")
+
+    def _ensure_model_files(self):
+        """Ensure model files are downloaded"""
+        cache_dir = Path(os.getenv('LOCALAPPDATA')) / 'fingpt_trader/models'
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        
+        if not (cache_dir / 'checkpoints').exists():
+            # Force download model files
+            from huggingface_hub import snapshot_download
+            snapshot_download(
+                repo_id="FinGPT/fingpt-mt_falcon-7b_lora",
+                cache_dir=str(cache_dir),
+                token=self.token
+            )
 
     async def load_model(self) -> None:
         """Load FinGPT Falcon model"""

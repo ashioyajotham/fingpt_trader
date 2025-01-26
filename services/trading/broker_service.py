@@ -1,13 +1,18 @@
 import asyncio
 import os
 import sys
+import logging
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 import aiohttp
 import ccxt
+from models.portfolio.risk import CircuitBreaker, MarketRegimeDetector, MarketRegime
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 # Add project root to path
 root_dir = str(Path(__file__).parent.parent)
@@ -40,10 +45,18 @@ class BrokerService(BaseService):
         )
         self.max_retries = 3
         self.retry_delay = 5
-        self.positions = {}
-        self.orders = {}
-        self.account_info = {}
+        self.positions: Dict[str, float] = {}
+        self.orders: Dict[str, Dict] = {}
+        self.account_info: Dict[str, Any] = {}
         self.active = False
+
+        # Initialize risk management components
+        self.circuit_breaker = CircuitBreaker(config.get('risk', {}).get('thresholds', {}))
+        self.regime_detector = MarketRegimeDetector()
+
+        # Set up logging level from config
+        log_level = config.get('logging', {}).get('level', 'INFO')
+        logger.setLevel(getattr(logging, log_level))
 
     async def _setup(self) -> None:
         """Initialize broker connection"""
@@ -99,3 +112,31 @@ class BrokerService(BaseService):
     async def get_account_info(self) -> Dict:
         """Get account information"""
         return self.account_info
+
+    async def execute_order(self, order: Dict) -> bool:
+        """Execute order with market risk checks"""
+        try:
+            # Get current market data
+            market_data = await self._fetch_market_data(order['symbol'])
+            
+            # Check circuit breaker conditions
+            if self.circuit_breaker.check_conditions(market_data):
+                logger.warning(f"Circuit breaker triggered for {order['symbol']}")
+                return False
+            
+            # Check market regime
+            regime = self.regime_detector.detect_regime(market_data)
+            if regime in [MarketRegime.CRISIS, MarketRegime.STRESS]:
+                logger.warning(f"Order rejected due to market regime: {regime}")
+                return False
+                
+            # Proceed with order execution if checks pass
+            return await self._submit_order(order)
+            
+        except Exception as e:
+            logger.error(f"Order execution error: {str(e)}")
+            return False
+            
+    async def _fetch_market_data(self, symbol: str) -> Dict:
+        """Fetch market data for risk checks"""
+        pass

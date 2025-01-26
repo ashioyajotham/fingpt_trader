@@ -71,3 +71,40 @@ robo:
     environmental_weight: 0.4
     social_weight: 0.3
     governance_weight: 0.3
+
+# Exchange settings
+exchanges:
+  - name: "binance"
+    api_key: "${BINANCE_API_KEY}"
+    api_secret: "${BINANCE_API_SECRET}"
+
+# Risk management settings
+risk:
+  thresholds:
+    volatility: 3.0     # Circuit breaker volatility threshold
+    volume: 5.0         # Volume spike threshold
+    spread: 0.05        # Maximum bid-ask spread
+    imbalance: 0.7      # Order book imbalance threshold
+  
+  limits:
+    max_drawdown: 0.15
+    var_limit: 0.02
+    max_leverage: 2.0
+    position_limit: 0.1
+
+  regime_controls:
+    NORMAL:
+      position_scale: 1.0
+    HIGH_VOL:
+      position_scale: 0.5
+    STRESS:
+      position_scale: 0.25
+    CRISIS:
+      position_scale: 0.0
+    LOW_LIQUIDITY:
+      position_scale: 0.3
+
+# Logging configuration
+logging:
+  level: INFO
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
