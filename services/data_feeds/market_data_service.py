@@ -8,9 +8,18 @@ import ccxt.async_support as ccxt  # Use async version
 import pandas as pd
 
 from services.base_service import BaseService
-
-
 class MarketDataService(BaseService):
+    """
+    Real-time market data service.
+    
+    Provides market data feeds from multiple exchanges with configurable
+    update intervals and caching.
+    
+    Configuration:
+        update_interval: Data refresh interval in seconds
+        cache_expiry: Cache timeout in seconds
+        exchanges: List of supported exchanges
+    """
     def __init__(self, config: Optional[Dict] = None):
         super().__init__(config or {})
         self.api_key = os.getenv("BINANCE_API_KEY")

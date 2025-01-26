@@ -14,6 +14,19 @@ from strategies.sentiment.sentiment_strategy import SentimentStrategy
 
 
 class HybridStrategy(BaseStrategy):
+    """
+    Combined trading strategy using sentiment and technical analysis.
+    
+    Strategy Components:
+    - Sentiment Analysis: News and social media sentiment
+    - Technical Analysis: Price patterns and indicators
+    - Risk Management: Position sizing and stop-loss
+    
+    Configuration:
+        weights: Strategy component weights
+        thresholds: Signal generation thresholds
+        risk_limits: Position and portfolio limits
+    """
     def __init__(self, config: Optional[Dict] = None):
         super().__init__(config or {})
         self.signal_history = []

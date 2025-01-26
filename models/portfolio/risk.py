@@ -4,6 +4,8 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 from scipy import stats
+from enum import Enum
+from typing import TypeVar, Protocol
 
 
 @dataclass
@@ -154,3 +156,136 @@ class RiskManager:
     def _calculate_exposure(self, values: np.ndarray) -> float:
         """Calculate total market exposure"""
         return float(np.sum(np.abs(values)))
+
+
+class MarketRegime(Enum):
+    NORMAL = "normal"
+    STRESS = "stress"
+    CRISIS = "crisis"
+    HIGH_VOL = "high_volatility"
+    LOW_LIQUIDITY = "low_liquidity"
+
+
+class MarketIndicator(Protocol):
+    def get_signal(self) -> float:
+        ...
+
+
+class VolatilityIndicator:
+    def __init__(self, window: int = 20):
+        self.window = window
+        self.threshold = 2.0  # Standard deviations
+
+    def get_signal(self, returns: pd.Series) -> float:
+        vol = returns.rolling(self.window).std() * np.sqrt(252)
+        return float(vol.iloc[-1] if not vol.empty else 0.0)
+
+
+class LiquidityMetrics:
+    def __init__(self, spread_threshold: float = 0.02):
+        self.spread_threshold = spread_threshold
+    
+    def get_signal(self, market_data: Dict) -> float:
+        bid = market_data.get('bid', 0)
+        ask = market_data.get('ask', 0)
+        if bid == 0 or ask == 0:
+            return 0.0
+        return (ask - bid) / ((ask + bid) / 2)
+
+
+class CorrelationMatrix:
+    def __init__(self, window: int = 30):
+        self.window = window
+        
+    def get_signal(self, returns: pd.DataFrame) -> float:
+        if len(returns) < self.window:
+            return 0.0
+        corr = returns.rolling(self.window).corr()
+        return float(corr.mean().mean())
+
+
+class SentimentIndicator:
+    def __init__(self, threshold: float = 0.5):
+        self.threshold = threshold
+        
+    def get_signal(self, sentiment_scores: List[float]) -> float:
+        if not sentiment_scores:
+            return 0.0
+        return float(np.mean(sentiment_scores))
+
+
+class MarketRegimeDetector:
+    def __init__(self):
+        self.indicators = {
+            'volatility': VolatilityIndicator(),
+            'liquidity': LiquidityMetrics(),
+            'correlation': CorrelationMatrix(),
+            'sentiment': SentimentIndicator()
+        }
+        
+    def detect_regime(self, market_data: Dict) -> MarketRegime:
+        """Detect current market regime using multiple indicators"""
+        signals = {}
+        
+        # Get signals from all indicators
+        for name, indicator in self.indicators.items():
+            try:
+                signals[name] = indicator.get_signal(market_data.get(name, {}))
+            except Exception as e:
+                signals[name] = 0.0
+                
+        # Regime detection logic
+        if signals['volatility'] > 2.0:
+            return MarketRegime.HIGH_VOL
+        elif signals['liquidity'] > 0.05:
+            return MarketRegime.LOW_LIQUIDITY
+        elif signals['correlation'] > 0.8:
+            return MarketRegime.STRESS
+        elif sum(signals.values()) / len(signals) > 1.5:
+            return MarketRegime.CRISIS
+            
+        return MarketRegime.NORMAL
+
+
+class CircuitBreaker:
+    def __init__(self, thresholds: Dict[str, float]):
+        self.thresholds = {
+            'volatility': thresholds.get('volatility', 3.0),
+            'volume': thresholds.get('volume', 5.0),
+            'spread': thresholds.get('spread', 0.05),
+            'imbalance': thresholds.get('imbalance', 0.7)
+        }
+        
+    def check_conditions(self, market_data: Dict) -> bool:
+        """Check market conditions against circuit breaker rules"""
+        try:
+            # Check volatility threshold
+            if market_data.get('volatility', 0) > self.thresholds['volatility']:
+                return True
+                
+            # Check volume spike
+            if market_data.get('volume_change', 0) > self.thresholds['volume']:
+                return True
+                
+            # Check bid-ask spread
+            bid = market_data.get('bid', 0)
+            ask = market_data.get('ask', 0)
+            if bid and ask:
+                spread = (ask - bid) / ((ask + bid) / 2)
+                if spread > self.thresholds['spread']:
+                    return True
+                    
+            # Check order book imbalance
+            bids_volume = sum(bid[1] for bid in market_data.get('bids', []))
+            asks_volume = sum(ask[1] for ask in market_data.get('asks', []))
+            total_volume = bids_volume + asks_volume
+            if total_volume > 0:
+                imbalance = abs(bids_volume - asks_volume) / total_volume
+                if imbalance > self.thresholds['imbalance']:
+                    return True
+                    
+            return False
+            
+        except Exception as e:
+            # Log error and trigger circuit breaker for safety
+            return True

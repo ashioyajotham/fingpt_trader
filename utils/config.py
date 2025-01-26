@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
-from typing import Dict, Optional
+
+from typing import Dict, Any, Optional
 
 import yaml
 
@@ -39,3 +40,26 @@ class ConfigManager:
             env_var = config[2:-1]
             return os.getenv(env_var, config)
         return config
+
+def substitute_env_vars(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Substitute environment variables in config values"""
+    if isinstance(config, dict):
+        return {k: substitute_env_vars(v) for k, v in config.items()}
+    elif isinstance(config, str) and config.startswith("${") and config.endswith("}"):
+        env_var = config[2:-1]
+        return os.getenv(env_var, config)
+    return config
+
+def load_config() -> Dict[str, Dict[str, Any]]:
+    """Load all configuration files with environment variable substitution"""
+    config_dir = Path(__file__).parent.parent / "config"
+    
+    if not config_dir.exists():
+        raise FileNotFoundError(f"Config directory not found: {config_dir}")
+        
+    configs = {}
+    for yaml_file in config_dir.glob("*.yaml"):
+        with yaml_file.open() as f:
+            configs[yaml_file.stem] = substitute_env_vars(yaml.safe_load(f))
+            
+    return configs

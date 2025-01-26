@@ -1,3 +1,12 @@
+strategies:
+  sentiment:
+    window_size: 24
+    threshold: 0.5
+  hybrid:
+    weights:
+      sentiment: 0.4
+      technical: 0.6
+
 sentiment:
   lookback_window: 24
   signal_threshold: 0.5

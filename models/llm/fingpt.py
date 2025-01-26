@@ -11,25 +11,46 @@ from .base import BaseLLM
 
 
 class FinGPT(BaseLLM):
+    """
+    FinGPT model wrapper for financial sentiment analysis.
+    
+    Uses Falcon-7b base model with PEFT fine-tuning for financial domain.
+    
+    Attributes:
+        config (Dict[str, Any]): Model configuration including paths and parameters
+        device (torch.device): Device to run model on (CPU/CUDA)
+        token (str): HuggingFace API token for model access
+        
+    Methods:
+        generate(text: str) -> str: Generate sentiment analysis for given text
+        load_model() -> None: Initialize and load model weights
+    """
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # Get token
         self.token = os.getenv("HUGGINGFACE_TOKEN")
         if not self.token:
             raise ValueError("HUGGINGFACE_TOKEN not found in environment")
-        self.model = None
-        self.tokenizer = None
-        # Update model paths to use base Falcon model
-        self.base_model = "tiiuae/falcon-7b"
-        self.peft_model = "FinGPT/fingpt-mt_falcon-7b_lora"
-        self.model_cache_dir = Path("models/cache")
-        self.offload_folder = self.model_cache_dir / "fingpt_offload"
-        self.checkpoint_dir = self.model_cache_dir / "checkpoints"
+            
+        # Setup model configs
+        model_config = config.get('llm', {}).get('fingpt', {})
+        self.base_model = model_config.get('base_model', "tiiuae/falcon-7b")
+        self.peft_model = model_config.get('peft_model', "FinGPT/fingpt-mt_falcon-7b_lora")
         
-        # Create necessary directories
+        # Setup cache directories
+        cache_config = model_config.get('cache', {})
+        base_dir = os.path.expandvars(cache_config.get('base_dir', '%LOCALAPPDATA%/fingpt_trader'))
+        self.model_cache_dir = Path(base_dir) / cache_config.get('model_dir', 'models')
+        self.offload_folder = self.model_cache_dir / cache_config.get('offload_dir', 'offload')
+        self.checkpoint_dir = self.model_cache_dir / cache_config.get('checkpoints_dir', 'checkpoints')
+        
+        # Create directories with explicit permissions
         for dir_path in [self.model_cache_dir, self.offload_folder, self.checkpoint_dir]:
             dir_path.mkdir(parents=True, exist_ok=True)
+            os.chmod(str(dir_path), 0o755)  # Set proper permissions
             
         self._load_model()
 
