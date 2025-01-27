@@ -3,6 +3,10 @@ llm:
     base_model: "tiiuae/falcon-7b"
     peft_model: "FinGPT/fingpt-mt_falcon-7b_lora"
     from_remote: true
+    llama_cpp:
+      n_ctx: 2048
+      n_threads: null  # Auto-detect
+      n_gpu_layers: -1  # Use GPU if available
     cache:
       base_dir: "%LOCALAPPDATA%/fingpt_trader"
       model_dir: "models"

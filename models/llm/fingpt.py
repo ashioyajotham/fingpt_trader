@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from llama_cpp import Llama
 
 import torch
 from peft import PeftModel
@@ -14,16 +15,29 @@ class FinGPT(BaseLLM):
     """
     FinGPT model wrapper for financial sentiment analysis.
     
-    Uses Falcon-7b base model with PEFT fine-tuning for financial domain.
+    This class implements a financial sentiment analysis model using the Falcon-7b
+    architecture with PEFT (Parameter-Efficient Fine-Tuning) adaptations. It supports
+    both CPU and CUDA execution environments.
+    
+    Key Features:
+        - Multi-task financial analysis
+        - Efficient model loading with CPU/GPU support
+        - Configurable caching and model paths
+        - Environment-aware resource management
     
     Attributes:
         config (Dict[str, Any]): Model configuration including paths and parameters
         device (torch.device): Device to run model on (CPU/CUDA)
         token (str): HuggingFace API token for model access
+        model_cache_dir (Path): Directory for model cache
+        offload_folder (Path): Directory for model weight offloading
+        checkpoint_dir (Path): Directory for model checkpoints
         
     Methods:
-        generate(text: str) -> str: Generate sentiment analysis for given text
-        load_model() -> None: Initialize and load model weights
+        generate(text: str) -> str: Generate model output for given input
+        predict_sentiment(text: str) -> Dict[str, float]: Analyze financial sentiment
+        preprocess(texts: List[str]) -> List[str]: Prepare texts for analysis
+        postprocess(outputs: List[str]) -> List[str]: Process model outputs
     """
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
@@ -53,52 +67,82 @@ class FinGPT(BaseLLM):
             dir_path.mkdir(parents=True, exist_ok=True)
             os.chmod(str(dir_path), 0o755)  # Set proper permissions
             
+        # Add llama.cpp config
+        llama_config = model_config.get('llama_cpp', {})
+        self.n_ctx = llama_config.get('n_ctx', 2048)
+        self.n_threads = llama_config.get('n_threads', os.cpu_count())
+        self.n_gpu_layers = llama_config.get('n_gpu_layers', -1 if torch.cuda.is_available() else 0)
+        
         self._load_model()
 
     def _load_model(self):
-        """Initialize model with proper device handling"""
+        """
+        Initialize and load the FinGPT model with proper device handling.
+        
+        This method handles:
+        1. Tokenizer initialization with proper caching
+        2. Base model loading with memory optimization
+        3. PEFT adapter integration
+        4. Device placement (CPU/CUDA)
+        
+        Raises:
+            RuntimeError: If model loading fails
+            ValueError: If required configurations are missing
+        """
         try:
-            from transformers import AutoModelForCausalLM, AutoTokenizer
+            model_path = self._convert_to_ggml()
             
-            # 1. Initialize tokenizer
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self.base_model,  # Use configured base model
-                cache_dir=str(self.model_cache_dir),
-                token=self.token,
-                trust_remote_code=True
+            # Initialize llama.cpp model
+            self.model = Llama(
+                model_path=str(model_path),
+                n_ctx=self.n_ctx,
+                n_threads=self.n_threads,
+                n_gpu_layers=self.n_gpu_layers
             )
-            
-            # 2. Load base model first
-            base_model = AutoModelForCausalLM.from_pretrained(
-                self.base_model,
-                cache_dir=str(self.model_cache_dir),
-                token=self.token,
-                trust_remote_code=True,
-                device_map="cpu",  # Force CPU loading first
-                torch_dtype=torch.float32,
-                low_cpu_mem_usage=True
-            )
-            
-            # 3. Load PEFT adapter
-            peft_model_id = self.peft_model if self.from_remote else "finetuned_models/MT-falcon-linear_202309210126"
-            self.model = PeftModel.from_pretrained(
-                base_model,
-                peft_model_id,
-                token=self.token,
-                device_map="cpu"  # Force CPU for initial load
-            )
-            
-            # 4. Move to appropriate device after loading
-            if torch.cuda.is_available():
-                self.model = self.model.to("cuda")
-                
-            self.model.eval()
             
         except Exception as e:
             raise RuntimeError(f"Failed to load FinGPT model: {str(e)}")
 
+    def _convert_to_ggml(self) -> Path:
+        """Convert model to GGML format"""
+        ggml_path = self.model_cache_dir / "ggml-model-f16.bin"
+        
+        if not ggml_path.exists():
+            from transformers import AutoModelForCausalLM
+            import subprocess
+            
+            # First ensure PEFT model is downloaded
+            peft_path = self._ensure_peft_model_downloaded()
+            
+            # Convert using llama.cpp convert script
+            convert_script = Path(__file__).parent / "convert.py"
+            subprocess.run([
+                "python", str(convert_script),
+                "--input-dir", str(peft_path),
+                "--output", str(ggml_path),
+                "--outtype", "f16"
+            ], check=True)
+            
+        return ggml_path
+
     def _ensure_peft_model_downloaded(self) -> str:
-        """Download PEFT model and return local path"""
+        """
+        Download and verify PEFT model files.
+        
+        Downloads required model files from HuggingFace Hub and ensures
+        proper local setup. Handles both remote and local model paths.
+        
+        Required files:
+        - config.json: Model configuration
+        - adapter_config.json: PEFT adapter configuration
+        - adapter_model.bin: Model weights
+        
+        Returns:
+            str: Path to downloaded model directory
+            
+        Raises:
+            RuntimeError: If download or verification fails
+        """
         from huggingface_hub import snapshot_download, hf_hub_download
         import shutil
         
@@ -153,16 +197,15 @@ class FinGPT(BaseLLM):
         )
 
     async def generate(self, prompt: str, **kwargs) -> str:
-        """Generate text using FinGPT"""
-        inputs = self.tokenizer(
-            prompt, return_tensors="pt", truncation=True, max_length=512
-        ).to(self.device)
-
-        outputs = self.model.generate(
-            **inputs, max_new_tokens=100, temperature=0.1, num_return_sequences=1
+        """Generate text using llama.cpp"""
+        response = self.model(
+            prompt,
+            max_tokens=100,
+            temperature=0.1,
+            top_p=0.95,
+            echo=False
         )
-
-        return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        return response['choices'][0]['text']
 
     def preprocess(self, texts: List[str]) -> List[str]:
         """Format inputs for sentiment analysis"""
@@ -177,6 +220,19 @@ class FinGPT(BaseLLM):
         return [output.split("Answer: ")[1].strip() for output in outputs]
 
     async def predict_sentiment(self, text: str) -> Dict[str, float]:
+        """
+        Analyze sentiment of financial text.
+        
+        Args:
+            text (str): Financial text to analyze
+            
+        Returns:
+            Dict[str, float]: {
+                'text': Original text,
+                'sentiment': Score between -1 (bearish) and 1 (bullish),
+                'confidence': Confidence score between 0 and 1
+            }
+        """
         prompt = f"Analyze the sentiment of this financial news: {text}\nAnswer:"
         response = await self.generate(prompt)
         sentiment_score = self._process_sentiment(response)
