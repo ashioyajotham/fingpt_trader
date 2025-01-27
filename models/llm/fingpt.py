@@ -58,25 +58,25 @@ class FinGPT(BaseLLM):
     def _load_model(self):
         """Initialize model with proper device handling"""
         try:
-            # Use model loading function similar to example
             from transformers import AutoModelForCausalLM, AutoTokenizer
             
             # 1. Initialize tokenizer
             self.tokenizer = AutoTokenizer.from_pretrained(
-                "tiiuae/falcon-7b",
+                self.base_model,  # Use configured base model
                 cache_dir=str(self.model_cache_dir),
                 token=self.token,
                 trust_remote_code=True
             )
             
-            # 2. Initialize base model with quantization
+            # 2. Load base model first
             base_model = AutoModelForCausalLM.from_pretrained(
-                "tiiuae/falcon-7b",
+                self.base_model,
                 cache_dir=str(self.model_cache_dir),
                 token=self.token,
                 trust_remote_code=True,
-                load_in_8bit=True,  # Enable 8-bit quantization
-                device_map="auto"
+                device_map="cpu",  # Force CPU loading first
+                torch_dtype=torch.float32,
+                low_cpu_mem_usage=True
             )
             
             # 3. Load PEFT adapter
@@ -84,10 +84,14 @@ class FinGPT(BaseLLM):
             self.model = PeftModel.from_pretrained(
                 base_model,
                 peft_model_id,
-                token=self.token
+                token=self.token,
+                device_map="cpu"  # Force CPU for initial load
             )
             
-            # 4. Set to evaluation mode
+            # 4. Move to appropriate device after loading
+            if torch.cuda.is_available():
+                self.model = self.model.to("cuda")
+                
             self.model.eval()
             
         except Exception as e:
