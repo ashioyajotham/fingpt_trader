@@ -1,10 +1,12 @@
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 from dataclasses import dataclass
 from datetime import datetime
 import logging
+from web3 import Web3
+import asyncio
 
 # Add project root to path
 root_dir = str(Path(__file__).parent.parent)
@@ -12,6 +14,7 @@ sys.path.insert(0, root_dir)
 
 from models.portfolio.rebalancing import Portfolio
 from services.base_service import BaseService
+from models.client.profile import MockClientProfile
 
 class RoboService(BaseService):
     """
@@ -23,12 +26,17 @@ class RoboService(BaseService):
     - ESG compliance checking
     - Tax-loss harvesting
     - Risk monitoring
+    - MEV and arbitrage monitoring
     
     Attributes:
         portfolio: Current portfolio state
         advisor: Robo advisor instance for decisions
         last_rebalance: Timestamp of last rebalance
         client_profiles: Dict of client profiles and preferences
+        logger: Logger instance for service
+        w3: Web3 instance for blockchain interactions
+        arb_config: Configuration for MEV and arbitrage
+        mempool_monitor: Coroutine for mempool monitoring
     """
     
     def __init__(self, config: Optional[Dict] = None):
@@ -38,6 +46,18 @@ class RoboService(BaseService):
         self.last_rebalance = None
         self.client_profiles = {}
         self.logger = logging.getLogger(__name__)
+        
+        # Add MEV and arbitrage configuration
+        self.w3 = Web3(Web3.HTTPProvider(config.get('eth_rpc', 'http://localhost:8545')))
+        self.arb_config = {
+            'min_profit': config.get('min_arb_profit', 0.005),  # 0.5%
+            'gas_limit': config.get('max_gas', 500000),
+            'exchanges': config.get('dex_list', ['uniswap', 'sushiswap', 'curve']),
+            'flash_pools': config.get('flash_pools', ['aave', 'compound'])
+        }
+        
+        # Initialize MEV monitoring
+        self.mempool_monitor = self._setup_mempool_monitor()
 
     async def _setup(self) -> None:
         """Initialize the robo service"""
@@ -91,25 +111,56 @@ class RoboService(BaseService):
         }
 
     async def generate_trades(self, client_id: str) -> List[Dict]:
-        """Generate trades for rebalancing and optimization"""
-        analysis = await self.analyze_portfolio(client_id)
+        """Generate trades with simplified logic"""
+        if client_id not in self.client_profiles:
+            raise ValueError(f"Client {client_id} not found")
+
+        # Get current state in single call
+        current_state = self.portfolio.get_state()
+        profile = self.client_profiles[client_id]
+
         trades = []
-
-        # Add tax harvesting trades if beneficial
-        if analysis['tax_harvest_opportunities']:
-            trades.extend(analysis['tax_harvest_opportunities'])
-
-        # Add rebalancing trades if needed
-        if analysis['rebalance_needed']:
-            profile = self.client_profiles[client_id]
-            target_portfolio = self.advisor.construct_portfolio(profile)
-            rebalance_trades = self._generate_rebalance_trades(
-                current=analysis['current_state'],
-                target=target_portfolio['weights']
-            )
-            trades.extend(rebalance_trades)
+        
+        # Simple drift check
+        if self._needs_rebalancing(current_state['weights']):
+            target_weights = self._get_target_weights(profile)
+            trades.extend(self._calculate_rebalance_trades(
+                current_state['weights'],
+                target_weights,
+                current_state['value']
+            ))
 
         return trades
+
+    def _needs_rebalancing(self, weights: Dict[str, float]) -> bool:
+        """Simplified rebalancing check"""
+        return any(
+            abs(w - self.advisor.last_target_weights.get(k, 0)) > self.advisor.rebalance_threshold 
+            for k, w in weights.items()
+        )
+
+    def _get_target_weights(self, profile) -> Dict[str, float]:
+        """Simplified weight calculation"""
+        equity = min(0.9, max(0.1, profile.risk_score / 10))
+        return {
+            'EQUITY': equity,
+            'BONDS': 1 - equity
+        }
+
+    def _calculate_rebalance_trades(
+        self, 
+        current: Dict[str, float], 
+        target: Dict[str, float],
+        total_value: float
+    ) -> List[Dict]:
+        """Direct trade calculation"""
+        return [{
+            'asset': asset,
+            'type': 'MARKET',
+            'direction': 1 if target_w > current.get(asset, 0) else -1,
+            'amount': abs(target_w - current.get(asset, 0)) * total_value
+        } for asset, target_w in target.items()
+        if abs(target_w - current.get(asset, 0)) > self.advisor.base_threshold]
 
     async def _check_rebalance_needed(self) -> bool:
         """Check if rebalancing is needed"""
@@ -152,6 +203,74 @@ class RoboService(BaseService):
                     'amount': abs(target_weight - current_weight) * current['value']
                 })
         return trades
+
+    async def monitor_opportunities(self):
+        """Monitor for MEV and arbitrage opportunities"""
+        while True:
+            try:
+                # Check cross-exchange opportunities
+                arb_ops = await self._scan_arb_opportunities()
+                
+                # Monitor mempool for sandwich opportunities
+                sandwich_ops = await self._scan_mempool_opportunities()
+                
+                if arb_ops or sandwich_ops:
+                    self.logger.info(f"Found opportunities: {len(arb_ops)} arb, {len(sandwich_ops)} sandwich")
+                    await self._execute_opportunities(arb_ops + sandwich_ops)
+                    
+            except Exception as e:
+                self.logger.error(f"Error in opportunity monitor: {str(e)}")
+                
+            await asyncio.sleep(1)  # Check every second
+            
+    async def _scan_arb_opportunities(self) -> List[Dict]:
+        """Scan for arbitrage opportunities across DEXes"""
+        opportunities = []
+        for token_pair in self.config.get('token_pairs', []):
+            prices = await self._get_dex_prices(token_pair)
+            best_buy = min(prices, key=lambda x: x['price'])
+            best_sell = max(prices, key=lambda x: x['price'])
+            
+            profit = (best_sell['price'] - best_buy['price']) / best_buy['price']
+            
+            if profit > self.arb_config['min_profit']:
+                opportunities.append({
+                    'type': 'arbitrage',
+                    'pair': token_pair,
+                    'buy_on': best_buy['dex'],
+                    'sell_on': best_sell['dex'],
+                    'profit': profit,
+                    'execution': self._build_flash_loan_tx(best_buy, best_sell)
+                })
+                
+        return opportunities
+        
+    async def _scan_mempool_opportunities(self) -> List[Dict]:
+        """Monitor mempool for sandwich opportunities"""
+        pending_txs = await self._get_pending_swaps()
+        opportunities = []
+        
+        for tx in pending_txs:
+            if self._is_sandwichable(tx):
+                front_run_tx = self._build_front_run_tx(tx)
+                back_run_tx = self._build_back_run_tx(tx)
+                
+                opportunities.append({
+                    'type': 'sandwich',
+                    'target_tx': tx['hash'],
+                    'front_run': front_run_tx,
+                    'back_run': back_run_tx,
+                    'estimated_profit': self._estimate_sandwich_profit(tx)
+                })
+                
+        return opportunities
+
+    def _is_sandwichable(self, tx: Dict) -> bool:
+        """Check if transaction can be sandwiched"""
+        return (
+            tx['value'] > self.config.get('min_sandwich_size', 5 * 10**18) and  # 5 ETH
+            tx['gas_price'] < self.config.get('max_sandwich_gas', 100 * 10**9)  # 100 gwei
+        )
 
 class RoboAdvisor:
     def __init__(self, config: Dict):
