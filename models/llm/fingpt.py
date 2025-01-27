@@ -52,7 +52,7 @@ class FinGPT(BaseLLM):
             
         # Setup model configs
         model_config = config.get('llm', {}).get('fingpt', {})
-        self.base_model = model_config.get('base_model', "tiiuae/falcon-7b")
+        self.base_model = model_config.get('base_model', "tiiuae/falcon-7b")  # Full HF path
         self.peft_model = model_config.get('peft_model', "FinGPT/fingpt-mt_falcon-7b_lora")
         self.from_remote = model_config.get('from_remote', True)
         
@@ -77,22 +77,13 @@ class FinGPT(BaseLLM):
         self._load_model()
 
     def _load_model(self):
-        """
-        Initialize and load the FinGPT model with proper device handling.
-        
-        This method handles:
-        1. Tokenizer initialization with proper caching
-        2. Base model loading with memory optimization
-        3. PEFT adapter integration
-        4. Device placement (CPU/CUDA)
-        
-        Raises:
-            RuntimeError: If model loading fails
-            ValueError: If required configurations are missing
-        """
+        """Initialize and load the FinGPT model"""
         try:
             model_path = self._convert_to_ggml()
             
+            if not model_path or not model_path.exists():
+                raise ValueError(f"Invalid model path: {model_path}")
+                
             # Initialize llama.cpp model
             self.model = Llama(
                 model_path=str(model_path),
@@ -100,64 +91,56 @@ class FinGPT(BaseLLM):
                 n_threads=self.n_threads,
                 n_gpu_layers=self.n_gpu_layers
             )
-            
+                
         except Exception as e:
             raise RuntimeError(f"Failed to load FinGPT model: {str(e)}")
 
     def _convert_to_ggml(self) -> Path:
-        """
-        Convert model to GGML format for llama.cpp
-        
-        Returns:
-            Path: Path to converted GGML model file
-        
-        Raises:
-            RuntimeError: If conversion fails
-        """
-        ggml_path = self.model_cache_dir / "ggml-model-f16.bin"
-        
-        if not ggml_path.exists():
-            try:
+        """Convert model to GGML format"""
+        try:
+            ggml_path = self.model_cache_dir / "ggml-model-f16.bin"
+            
+            if not ggml_path.exists():
+                import ctranslate2
                 from transformers import AutoModelForCausalLM
-                import subprocess
                 import logging
                 
-                # First ensure PEFT model is downloaded
-                peft_path = self._ensure_peft_model_downloaded()
+                logger = logging.getLogger(__name__)
+                logger.info("Loading base model...")
                 
-                # Verify input path contents
-                input_files = list(Path(peft_path).glob("*"))
-                if not input_files:
-                    raise RuntimeError(f"No files found in input directory: {peft_path}")
-                    
-                logging.info(f"Converting model from {peft_path} to GGML format")
+                # First save model in HF format
+                temp_dir = self.model_cache_dir / "temp_convert"
+                temp_dir.mkdir(exist_ok=True)
                 
-                # Use llama.cpp's convert.py script
-                result = subprocess.run(
-                    [
-                        sys.executable,  # Use current Python interpreter
-                        str(Path(__file__).parent / "convert.py"),
-                        "--input-dir", str(peft_path),
-                        "--output", str(ggml_path),
-                        "--outtype", "f16"
-                    ],
-                    check=False,  # Don't raise exception immediately
-                    capture_output=True,
-                    text=True
+                model = AutoModelForCausalLM.from_pretrained(
+                    self.base_model,
+                    token=self.token,
+                    trust_remote_code=True
+                )
+                model.save_pretrained(str(temp_dir))
+                
+                logger.info("Converting to quantized format...")
+                # Convert using correct ctranslate2 arguments
+                ctranslate2.convert_model(
+                    model_path=str(temp_dir),
+                    output_dir=str(temp_dir / "quantized"),
+                    quantization="float16",
+                    force=True
                 )
                 
-                if result.returncode != 0:
-                    raise RuntimeError(
-                        f"Model conversion failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
-                    )
-                    
-                if not ggml_path.exists():
-                    raise RuntimeError("Conversion completed but output file not found")
-                    
-            except Exception as e:
-                raise RuntimeError(f"Failed to convert model to GGML format: {str(e)}")
+                # Move final file to correct location
+                converted_path = temp_dir / "quantized" / "model.bin"
+                if converted_path.exists():
+                    import shutil
+                    shutil.copy2(converted_path, ggml_path)
+                    shutil.rmtree(temp_dir)
+                else:
+                    raise RuntimeError("Conversion failed: output file not found")
                 
-        return ggml_path
+            return ggml_path
+                
+        except Exception as e:
+            raise RuntimeError(f"Failed to convert model to GGML format: {str(e)}")
 
     def _ensure_peft_model_downloaded(self) -> str:
         """Download and verify PEFT model files"""
