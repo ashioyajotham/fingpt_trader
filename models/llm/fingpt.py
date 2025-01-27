@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from llama_cpp import Llama
+import sys
 
 import torch
 from peft import PeftModel
@@ -104,76 +105,96 @@ class FinGPT(BaseLLM):
             raise RuntimeError(f"Failed to load FinGPT model: {str(e)}")
 
     def _convert_to_ggml(self) -> Path:
-        """Convert model to GGML format"""
+        """
+        Convert model to GGML format for llama.cpp
+        
+        Returns:
+            Path: Path to converted GGML model file
+        
+        Raises:
+            RuntimeError: If conversion fails
+        """
         ggml_path = self.model_cache_dir / "ggml-model-f16.bin"
         
         if not ggml_path.exists():
-            from transformers import AutoModelForCausalLM
-            import subprocess
-            
-            # First ensure PEFT model is downloaded
-            peft_path = self._ensure_peft_model_downloaded()
-            
-            # Convert using llama.cpp convert script
-            convert_script = Path(__file__).parent / "convert.py"
-            subprocess.run([
-                "python", str(convert_script),
-                "--input-dir", str(peft_path),
-                "--output", str(ggml_path),
-                "--outtype", "f16"
-            ], check=True)
-            
+            try:
+                from transformers import AutoModelForCausalLM
+                import subprocess
+                import logging
+                
+                # First ensure PEFT model is downloaded
+                peft_path = self._ensure_peft_model_downloaded()
+                
+                # Verify input path contents
+                input_files = list(Path(peft_path).glob("*"))
+                if not input_files:
+                    raise RuntimeError(f"No files found in input directory: {peft_path}")
+                    
+                logging.info(f"Converting model from {peft_path} to GGML format")
+                
+                # Use llama.cpp's convert.py script
+                result = subprocess.run(
+                    [
+                        sys.executable,  # Use current Python interpreter
+                        str(Path(__file__).parent / "convert.py"),
+                        "--input-dir", str(peft_path),
+                        "--output", str(ggml_path),
+                        "--outtype", "f16"
+                    ],
+                    check=False,  # Don't raise exception immediately
+                    capture_output=True,
+                    text=True
+                )
+                
+                if result.returncode != 0:
+                    raise RuntimeError(
+                        f"Model conversion failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+                    )
+                    
+                if not ggml_path.exists():
+                    raise RuntimeError("Conversion completed but output file not found")
+                    
+            except Exception as e:
+                raise RuntimeError(f"Failed to convert model to GGML format: {str(e)}")
+                
         return ggml_path
 
     def _ensure_peft_model_downloaded(self) -> str:
-        """
-        Download and verify PEFT model files.
-        
-        Downloads required model files from HuggingFace Hub and ensures
-        proper local setup. Handles both remote and local model paths.
-        
-        Required files:
-        - config.json: Model configuration
-        - adapter_config.json: PEFT adapter configuration
-        - adapter_model.bin: Model weights
-        
-        Returns:
-            str: Path to downloaded model directory
-            
-        Raises:
-            RuntimeError: If download or verification fails
-        """
-        from huggingface_hub import snapshot_download, hf_hub_download
+        """Download and verify PEFT model files"""
+        from huggingface_hub import snapshot_download, create_repo, HfApi
         import shutil
         
         try:
-            # Setup model directory
-            model_dir = self.checkpoint_dir / self.peft_model.split('/')[-1]
-            if model_dir.exists():
-                shutil.rmtree(model_dir)
-            model_dir.mkdir(parents=True, exist_ok=True)
+            # Initialize HF API
+            api = HfApi()
             
-            # Download required files individually
-            required_files = ['config.json', 'adapter_config.json', 'adapter_model.bin']
-            for filename in required_files:
-                try:
-                    file_path = hf_hub_download(
-                        repo_id=self.peft_model,
-                        filename=filename,
-                        token=self.token,
-                        cache_dir=str(model_dir),
-                        local_files_only=False,
-                        resume_download=True
-                    )
-                    # Copy to final location if needed
-                    if Path(file_path).parent != model_dir:
-                        shutil.copy2(file_path, model_dir / filename)
-                except Exception as e:
-                    raise RuntimeError(f"Failed to download {filename}: {str(e)}")
+            # Get model files info first
+            model_info = api.model_info(
+                repo_id=self.peft_model,
+                token=self.token
+            )
             
-            return str(model_dir)
-                    
+            # Use snapshot_download with verified info
+            model_path = snapshot_download(
+                repo_id=self.peft_model,
+                token=self.token,
+                cache_dir=str(self.checkpoint_dir),
+                local_files_only=False,
+                resume_download=True,
+                allow_patterns=["*.json", "*.bin", "*.model"]  # Include all relevant files
+            )
+            
+            # Verify download
+            if not Path(model_path).exists():
+                raise RuntimeError(f"Model download failed: {model_path} not found")
+                
+            return model_path
+            
         except Exception as e:
+            if not self.from_remote:
+                local_path = Path("finetuned_models/MT-falcon-linear_202309210126")
+                if local_path.exists():
+                    return str(local_path)
             raise RuntimeError(f"Failed to download PEFT model: {str(e)}")
 
     def _ensure_model_files(self):
