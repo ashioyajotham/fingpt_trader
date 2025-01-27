@@ -20,7 +20,7 @@ from models.market.inefficiency import MarketInefficencyDetector
 from models.sentiment.analyzer import SentimentAnalyzer
 from models.portfolio.optimization import PortfolioOptimizer
 from models.portfolio.risk import RiskManager
-from services.trading.robo_service import RoboService, RoboAdvisor
+from services.trading.robo_service import RoboService
 
 class TradingSystem:
     def __init__(self, config_path: str):

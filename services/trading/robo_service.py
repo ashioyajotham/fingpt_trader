@@ -3,6 +3,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import numpy as np
 from dataclasses import dataclass
+from datetime import datetime
+import logging
 
 # Add project root to path
 root_dir = str(Path(__file__).parent.parent)
@@ -12,13 +14,30 @@ from models.portfolio.rebalancing import Portfolio
 from services.base_service import BaseService
 
 class RoboService(BaseService):
-    """Main robo service that coordinates advisory and execution"""
+    """
+    Main robo service that coordinates advisory and execution.
+    
+    Responsibilities:
+    - Portfolio rebalancing
+    - Client profile management
+    - ESG compliance checking
+    - Tax-loss harvesting
+    - Risk monitoring
+    
+    Attributes:
+        portfolio: Current portfolio state
+        advisor: Robo advisor instance for decisions
+        last_rebalance: Timestamp of last rebalance
+        client_profiles: Dict of client profiles and preferences
+    """
+    
     def __init__(self, config: Optional[Dict] = None):
-        super().__init__(config)
+        self.config = config or {}
         self.portfolio = Portfolio()
-        self.advisor = RoboAdvisor(config or {})
+        self.advisor = RoboAdvisor(self.config)
         self.last_rebalance = None
         self.client_profiles = {}
+        self.logger = logging.getLogger(__name__)
 
     async def _setup(self) -> None:
         """Initialize the robo service"""
