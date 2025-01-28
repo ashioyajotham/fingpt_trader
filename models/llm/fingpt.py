@@ -84,14 +84,32 @@ class FinGPT(BaseLLM):
     def _load_model(self):
         """Initialize and load the FinGPT model"""
         try:
-            model_path = self._convert_to_ggml()
-            
-            if not model_path or not model_path.exists():
-                raise ValueError(f"Invalid model path: {model_path}")
+            # First download base model
+            base_model_path = self.checkpoint_dir / "base_model"
+            if not base_model_path.exists():
+                logger.info(f"Downloading base model {self.base_model}")
+                model = AutoModelForCausalLM.from_pretrained(
+                    self.base_model,
+                    token=self.token,
+                    trust_remote_code=True
+                )
+                tokenizer = AutoTokenizer.from_pretrained(
+                    self.base_model,
+                    token=self.token,
+                    trust_remote_code=True
+                )
+                model.save_pretrained(base_model_path)
+                tokenizer.save_pretrained(base_model_path)
+
+            # Then convert to GGML
+            ggml_path = self._convert_to_ggml(base_model_path)
+                
+            if not ggml_path.exists():
+                raise ValueError(f"GGML model not found at: {ggml_path}")
                 
             # Initialize llama.cpp model
             self.model = Llama(
-                model_path=str(model_path),
+                model_path=str(ggml_path),
                 n_ctx=self.n_ctx,
                 n_threads=self.n_threads,
                 n_gpu_layers=self.n_gpu_layers
@@ -100,38 +118,34 @@ class FinGPT(BaseLLM):
         except Exception as e:
             raise RuntimeError(f"Failed to load FinGPT model: {str(e)}")
 
-    def _convert_to_ggml(self) -> Path:
+    def _convert_to_ggml(self, model_path: Path) -> Path:
         """Convert model to GGML format"""
         try:
             ggml_path = self.model_cache_dir / "ggml-model-f16.bin"
             
             if not ggml_path.exists():
-                # First ensure PEFT model is downloaded
-                peft_path = self._ensure_peft_model_downloaded()
-                logger.info(f"Using PEFT model from: {peft_path}")
+                logger.info(f"Converting model from {model_path} to GGML format")
                 
-                # Call convert.py with proper error capture
                 convert_script = Path(__file__).parent / "convert.py"
                 result = subprocess.run([
                     sys.executable,
                     str(convert_script),
-                    "--model-dir", str(peft_path),
+                    "--model-dir", str(model_path),
                     "--outfile", str(ggml_path),
                     "--outtype", "f16"
-                ], capture_output=True, text=True)
+                ], capture_output=True, text=True, env={
+                    **os.environ,
+                    "HUGGING_FACE_HUB_TOKEN": self.token,
+                    "TRANSFORMERS_CACHE": str(self.checkpoint_dir)
+                })
                 
                 if result.returncode != 0:
                     error_msg = result.stderr or result.stdout
-                    logger.error(f"Conversion output:\n{error_msg}")
-                    raise RuntimeError(f"Model conversion failed: {error_msg}")
-                
-                if not ggml_path.exists():
-                    raise RuntimeError(f"Expected GGML model not found at: {ggml_path}")
+                    raise RuntimeError(f"Model conversion failed:\n{error_msg}")
             
             return ggml_path
                 
         except Exception as e:
-            logger.error(f"GGML conversion failed: {str(e)}")
             raise RuntimeError(f"Failed to convert model to GGML format: {str(e)}")
 
     def _ensure_peft_model_downloaded(self) -> str:
