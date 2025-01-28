@@ -57,7 +57,7 @@ class FinGPT(BaseLLM):
             
         # Setup model configs
         model_config = config.get('llm', {}).get('fingpt', {})
-        self.base_model = model_config.get('base_model', "tiiuae/falcon-7b")  # Full HF path
+        self.base_model = model_config.get('base_model', "tiiuae/falcon-7b")
         self.peft_model = model_config.get('peft_model', "FinGPT/fingpt-mt_falcon-7b_lora")
         self.from_remote = model_config.get('from_remote', True)
         
@@ -108,27 +108,30 @@ class FinGPT(BaseLLM):
             if not ggml_path.exists():
                 # First ensure PEFT model is downloaded
                 peft_path = self._ensure_peft_model_downloaded()
+                logger.info(f"Using PEFT model from: {peft_path}")
                 
-                logger = logging.getLogger(__name__)
-                logger.info(f"Converting model from {peft_path} to GGML format")
-                
+                # Call convert.py with proper error capture
                 convert_script = Path(__file__).parent / "convert.py"
                 result = subprocess.run([
                     sys.executable,
                     str(convert_script),
                     "--model-dir", str(peft_path),
-                    "--outfile", str(ggml_path)
+                    "--outfile", str(ggml_path),
+                    "--outtype", "f16"
                 ], capture_output=True, text=True)
                 
                 if result.returncode != 0:
-                    raise RuntimeError(f"Conversion failed:\n{result.stderr}")
+                    error_msg = result.stderr or result.stdout
+                    logger.error(f"Conversion output:\n{error_msg}")
+                    raise RuntimeError(f"Model conversion failed: {error_msg}")
                 
                 if not ggml_path.exists():
-                    raise RuntimeError("Conversion completed but output file not found")
+                    raise RuntimeError(f"Expected GGML model not found at: {ggml_path}")
             
             return ggml_path
                 
         except Exception as e:
+            logger.error(f"GGML conversion failed: {str(e)}")
             raise RuntimeError(f"Failed to convert model to GGML format: {str(e)}")
 
     def _ensure_peft_model_downloaded(self) -> str:

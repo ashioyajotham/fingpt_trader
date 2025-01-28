@@ -10,28 +10,35 @@ logger = logging.getLogger(__name__)
 def convert_model(model_dir: str, output_path: str, model_type: str = "f16"):
     """Convert transformer model to GGML format"""
     try:
+        # Verify input path exists
+        if not Path(model_dir).exists():
+            raise ValueError(f"Model directory does not exist: {model_dir}")
+            
+        # Ensure output directory exists
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        
         logger.info(f"Loading model from {model_dir}")
         model = AutoModelForCausalLM.from_pretrained(
             model_dir,
             torch_dtype=torch.float16 if model_type == "f16" else torch.float32,
-            low_cpu_mem_usage=True
+            low_cpu_mem_usage=True,
+            trust_remote_code=True
         )
         
         logger.info("Converting to GGML format...")
-        # Use llama.cpp's built-in conversion
+        # Use llama.cpp's built-in conversion with proper flags
         from llama_cpp import Llama
-        Llama.convert_hf_to_ggml(
-            source_dir=model_dir,
-            output_path=output_path,
-            vocab_type="spm",  # sentencepiece for falcon
-            dtype=torch.float16 if model_type == "f16" else torch.float32
+        Llama.convert(
+            model_path=str(model_dir),
+            outfile=str(output_path),
+            outtype="f16"
         )
         
         logger.info(f"Model converted successfully to {output_path}")
         return True
         
     except Exception as e:
-        logger.error(f"Conversion failed: {str(e)}")
+        logger.error(f"Conversion error: {str(e)}")
         return False
 
 def main():
