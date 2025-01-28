@@ -12,6 +12,8 @@ from transformers import (
 
 class BaseLLM(ABC):
     def __init__(self, model_config: Dict[str, Any]):
+        """Initialize base LLM class"""
+        self.model_config = model_config
         self.config = model_config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model: Optional[PreTrainedModel] = None

@@ -1,9 +1,91 @@
 llm:
   fingpt:
-    base_model: "tiiuae/falcon-7b"  # Full HuggingFace path
-    peft_model: "FinGPT/fingpt-mt_falcon-7b_lora"
-    from_remote: true
+    model:
+      base:
+        name: "tiiuae/falcon-7b"
+        revision: "main"
+        trust_remote_code: true
+        dtype: "float16"
+        low_cpu_mem_usage: true
+      
+      peft:
+        name: "FinGPT/fingpt-mt_falcon-7b_lora"
+        adapter_type: "lora"
+        inference_mode: true
+      
+      conversion:
+        format: "ggml"
+        precision: "f16"
+        quantization:
+          type: "q4_0"
+          bits: 4
+      
+      inference:
+        n_ctx: 2048
+        n_threads: 4
+        n_gpu_layers: 0
+        batch_size: 1
+      
     cache:
       base_dir: "%LOCALAPPDATA%/fingpt_trader"
-      model_dir: "models"
-      temp_dir: "temp"
+      subdirs:
+        models: "models"
+        checkpoints: "checkpoints"
+        tokenizers: "tokenizers"
+        cache: "cache"
+      
+    tokenizer:
+      max_length: 2048
+      padding: true
+      truncation: true
+      
+    generation:
+      max_length: 128
+      min_length: 1
+      temperature: 0.7
+      top_p: 0.9
+      num_beams: 1
+  base:
+    model: "tiiuae/falcon-7b"
+    revision: "main"
+    trust_remote_code: true
+    dtype: "float16"
+    
+  peft:
+    model: "FinGPT/fingpt-mt_falcon-7b_lora"
+    
+  inference:
+    n_ctx: 2048
+    n_threads: 4
+    n_gpu_layers: 0
+    
+  cache:
+    base_dir: "%LOCALAPPDATA%/fingpt_trader"
+    models: "models"
+    checkpoints: "checkpoints"
+
+fingpt:
+  base:
+    model: "tiiuae/falcon-7b"
+    revision: "main"
+    trust_remote_code: true
+    dtype: "float16"
+    
+  peft:
+    model: "FinGPT/fingpt-mt_falcon-7b_lora"
+    adapter_type: "lora"
+    inference_mode: true
+    
+  inference:
+    n_ctx: 2048
+    n_threads: 4
+    n_gpu_layers: 0
+    batch_size: 1
+    max_tokens: 100
+    temperature: 0.1
+    top_p: 0.95
+    
+  cache:
+    base_dir: "%LOCALAPPDATA%/fingpt_trader"
+    models: "models"
+    checkpoints: "checkpoints"

@@ -29,6 +29,8 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import json
 import struct
+import numpy as np
+from typing import Dict, Any
 
 # Configure logging
 logging.basicConfig(
@@ -36,6 +38,31 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+def _prepare_falcon_weights(model: AutoModelForCausalLM) -> Dict[str, np.ndarray]:
+    """Prepare Falcon weights in LLAMA-compatible format"""
+    weights = {}
+    
+    # Map Falcon layers to LLAMA format
+    layer_map = {
+        "transformer.word_embeddings": "tok_embeddings.weight",
+        "transformer.h.{}.self_attention.query_key_value": "layers.{}.attention.wqkv",
+        "transformer.h.{}.self_attention.dense": "layers.{}.attention.wo",
+        "transformer.h.{}.mlp.dense_h_to_4h": "layers.{}.feed_forward.w1",
+        "transformer.h.{}.mlp.dense_4h_to_h": "layers.{}.feed_forward.w2",
+        "transformer.ln_f": "norm.weight",
+    }
+    
+    for name, param in model.named_parameters():
+        # Convert parameter name to LLAMA format
+        for falcon_pattern, llama_pattern in layer_map.items():
+            if falcon_pattern.format("\\d+") in name:
+                layer_num = name.split(".")[2]
+                new_name = llama_pattern.format(layer_num)
+                weights[new_name] = param.detach().cpu().numpy()
+                break
+    
+    return weights
 
 def convert_model(model_dir: str, output_path: str, model_type: str = "f16") -> bool:
     """Convert Falcon model to llama.cpp compatible format"""
@@ -45,48 +72,39 @@ def convert_model(model_dir: str, output_path: str, model_type: str = "f16") -> 
             
         logger.info(f"Loading Falcon model from {model_dir}")
         
-        # Load model and tokenizer
+        # Load model with specific dtype
+        dtype = torch.float16 if model_type == "f16" else torch.float32
         model = AutoModelForCausalLM.from_pretrained(
             model_dir,
-            torch_dtype=torch.float16 if model_type == "f16" else torch.float32,
+            torch_dtype=dtype,
             trust_remote_code=True,
             low_cpu_mem_usage=True
         )
-        tokenizer = AutoTokenizer.from_pretrained(model_dir)
         
-        # Create llama.cpp compatible format
-        logger.info("Converting to llama.cpp format...")
+        # Prepare LLAMA-compatible weights
+        weights = _prepare_falcon_weights(model)
         
-        # Get model params
-        config = model.config
-        vocab_size = config.vocab_size
-        hidden_size = config.hidden_size
-        num_attention_heads = config.num_attention_heads
+        # Write in GGML format
+        logger.info("Writing GGML binary...")
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         
-        # Prepare header
-        header = {
-            "vocab_size": vocab_size,
-            "dim": hidden_size,
-            "multiple_of": 256,
-            "n_heads": num_attention_heads,
-            "n_layers": config.num_hidden_layers
-        }
-        
-        # Write model in llama.cpp binary format
         with open(output_path, 'wb') as f:
-            # Write magic number for llama.cpp
-            f.write(struct.pack('i', 0x67676D6C))  # 'ggml' in hex
+            # Write GGML magic and version
+            f.write(struct.pack('i', 0x67676d6c))  # 'ggml'
+            f.write(struct.pack('i', 1))  # version
             
-            # Write header
-            f.write(json.dumps(header).encode('utf-8'))
+            # Write model params
+            f.write(struct.pack('i', model.config.vocab_size))
+            f.write(struct.pack('i', model.config.hidden_size))
+            f.write(struct.pack('i', model.config.num_attention_heads))
+            f.write(struct.pack('i', model.config.num_hidden_layers))
             
-            # Write weights in fp16/fp32
-            for name, param in model.named_parameters():
-                if model_type == "f16":
-                    param_data = param.to(torch.float16).cpu().numpy()
-                else:
-                    param_data = param.cpu().numpy()
-                param_data.tofile(f)
+            # Write weights
+            for name, weight in weights.items():
+                f.write(struct.pack('i', len(name)))
+                f.write(name.encode('utf-8'))
+                f.write(struct.pack('i' * len(weight.shape), *weight.shape))
+                weight.astype(np.float16 if model_type == "f16" else np.float32).tofile(f)
         
         logger.info(f"Model converted successfully to {output_path}")
         return True

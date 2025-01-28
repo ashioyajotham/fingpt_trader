@@ -111,13 +111,4 @@ logging:
 
 sentiment:
   fingpt_config:
-    llm:
-      fingpt:
-        base_model: "tiiuae/falcon-7b"
-        peft_model: "FinGPT/fingpt-mt_falcon-7b_lora"
-        from_remote: true
-        cache:
-          base_dir: "%LOCALAPPDATA%/fingpt_trader"
-          model_dir: "models"
-          offload_dir: "offload"
-          checkpoints_dir: "checkpoints"
+    config_path: "config/model.yaml"

@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from llama_cpp import Llama
 import sys
+import yaml
 
 import torch
 from peft import PeftModel
@@ -46,77 +47,102 @@ class FinGPT(BaseLLM):
         postprocess(outputs: List[str]) -> List[str]: Process model outputs
     """
     def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
-        self.config = config
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-        # Get token
-        self.token = os.getenv("HUGGINGFACE_TOKEN")
-        if not self.token:
-            raise ValueError("HUGGINGFACE_TOKEN not found in environment")
+        """Initialize FinGPT with configuration"""
+        try:
+            # Load model config if specified
+            if 'config_path' in config:
+                config_path = Path(config['config_path'])
+                if not config_path.exists():
+                    raise ValueError(f"Config file not found: {config_path}")
+                    
+                with open(config_path) as f:
+                    model_config = yaml.safe_load(f)
+                    if 'fingpt' not in model_config:
+                        raise ValueError(f"Missing 'fingpt' section in {config_path}")
+                    model_config = model_config['fingpt']
+            else:
+                model_config = config.get('llm', {}).get('fingpt', {})
             
-        # Setup model configs
-        model_config = config.get('llm', {}).get('fingpt', {})
-        self.base_model = model_config.get('base_model', "tiiuae/falcon-7b")
-        self.peft_model = model_config.get('peft_model', "FinGPT/fingpt-mt_falcon-7b_lora")
-        self.from_remote = model_config.get('from_remote', True)
-        
-        # Setup cache directories
-        cache_config = model_config.get('cache', {})
-        base_dir = os.path.expandvars(cache_config.get('base_dir', '%LOCALAPPDATA%/fingpt_trader'))
-        self.model_cache_dir = Path(base_dir) / cache_config.get('model_dir', 'models')
-        self.offload_folder = self.model_cache_dir / cache_config.get('offload_dir', 'offload')
-        self.checkpoint_dir = self.model_cache_dir / cache_config.get('checkpoints_dir', 'checkpoints')
-        
-        # Create directories with explicit permissions
-        for dir_path in [self.model_cache_dir, self.offload_folder, self.checkpoint_dir]:
-            dir_path.mkdir(parents=True, exist_ok=True)
-            os.chmod(str(dir_path), 0o755)  # Set proper permissions
+            super().__init__(model_config)
             
-        # Add llama.cpp config
-        llama_config = model_config.get('llama_cpp', {})
-        self.n_ctx = llama_config.get('n_ctx', 2048)
-        self.n_threads = llama_config.get('n_threads', os.cpu_count())
-        self.n_gpu_layers = llama_config.get('n_gpu_layers', -1 if torch.cuda.is_available() else 0)
-        
-        self._load_model()
+            # Model paths and configuration
+            base_config = model_config.get('base', {})
+            peft_config = model_config.get('peft', {})
+            inference_config = model_config.get('inference', {})
+            cache_config = model_config.get('cache', {})
+            
+            self.base_model = base_config.get('model', "tiiuae/falcon-7b")
+            self.peft_model = peft_config.get('model', "FinGPT/fingpt-mt_falcon-7b_lora")
+            
+            # Cache directories
+            base_dir = Path(os.path.expandvars(cache_config.get('base_dir', '%LOCALAPPDATA%/fingpt_trader')))
+            self.model_cache_dir = base_dir / cache_config.get('models', 'models')
+            self.checkpoint_dir = base_dir / cache_config.get('checkpoints', 'checkpoints')
+            
+            # LLAMA.cpp parameters
+            self.n_ctx = inference_config.get('n_ctx', 2048)
+            self.n_threads = inference_config.get('n_threads', 4)
+            self.n_gpu_layers = inference_config.get('n_gpu_layers', 0)
+            
+            self._load_model()
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize FinGPT: {str(e)}")
+            raise
 
     def _load_model(self):
         """Initialize and load the FinGPT model"""
         try:
-            # First download base model
-            base_model_path = self.checkpoint_dir / "base_model"
-            if not base_model_path.exists():
-                logger.info(f"Downloading base model {self.base_model}")
-                model = AutoModelForCausalLM.from_pretrained(
-                    self.base_model,
-                    token=self.token,
-                    trust_remote_code=True
-                )
-                tokenizer = AutoTokenizer.from_pretrained(
-                    self.base_model,
-                    token=self.token,
-                    trust_remote_code=True
-                )
-                model.save_pretrained(base_model_path)
-                tokenizer.save_pretrained(base_model_path)
-
-            # Then convert to GGML
-            ggml_path = self._convert_to_ggml(base_model_path)
-                
+            # Ensure model directories exist
+            self.model_cache_dir.mkdir(parents=True, exist_ok=True)
+            self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Check for existing GGML model
+            ggml_path = self.model_cache_dir / "ggml-model-f16.bin"
+            
             if not ggml_path.exists():
-                raise ValueError(f"GGML model not found at: {ggml_path}")
+                # Download and convert model if needed
+                base_model_path = self._ensure_base_model_downloaded()
                 
-            # Initialize llama.cpp model
+                # Convert to GGML format
+                from .convert import convert_model
+                success = convert_model(
+                    model_dir=str(base_model_path),
+                    output_path=str(ggml_path),
+                    model_type="f16"
+                )
+                
+                if not success:
+                    raise RuntimeError("Model conversion failed")
+            
+            # Initialize LLAMA.cpp model
             self.model = Llama(
                 model_path=str(ggml_path),
                 n_ctx=self.n_ctx,
                 n_threads=self.n_threads,
                 n_gpu_layers=self.n_gpu_layers
             )
-                
+            
         except Exception as e:
             raise RuntimeError(f"Failed to load FinGPT model: {str(e)}")
+
+    def _ensure_base_model_downloaded(self) -> Path:
+        """Download base model if not present"""
+        model_path = self.checkpoint_dir / "base_model"
+        
+        if not model_path.exists():
+            logger.info(f"Downloading base model {self.base_model}")
+            model = AutoModelForCausalLM.from_pretrained(
+                self.base_model,
+                trust_remote_code=True,
+                low_cpu_mem_usage=True
+            )
+            tokenizer = AutoTokenizer.from_pretrained(self.base_model)
+            
+            model.save_pretrained(model_path)
+            tokenizer.save_pretrained(model_path)
+            
+        return model_path
 
     def _convert_to_ggml(self, model_path: Path) -> Path:
         """Convert model to GGML format"""
