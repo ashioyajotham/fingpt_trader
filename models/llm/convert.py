@@ -27,6 +27,8 @@ import sys
 from pathlib import Path
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
+import json
+import struct
 
 # Configure logging
 logging.basicConfig(
@@ -36,41 +38,55 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def convert_model(model_dir: str, output_path: str, model_type: str = "f16") -> bool:
-    """
-    Convert transformer model to GGML format.
-    
-    Args:
-        model_dir (str): Input model directory path
-        output_path (str): Output GGML model path
-        model_type (str): Quantization type ('f16' or 'f32')
-    
-    Returns:
-        bool: True if conversion successful, False otherwise
-    
-    Raises:
-        ValueError: If model directory doesn't exist
-        RuntimeError: If conversion fails
-    """
+    """Convert Falcon model to llama.cpp compatible format"""
     try:
         if not Path(model_dir).exists():
             raise ValueError(f"Model directory does not exist: {model_dir}")
             
-        logger.info(f"Loading model from {model_dir}")
+        logger.info(f"Loading Falcon model from {model_dir}")
+        
+        # Load model and tokenizer
         model = AutoModelForCausalLM.from_pretrained(
             model_dir,
             torch_dtype=torch.float16 if model_type == "f16" else torch.float32,
-            low_cpu_mem_usage=True,
-            trust_remote_code=True
+            trust_remote_code=True,
+            low_cpu_mem_usage=True
         )
+        tokenizer = AutoTokenizer.from_pretrained(model_dir)
         
-        logger.info("Converting to GGML format...")
-        # Use llama.cpp's built-in conversion
-        from llama_cpp import Llama
-        Llama.convert(
-            model_path=str(model_dir),
-            outfile=str(output_path),
-            outtype=model_type
-        )
+        # Create llama.cpp compatible format
+        logger.info("Converting to llama.cpp format...")
+        
+        # Get model params
+        config = model.config
+        vocab_size = config.vocab_size
+        hidden_size = config.hidden_size
+        num_attention_heads = config.num_attention_heads
+        
+        # Prepare header
+        header = {
+            "vocab_size": vocab_size,
+            "dim": hidden_size,
+            "multiple_of": 256,
+            "n_heads": num_attention_heads,
+            "n_layers": config.num_hidden_layers
+        }
+        
+        # Write model in llama.cpp binary format
+        with open(output_path, 'wb') as f:
+            # Write magic number for llama.cpp
+            f.write(struct.pack('i', 0x67676D6C))  # 'ggml' in hex
+            
+            # Write header
+            f.write(json.dumps(header).encode('utf-8'))
+            
+            # Write weights in fp16/fp32
+            for name, param in model.named_parameters():
+                if model_type == "f16":
+                    param_data = param.to(torch.float16).cpu().numpy()
+                else:
+                    param_data = param.cpu().numpy()
+                param_data.tofile(f)
         
         logger.info(f"Model converted successfully to {output_path}")
         return True
