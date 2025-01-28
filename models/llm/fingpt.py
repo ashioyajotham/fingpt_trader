@@ -11,6 +11,11 @@ from accelerate import init_empty_weights, load_checkpoint_and_dispatch
 
 from .base import BaseLLM
 
+import subprocess
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class FinGPT(BaseLLM):
     """
@@ -101,42 +106,26 @@ class FinGPT(BaseLLM):
             ggml_path = self.model_cache_dir / "ggml-model-f16.bin"
             
             if not ggml_path.exists():
-                import ctranslate2
-                from transformers import AutoModelForCausalLM
-                import logging
+                # First ensure PEFT model is downloaded
+                peft_path = self._ensure_peft_model_downloaded()
                 
                 logger = logging.getLogger(__name__)
-                logger.info("Loading base model...")
+                logger.info(f"Converting model from {peft_path} to GGML format")
                 
-                # First save model in HF format
-                temp_dir = self.model_cache_dir / "temp_convert"
-                temp_dir.mkdir(exist_ok=True)
+                convert_script = Path(__file__).parent / "convert.py"
+                result = subprocess.run([
+                    sys.executable,
+                    str(convert_script),
+                    "--model-dir", str(peft_path),
+                    "--outfile", str(ggml_path)
+                ], capture_output=True, text=True)
                 
-                model = AutoModelForCausalLM.from_pretrained(
-                    self.base_model,
-                    token=self.token,
-                    trust_remote_code=True
-                )
-                model.save_pretrained(str(temp_dir))
+                if result.returncode != 0:
+                    raise RuntimeError(f"Conversion failed:\n{result.stderr}")
                 
-                logger.info("Converting to quantized format...")
-                # Convert using correct ctranslate2 arguments
-                ctranslate2.convert_model(
-                    model_path=str(temp_dir),
-                    output_dir=str(temp_dir / "quantized"),
-                    quantization="float16",
-                    force=True
-                )
-                
-                # Move final file to correct location
-                converted_path = temp_dir / "quantized" / "model.bin"
-                if converted_path.exists():
-                    import shutil
-                    shutil.copy2(converted_path, ggml_path)
-                    shutil.rmtree(temp_dir)
-                else:
-                    raise RuntimeError("Conversion failed: output file not found")
-                
+                if not ggml_path.exists():
+                    raise RuntimeError("Conversion completed but output file not found")
+            
             return ggml_path
                 
         except Exception as e:
