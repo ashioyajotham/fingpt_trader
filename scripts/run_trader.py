@@ -1,5 +1,6 @@
-import asyncio
 import argparse
+import asyncio
+import logging
 from pathlib import Path
 import sys
 
@@ -7,10 +8,16 @@ import sys
 root_dir = str(Path(__file__).parent.parent)
 sys.path.insert(0, root_dir)
 
-from main import TradingSystem
-
-async def run_trading_system(config_path: str):
-    """Run the trading system with the specified configuration."""
+async def run_trading_system(config_path: str, verbose: bool = False):
+    # Configure logging
+    log_level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+    
+    # Initialize trading system
+    from main import TradingSystem
     system = TradingSystem(config_path=config_path)
     
     try:
@@ -28,11 +35,11 @@ async def run_trading_system(config_path: str):
 
 def main():
     parser = argparse.ArgumentParser(description='Run the FinGPT Trading System')
-    parser.add_argument('--config', type=str, default='config/trading.yaml',
-                      help='Path to configuration file')
+    parser.add_argument("--config", type=str, required=True, help="Path to config file")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     args = parser.parse_args()
     
-    asyncio.run(run_trading_system(args.config))
+    asyncio.run(run_trading_system(args.config, args.verbose))
 
 if __name__ == "__main__":
     main()

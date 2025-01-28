@@ -97,15 +97,23 @@ class FinGPT(BaseLLM):
             self.model_cache_dir.mkdir(parents=True, exist_ok=True)
             self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
             
-            # Check for existing GGML model
+            # Debug logging
+            logger.info(f"Model cache dir: {self.model_cache_dir}")
+            logger.info(f"Checkpoint dir: {self.checkpoint_dir}")
+            
             ggml_path = self.model_cache_dir / "ggml-model-f16.bin"
             
             if not ggml_path.exists():
-                # Download and convert model if needed
                 base_model_path = self._ensure_base_model_downloaded()
+                logger.info(f"Base model downloaded to: {base_model_path}")
                 
-                # Convert to GGML format
+                # Verify base model contents
+                if not (base_model_path / "pytorch_model.bin").exists():
+                    raise RuntimeError("Base model files incomplete")
+                
+                # Convert with detailed logging
                 from .convert import convert_model
+                logger.info("Starting model conversion...")
                 success = convert_model(
                     model_dir=str(base_model_path),
                     output_path=str(ggml_path),
@@ -114,35 +122,62 @@ class FinGPT(BaseLLM):
                 
                 if not success:
                     raise RuntimeError("Model conversion failed")
-            
-            # Initialize LLAMA.cpp model
+                
+                if not ggml_path.exists() or ggml_path.stat().st_size < 1_000_000:
+                    raise RuntimeError(f"GGML model file invalid: {ggml_path}")
+                    
+            logger.info(f"Loading GGML model from: {ggml_path}")
             self.model = Llama(
                 model_path=str(ggml_path),
                 n_ctx=self.n_ctx,
                 n_threads=self.n_threads,
                 n_gpu_layers=self.n_gpu_layers
             )
-            
+            logger.info("GGML model loaded successfully")
+                
         except Exception as e:
+            logger.error(f"Model loading failed: {str(e)}")
             raise RuntimeError(f"Failed to load FinGPT model: {str(e)}")
 
     def _ensure_base_model_downloaded(self) -> Path:
         """Download base model if not present"""
-        model_path = self.checkpoint_dir / "base_model"
-        
-        if not model_path.exists():
-            logger.info(f"Downloading base model {self.base_model}")
-            model = AutoModelForCausalLM.from_pretrained(
-                self.base_model,
-                trust_remote_code=True,
-                low_cpu_mem_usage=True
-            )
-            tokenizer = AutoTokenizer.from_pretrained(self.base_model)
+        try:
+            model_path = self.checkpoint_dir / "base_model"
             
-            model.save_pretrained(model_path)
-            tokenizer.save_pretrained(model_path)
+            if not model_path.exists() or not list(model_path.glob("*.bin")):
+                logger.info(f"Downloading base model {self.base_model}")
+                
+                # Get model config
+                base_config = self.config.get('model', {}).get('base', {})
+                
+                # Ensure token is available
+                if not hasattr(self, 'token'):
+                    self.token = os.getenv('HUGGINGFACE_TOKEN')
+                    if not self.token:
+                        raise ValueError("HuggingFace token not found. Set HUGGINGFACE_TOKEN environment variable")
+                
+                # Download in chunks to handle large files
+                from huggingface_hub import hf_hub_download, snapshot_download
+                logger.info("Downloading model files...")
+                
+                model_path.mkdir(parents=True, exist_ok=True)
+                snapshot_download(
+                    repo_id=self.base_model,
+                    local_dir=model_path,
+                    token=self.token,
+                    resume_download=True,
+                    local_files_only=False
+                )
+                
+                # Verify download
+                if not list(model_path.glob("*.bin")):
+                    raise RuntimeError("Model download incomplete - no binary files found")
+                
+            return model_path
             
-        return model_path
+        except Exception as e:
+            logger.error(f"Failed to download base model: {str(e)}")
+            raise
 
     def _convert_to_ggml(self, model_path: Path) -> Path:
         """Convert model to GGML format"""
