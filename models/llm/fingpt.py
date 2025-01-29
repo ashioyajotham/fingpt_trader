@@ -104,9 +104,9 @@ class FinGPT(BaseLLM):
             logger.info(f"Model cache dir: {self.model_cache_dir}")
             logger.info(f"Checkpoint dir: {self.checkpoint_dir}")
             
-            ggml_path = self.model_cache_dir / "ggml-model-f16.bin"
+            gguf_path = self.model_cache_dir / "model-f16.gguf"
             
-            if not ggml_path.exists():
+            if not gguf_path.exists():
                 # Step 1: Download and verify base model
                 base_path = self._ensure_base_model_downloaded()
                 logger.info(f"Base model downloaded to: {base_path}")
@@ -130,21 +130,21 @@ class FinGPT(BaseLLM):
                 merged_model = model.merge_and_unload()
                 
                 # Step 4: Convert merged model
-                logger.info("Converting to GGML format...")
+                logger.info("Converting to GGUF format...")
                 from .convert import convert_model
                 success = convert_model(
                     model_dir=str(base_path),  # Changed from model=merged_model
-                    output_path=str(ggml_path),
+                    output_path=str(gguf_path),
                     model_type="f16"
                 )
                 
-                if not success or not ggml_path.exists():
+                if not success or not gguf_path.exists():
                     raise RuntimeError("Model conversion failed")
             
-            # Step 5: Load GGML model
-            logger.info(f"Loading GGML model from: {ggml_path}")
+            # Step 5: Load GGUF model
+            logger.info(f"Loading GGUF model from: {gguf_path}")
             self.model = Llama(
-                model_path=str(ggml_path),
+                model_path=str(gguf_path),
                 n_ctx=self.n_ctx,
                 n_threads=self.n_threads,
                 n_gpu_layers=self.n_gpu_layers

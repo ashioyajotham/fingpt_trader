@@ -31,6 +31,7 @@ import json
 import struct
 import numpy as np
 from typing import Dict, Any
+import subprocess
 
 # Configure logging
 logging.basicConfig(
@@ -65,41 +66,42 @@ def _prepare_falcon_weights(model: AutoModelForCausalLM) -> Dict[str, np.ndarray
     return weights
 
 def convert_model(model_dir: str, output_path: str, model_type: str = "f16") -> bool:
-    """Convert transformer model to GGML format"""
+    """Convert transformer model to GGUF format"""
     try:
-        if not Path(model_dir).exists():
+        model_dir = Path(model_dir)
+        output_path = Path(output_path)
+        
+        if not model_dir.exists():
             raise ValueError(f"Model directory does not exist: {model_dir}")
             
         logger.info(f"Loading model from {model_dir}")
         
-        # Load model first
-        model = AutoModelForCausalLM.from_pretrained(
-            model_dir,
-            trust_remote_code=True,
-            torch_dtype=torch.float16 if model_type == "f16" else torch.float32
-        )
+        # Use convert_hf_to_gguf.py for HF models
+        llama_cpp_dir = Path("llama.cpp")
+        convert_script = llama_cpp_dir / "convert_hf_to_gguf.py"
         
-        # Prepare weights in LLAMA format
-        weights = _prepare_falcon_weights(model)
+        if not convert_script.exists():
+            raise RuntimeError(
+                f"Converter script not found: {convert_script}\n"
+                "Make sure llama.cpp is cloned and up to date"
+            )
         
-        # Write GGML format
-        logger.info("Writing GGML format...")
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        # Run HF -> GGUF conversion
+        logger.info("Converting to GGUF format...")
+        cmd = [
+            sys.executable,
+            str(convert_script),
+            str(model_dir),
+            "--outfile", str(output_path),
+            "--outtype", model_type
+        ]
         
-        with open(output_path, 'wb') as f:
-            # Write header
-            f.write(struct.pack('i', 0x67676d6c))  # 'ggml' magic
-            f.write(struct.pack('i', 1))           # version
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            logger.error(f"Conversion failed:\n{result.stderr}")
+            return False
             
-            # Write weights
-            for name, tensor in weights.items():
-                f.write(struct.pack('i', len(name)))
-                f.write(name.encode('utf-8'))
-                f.write(struct.pack('i' * len(tensor.shape), *tensor.shape))
-                tensor.astype(np.float16 if model_type == "f16" else np.float32).tofile(f)
-        
-        logger.info(f"Model converted successfully to {output_path}")
         return output_path.exists() and output_path.stat().st_size > 1_000_000
         
     except Exception as e:
