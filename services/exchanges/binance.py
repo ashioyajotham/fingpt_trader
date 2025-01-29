@@ -4,15 +4,31 @@ from datetime import datetime
 from binance import AsyncClient, BinanceSocketManager
 from .base import BaseExchangeClient
 import asyncio
-import sys
 import platform
-from aiohttp import TCPConnector, ClientSession
-from aiodns import AsyncResolver
 import socket
+from aiohttp import TCPConnector, ClientSession
 
 logger = logging.getLogger(__name__)
 
 class BinanceClient(BaseExchangeClient):
+    # Class-level constants
+    DEFAULT_HEADERS = {
+        'User-Agent': 'FinGPT-Trader/1.0',
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+    }
+
+    URLS = {
+        'test': {
+            'rest': 'https://testnet.binance.vision',
+            'ws': 'wss://testnet.binance.vision/ws'
+        },
+        'prod': {
+            'rest': 'https://api.binance.com',
+            'ws': 'wss://stream.binance.com:9443/ws'
+        }
+    }
+
     def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, testnet: bool = True):
         self.api_key = api_key
         self.api_secret = api_secret
@@ -21,9 +37,9 @@ class BinanceClient(BaseExchangeClient):
         self.bsm = None
         self._ws_connections = {}
         
-        # Add testnet/mainnet URLs
-        self.base_url = "https://testnet.binance.vision" if testnet else "https://api.binance.com"
-        self.ws_url = "wss://testnet.binance.vision/ws" if testnet else "wss://stream.binance.com:9443/ws"
+        urls = self.URLS['test'] if testnet else self.URLS['prod']
+        self.base_url = urls['rest']
+        self.ws_url = urls['ws']
 
     @classmethod
     async def create(cls, config: Dict) -> 'BinanceClient':
@@ -37,49 +53,36 @@ class BinanceClient(BaseExchangeClient):
         return instance
 
     async def initialize(self):
-        """Initialize Binance client with Windows DNS fix"""
+        """Initialize Binance client with proper session handling"""
         try:
-            # Windows-specific DNS and SSL settings
-            if platform.system() == 'Windows':
-                import socket
-                connector = TCPConnector(
-                    ssl=True,
-                    family=socket.AF_INET,  # Force IPv4
-                    resolver=AsyncResolver(nameservers=["8.8.8.8", "8.8.4.4"]),  # Use Google DNS
-                    force_close=True
-                )
-            else:
-                connector = TCPConnector(ssl=True)
-
-            session = ClientSession(connector=connector)
-            
+            # Create async client first without custom session
             self.client = await AsyncClient.create(
                 api_key=self.api_key,
                 api_secret=self.api_secret,
                 testnet=self.testnet,
-                requests_params={
-                    'timeout': 30,
-                    'headers': {
-                        'User-Agent': 'Mozilla/5.0'
-                    }
-                }
+                tld='vision' if self.testnet else 'com'
             )
-            
-            # Set custom session
-            self.client.session = session
-            
-            # Initialize socket manager with custom session
-            self.bsm = BinanceSocketManager(
-                self.client,
-                user_timeout=30
-            )
-            
-            logger.info("Binance client initialized")
-            
+
+            # Update client's session headers without creating new session
+            if hasattr(self.client, 'session'):
+                self.client.session._default_headers.update(self.DEFAULT_HEADERS)
+                
+                # Configure Windows-specific settings if needed
+                if platform.system() == 'Windows':
+                    self.client.session._connector = TCPConnector(
+                        ssl=True,
+                        family=socket.AF_INET,
+                        force_close=True
+                    )
+
+            # Initialize socket manager
+            self.bsm = BinanceSocketManager(self.client)
+            logger.info("Binance client initialized successfully")
+
         except Exception as e:
             logger.error(f"Binance client initialization failed: {e}")
-            if 'session' in locals():
-                await session.close()
+            if hasattr(self, 'client') and hasattr(self.client, 'session'):
+                await self.client.session.close()
             raise
 
     async def cleanup(self):
