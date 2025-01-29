@@ -11,6 +11,9 @@ root_dir = str(Path(__file__).parent.parent)
 sys.path.insert(0, root_dir)
 from .patterns import PatternDetector
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class InefficencySignal:
@@ -28,6 +31,30 @@ class MarketInefficencyDetector:
         self.lookback_periods = config.get(
             "lookback_periods", {"short": 5, "medium": 20, "long": 60}
         )
+        self.running = False
+        
+    async def initialize(self):
+        """Initialize detector resources"""
+        try:
+            self.running = True
+            # Initialize pattern detector
+            if hasattr(self.pattern_detector, 'initialize'):
+                await self.pattern_detector.initialize()
+            logger.info("Market inefficiency detector initialized")
+        except Exception as e:
+            logger.error(f"Detector initialization failed: {str(e)}")
+            raise
+            
+    async def cleanup(self):
+        """Cleanup detector resources"""
+        try:
+            self.running = False
+            # Cleanup pattern detector
+            if hasattr(self.pattern_detector, 'cleanup'):
+                await self.pattern_detector.cleanup()
+            logger.info("Market inefficiency detector cleaned up")
+        except Exception as e:
+            logger.error(f"Detector cleanup failed: {str(e)}")
 
     def detect_inefficiencies(
         self,

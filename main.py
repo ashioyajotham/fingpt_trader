@@ -57,18 +57,12 @@ class TradingSystem:
     async def initialize(self):
         """Initialize system components in order"""
         try:
-            # 1. Initialize sentiment analyzer
+            # Initialize components
             await self.sentiment_analyzer.initialize()
-            
-            # 2. Setup exchange connections
-            self.exchange_client = await self._setup_exchange_client(
-                self.config.get('exchange', {})
-            )
-            
-            # 3. Initialize trading service
+            await self.market_detector.initialize()
             await self.robo_service.initialize()
             
-            logger.info("Trading system initialized successfully")
+            logger.info("Trading system initialized")
             
         except Exception as e:
             logger.error(f"Initialization failed: {str(e)}")
@@ -78,23 +72,17 @@ class TradingSystem:
     async def shutdown(self):
         """Cleanup system resources"""
         try:
-            self.is_running = False
+            if hasattr(self, 'sentiment_analyzer'):
+                await self.sentiment_analyzer.cleanup()
+            if hasattr(self, 'market_detector'):
+                await self.market_detector.cleanup()
+            if hasattr(self, 'robo_service'):
+                await self.robo_service.cleanup()
+                
+            logger.info("Trading system shutdown complete")
             
-            # Close exchange connections
-            for client in self.exchange_clients.values():
-                await client.close()
-            
-            # Clear market state
-            self.market_state = {}
-            
-            # Cleanup model resources
-            await self.sentiment_analyzer.cleanup()
-            await self.market_detector.cleanup()
-            
-            print("Trading system shutdown completed")
         except Exception as e:
-            print(f"Shutdown error: {str(e)}")
-            raise
+            logger.error(f"Shutdown error: {str(e)}")
 
     async def _setup_exchange_client(self, config: Dict) -> Any:
         """Setup exchange client with API configuration"""

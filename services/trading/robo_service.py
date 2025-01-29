@@ -7,6 +7,7 @@ from datetime import datetime
 import logging
 from web3 import Web3
 import asyncio
+import requests
 
 # Add project root to path
 root_dir = str(Path(__file__).parent.parent)
@@ -50,11 +51,17 @@ class RoboService(BaseService):
         self.client_profiles = {}
         self.positions = {}  # Add positions dictionary
         
-        # Web3 setup with better error handling
+        # Web3 setup with proper session settings
         try:
+            session = requests.Session()
+            session.timeout = 30
+            adapter = requests.adapters.HTTPAdapter(max_retries=3)
+            session.mount('http://', adapter)
+            session.mount('https://', adapter)
+            
             self.w3 = Web3(Web3.HTTPProvider(
                 config.get('eth_rpc', 'http://localhost:8545'),
-                request_kwargs={'timeout': 30, 'retries': 3}
+                session=session
             ))
         except Exception as e:
             logger.error(f"Web3 setup failed: {str(e)}")

@@ -23,6 +23,15 @@ class SentimentAnalyzer:
         self.min_confidence = self.config.get("min_confidence", 0.6)
         self.batch_size = model_config.get("batch_size", 16)
 
+    async def initialize(self):
+        """Initialize analyzer resources"""
+        try:
+            await self.fingpt.initialize()
+            logger.info("Sentiment analyzer initialized")
+        except Exception as e:
+            logger.error(f"Analyzer initialization failed: {str(e)}")
+            raise
+
     async def analyze(self, texts: List[str]) -> Dict:
         scores = []
         confidences = []
