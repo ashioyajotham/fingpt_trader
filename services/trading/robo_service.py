@@ -93,10 +93,13 @@ class RoboService(BaseService):
             # Cancel mempool monitoring
             if hasattr(self, 'mempool_monitor'):
                 self.mempool_monitor.cancel()
-                await self.mempool_monitor
+                try:
+                    await self.mempool_monitor
+                except asyncio.CancelledError:
+                    pass  # Expected cancellation
             
             # Close Web3 session
-            if hasattr(self, 'w3'):
+            if hasattr(self, 'w3') and hasattr(self.w3.provider, 'session'):
                 await self.w3.provider.session.close()
             
             logger.info("RoboService cleaned up")

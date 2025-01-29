@@ -82,9 +82,19 @@ robo:
 
 # Exchange settings
 exchanges:
-  - name: "binance"
-    api_key: "${BINANCE_API_KEY}"
-    api_secret: "${BINANCE_API_SECRET}"
+  - name: binance
+    api_key: ${BINANCE_API_KEY}
+    api_secret: ${BINANCE_API_SECRET}
+    test_mode: true
+    symbols:
+      - BTCUSDT
+      - ETHUSDT
+      - BNBUSDT
+    intervals:
+      - 1m
+      - 5m
+      - 15m
+      - 1h
 
 # Risk management settings
 risk:

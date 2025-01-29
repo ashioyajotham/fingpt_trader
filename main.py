@@ -97,17 +97,20 @@ class TradingSystem:
         except Exception as e:
             logger.error(f"Shutdown error: {str(e)}")
 
-    async def _setup_exchange_client(self, config: Dict) -> Any:
-        """Setup exchange client with API configuration"""
-        exchange_name = config['name'].lower()
-        if exchange_name == 'binance':
-            from services.exchanges.binance import BinanceClient
-            return await BinanceClient.create(
-                api_key=config.get('api_key'),
-                api_secret=config.get('api_secret')
-            )
-        # Add more exchanges as needed
-        raise ValueError(f"Unsupported exchange: {exchange_name}")
+    async def _setup_exchange_client(self, exchange_config: Dict):
+        """Setup exchange client connection"""
+        try:
+            exchange_type = exchange_config.get('name', '').lower()
+            
+            if exchange_type == 'binance':
+                from services.exchanges.binance import BinanceClient
+                return await BinanceClient.create(exchange_config)
+            else:
+                raise ValueError(f"Unsupported exchange type: {exchange_type}")
+                
+        except Exception as e:
+            logger.error(f"Failed to setup exchange client: {str(e)}")
+            raise
 
     async def _initialize_market_state(self) -> Dict:
         """Initialize market state with required data"""
