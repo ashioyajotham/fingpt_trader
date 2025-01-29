@@ -93,39 +93,50 @@ class FinGPT(BaseLLM):
     def _load_model(self):
         """Initialize and load the FinGPT model"""
         try:
-            # Ensure model directories exist
             self.model_cache_dir.mkdir(parents=True, exist_ok=True)
             self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
             
-            # Debug logging
             logger.info(f"Model cache dir: {self.model_cache_dir}")
             logger.info(f"Checkpoint dir: {self.checkpoint_dir}")
             
             ggml_path = self.model_cache_dir / "ggml-model-f16.bin"
             
             if not ggml_path.exists():
-                base_model_path = self._ensure_base_model_downloaded()
-                logger.info(f"Base model downloaded to: {base_model_path}")
-                
-                # Verify base model contents
-                if not (base_model_path / "pytorch_model.bin").exists():
+                # Step 1: Download and verify base model
+                base_path = self._ensure_base_model_downloaded()
+                logger.info(f"Base model downloaded to: {base_path}")
+                if not self._verify_base_model_files(base_path):
                     raise RuntimeError("Base model files incomplete")
                 
-                # Convert with detailed logging
+                # Step 2: Download and verify LoRA adapter
+                peft_path = self._ensure_peft_model_downloaded()
+                logger.info(f"PEFT model downloaded to: {peft_path}")
+                if not self._verify_peft_files(peft_path):
+                    raise RuntimeError("PEFT model files incomplete")
+                
+                # Step 3: Load and merge models
+                logger.info("Loading and merging models...")
+                base_model = AutoModelForCausalLM.from_pretrained(
+                    base_path,
+                    trust_remote_code=True,
+                    torch_dtype=torch.float16
+                )
+                model = PeftModel.from_pretrained(base_model, peft_path)
+                merged_model = model.merge_and_unload()
+                
+                # Step 4: Convert merged model
+                logger.info("Converting to GGML format...")
                 from .convert import convert_model
-                logger.info("Starting model conversion...")
                 success = convert_model(
-                    model_dir=str(base_model_path),
+                    model=merged_model,
                     output_path=str(ggml_path),
                     model_type="f16"
                 )
                 
-                if not success:
+                if not success or not ggml_path.exists():
                     raise RuntimeError("Model conversion failed")
-                
-                if not ggml_path.exists() or ggml_path.stat().st_size < 1_000_000:
-                    raise RuntimeError(f"GGML model file invalid: {ggml_path}")
-                    
+            
+            # Step 5: Load GGML model
             logger.info(f"Loading GGML model from: {ggml_path}")
             self.model = Llama(
                 model_path=str(ggml_path),
@@ -133,31 +144,28 @@ class FinGPT(BaseLLM):
                 n_threads=self.n_threads,
                 n_gpu_layers=self.n_gpu_layers
             )
-            logger.info("GGML model loaded successfully")
+            logger.info("Model loaded successfully")
                 
         except Exception as e:
             logger.error(f"Model loading failed: {str(e)}")
-            raise RuntimeError(f"Failed to load FinGPT model: {str(e)}")
+            raise
 
     def _ensure_base_model_downloaded(self) -> Path:
         """Download base model if not present"""
         try:
             model_path = self.checkpoint_dir / "base_model"
             
-            if not model_path.exists() or not list(model_path.glob("*.bin")):
+            if not model_path.exists() or not self._verify_model_files(model_path):
                 logger.info(f"Downloading base model {self.base_model}")
-                
-                # Get model config
-                base_config = self.config.get('model', {}).get('base', {})
                 
                 # Ensure token is available
                 if not hasattr(self, 'token'):
                     self.token = os.getenv('HUGGINGFACE_TOKEN')
                     if not self.token:
-                        raise ValueError("HuggingFace token not found. Set HUGGINGFACE_TOKEN environment variable")
+                        raise ValueError("HuggingFace token not found")
                 
-                # Download in chunks to handle large files
-                from huggingface_hub import hf_hub_download, snapshot_download
+                # Download with better verification
+                from huggingface_hub import snapshot_download
                 logger.info("Downloading model files...")
                 
                 model_path.mkdir(parents=True, exist_ok=True)
@@ -166,18 +174,37 @@ class FinGPT(BaseLLM):
                     local_dir=model_path,
                     token=self.token,
                     resume_download=True,
-                    local_files_only=False
+                    local_files_only=False,
+                    ignore_patterns=["*.msgpack", "*.h5"],
+                    max_workers=4  # Limit concurrent downloads
                 )
                 
-                # Verify download
-                if not list(model_path.glob("*.bin")):
-                    raise RuntimeError("Model download incomplete - no binary files found")
-                
-            return model_path
+                # Verify after download
+                if not self._verify_model_files(model_path):
+                    raise RuntimeError("Model download incomplete")
             
+            return model_path
+                
         except Exception as e:
             logger.error(f"Failed to download base model: {str(e)}")
             raise
+
+    def _verify_model_files(self, model_path: Path) -> bool:
+        """Verify all required model files are present"""
+        required_files = [
+            "pytorch_model-00001-of-00002.bin",
+            "pytorch_model-00002-of-00002.bin",
+            "config.json",
+            "tokenizer.json",
+            "tokenizer_config.json"
+        ]
+        
+        missing = [f for f in required_files if not (model_path / f).exists()]
+        if missing:
+            logger.error(f"Missing model files: {', '.join(missing)}")
+            return False
+            
+        return True
 
     def _convert_to_ggml(self, model_path: Path) -> Path:
         """Convert model to GGML format"""
@@ -322,3 +349,57 @@ class FinGPT(BaseLLM):
         score = sum(1 for w in words if w in positive_words)
         score -= sum(1 for w in words if w in negative_words)
         return score / max(len(words), 1)  # Normalize
+
+    def _verify_base_model_files(self, model_path: Path) -> bool:
+        """Verify base model files are present"""
+        # Check for either PyTorch or SafeTensors format
+        tensor_formats = {
+            'pytorch': [
+                "pytorch_model-00001-of-00002.bin",
+                "pytorch_model-00002-of-00002.bin",
+                "pytorch_model.bin.index.json"
+            ],
+            'safetensors': [
+                "model-00001-of-00002.safetensors",
+                "model-00002-of-00002.safetensors",
+                "model.safetensors.index.json"
+            ]
+        }
+        
+        config_files = [
+            "config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "special_tokens_map.json",
+            "generation_config.json"
+        ]
+        
+        # Check if either format exists
+        has_weights = any(
+            all((model_path / f).exists() for f in files)
+            for files in tensor_formats.values()
+        )
+        
+        # Check config files
+        has_configs = all((model_path / f).exists() for f in config_files)
+        
+        if not has_weights:
+            logger.error("Missing model weight files")
+        if not has_configs:
+            logger.error("Missing configuration files")
+            
+        return has_weights and has_configs
+
+    def _verify_peft_files(self, model_path: Path) -> bool:
+        """Verify PEFT adapter files are present"""
+        required_files = [
+            "adapter_config.json",
+            "adapter_model.bin"
+        ]
+        
+        missing = [f for f in required_files if not (model_path / f).exists()]
+        if missing:
+            logger.error(f"Missing LoRA files: {', '.join(missing)}")
+            return False
+            
+        return True
