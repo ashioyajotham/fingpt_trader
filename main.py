@@ -57,11 +57,24 @@ class TradingSystem:
     async def initialize(self):
         """Initialize system components in order"""
         try:
-            # Initialize components
+            logger.info("Initializing trading system...")
+            
+            # 1. Initialize base components
             await self.sentiment_analyzer.initialize()
             await self.market_detector.initialize()
+            
+            # 2. Setup exchange connections
+            for exchange_config in self.config.get('exchanges', []):
+                client = await self._setup_exchange_client(exchange_config)
+                self.exchange_clients[exchange_config['name']] = client
+            
+            # 3. Initialize market state
+            self.market_state = await self._initialize_market_state()
+            
+            # 4. Initialize robo service
             await self.robo_service.initialize()
             
+            self.is_running = True
             logger.info("Trading system initialized")
             
         except Exception as e:

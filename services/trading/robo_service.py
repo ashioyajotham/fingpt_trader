@@ -77,6 +77,32 @@ class RoboService(BaseService):
         # Start monitoring as background task
         self.mempool_monitor = asyncio.create_task(self._setup_mempool_monitor())
 
+    async def initialize(self):
+        """Initialize robo service"""
+        try:
+            # Initialize mempool monitoring
+            self.mempool_monitor = asyncio.create_task(self._setup_mempool_monitor())
+            logger.info("RoboService initialized")
+        except Exception as e:
+            logger.error(f"RoboService initialization failed: {str(e)}")
+            raise
+
+    async def cleanup(self):
+        """Cleanup robo service resources"""
+        try:
+            # Cancel mempool monitoring
+            if hasattr(self, 'mempool_monitor'):
+                self.mempool_monitor.cancel()
+                await self.mempool_monitor
+            
+            # Close Web3 session
+            if hasattr(self, 'w3'):
+                await self.w3.provider.session.close()
+            
+            logger.info("RoboService cleaned up")
+        except Exception as e:
+            logger.error(f"RoboService cleanup failed: {str(e)}")
+
     async def _setup(self) -> None:
         """Initialize the robo service"""
         await self._load_portfolio()

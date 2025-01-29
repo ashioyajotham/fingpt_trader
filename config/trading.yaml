@@ -71,6 +71,14 @@ robo:
     environmental_weight: 0.4
     social_weight: 0.3
     governance_weight: 0.3
+  eth_rpc: "https://mainnet.infura.io/v3/4fe4b6972cee44f3963a9a28cd48cdad"  # Replace with actual Infura/Alchemy endpoint
+  mempool_scan_interval: 5
+  min_arb_profit: 0.005
+  max_gas: 500000
+  dex_list:
+    - "uniswap"
+    - "sushiswap"
+    - "curve"
 
 # Exchange settings
 exchanges:

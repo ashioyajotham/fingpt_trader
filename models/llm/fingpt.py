@@ -95,6 +95,26 @@ class FinGPT(BaseLLM):
             logger.error(f"Failed to initialize FinGPT: {str(e)}")
             raise
 
+    async def initialize(self):
+        """Initialize FinGPT resources"""
+        try:
+            if not self.model:
+                self._load_model()
+            logger.info("FinGPT initialized")
+        except Exception as e:
+            logger.error(f"FinGPT initialization failed: {str(e)}")
+            raise
+
+    async def cleanup(self):
+        """Cleanup FinGPT resources"""
+        try:
+            if self.model:
+                self.model.close()
+                self.model = None
+            logger.info("FinGPT resources cleaned up")
+        except Exception as e:
+            logger.error(f"FinGPT cleanup failed: {str(e)}")
+
     def _load_model(self):
         """Initialize and load the FinGPT model"""
         try:
