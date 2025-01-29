@@ -236,43 +236,31 @@ class FinGPT(BaseLLM):
         except Exception as e:
             raise RuntimeError(f"Failed to convert model to GGML format: {str(e)}")
 
-    def _ensure_peft_model_downloaded(self) -> str:
+    def _ensure_peft_model_downloaded(self) -> Path:
         """Download and verify PEFT model files"""
-        from huggingface_hub import snapshot_download, create_repo, HfApi
-        import shutil
-        
         try:
-            # Initialize HF API
-            api = HfApi()
+            peft_path = self.checkpoint_dir / "peft_model"
+            peft_path = Path(peft_path)  # Ensure Path object
             
-            # Get model files info first
-            model_info = api.model_info(
-                repo_id=self.peft_model,
-                token=self.token
-            )
-            
-            # Use snapshot_download with verified info
-            model_path = snapshot_download(
-                repo_id=self.peft_model,
-                token=self.token,
-                cache_dir=str(self.checkpoint_dir),
-                local_files_only=False,
-                resume_download=True,
-                allow_patterns=["*.json", "*.bin", "*.model"]  # Include all relevant files
-            )
-            
-            # Verify download
-            if not Path(model_path).exists():
-                raise RuntimeError(f"Model download failed: {model_path} not found")
+            if not peft_path.exists() or not self._verify_peft_files(peft_path):
+                logger.info(f"Downloading PEFT model {self.peft_model}")
                 
-            return model_path
+                from huggingface_hub import snapshot_download
+                downloaded_path = Path(snapshot_download(
+                    repo_id=self.peft_model,
+                    local_dir=str(peft_path),
+                    token=self.token,
+                    resume_download=True,
+                    local_files_only=False
+                ))
+                
+                return downloaded_path
+                
+            return peft_path
             
         except Exception as e:
-            if not self.from_remote:
-                local_path = Path("finetuned_models/MT-falcon-linear_202309210126")
-                if local_path.exists():
-                    return str(local_path)
-            raise RuntimeError(f"Failed to download PEFT model: {str(e)}")
+            logger.error(f"Failed to download PEFT model: {str(e)}")
+            raise
 
     def _ensure_model_files(self):
         """Ensure model files are downloaded"""
@@ -392,14 +380,21 @@ class FinGPT(BaseLLM):
 
     def _verify_peft_files(self, model_path: Path) -> bool:
         """Verify PEFT adapter files are present"""
-        required_files = [
-            "adapter_config.json",
-            "adapter_model.bin"
-        ]
-        
-        missing = [f for f in required_files if not (model_path / f).exists()]
-        if missing:
-            logger.error(f"Missing LoRA files: {', '.join(missing)}")
-            return False
+        try:
+            # Ensure model_path is a Path object
+            model_path = Path(model_path)
             
-        return True
+            required_files = [
+                "adapter_config.json",
+                "adapter_model.bin"
+            ]
+            
+            missing = [f for f in required_files if not (model_path / f).exists()]
+            if missing:
+                logger.error(f"Missing LoRA files: {', '.join(missing)}")
+                return False
+                
+            return True
+        except Exception as e:
+            logger.error(f"PEFT verification error: {str(e)}")
+            return False
