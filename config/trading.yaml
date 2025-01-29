@@ -86,6 +86,11 @@ exchanges:
     api_key: ${BINANCE_API_KEY}
     api_secret: ${BINANCE_API_SECRET}
     test_mode: true
+    connection:
+      timeout: 30
+      keepalive: true
+      verify_ssl: true
+      max_retries: 3
     symbols:
       - BTCUSDT
       - ETHUSDT

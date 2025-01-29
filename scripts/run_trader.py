@@ -1,8 +1,14 @@
-import argparse
+import os
 import asyncio
+import sys
 import logging
 from pathlib import Path
-import sys
+import argparse
+
+# Fix Windows event loop policy
+if sys.platform == 'win32':
+    from asyncio import WindowsSelectorEventLoopPolicy
+    asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
 
 # Add project root to path
 root_dir = str(Path(__file__).parent.parent)
@@ -33,12 +39,14 @@ async def run_trading_system(config_path: str, verbose: bool = False):
     finally:
         await system.shutdown()
 
-def main():
+def parse_args():
     parser = argparse.ArgumentParser(description='Run the FinGPT Trading System')
     parser.add_argument("--config", type=str, required=True, help="Path to config file")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
-    args = parser.parse_args()
-    
+    return parser.parse_args()
+
+def main():
+    args = parse_args()
     asyncio.run(run_trading_system(args.config, args.verbose))
 
 if __name__ == "__main__":
