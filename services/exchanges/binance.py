@@ -63,17 +63,25 @@ class BinanceClient(BaseExchangeClient):
                 tld='vision' if self.testnet else 'com'
             )
 
-            # Update client's session headers without creating new session
+            # Update client's session configuration
             if hasattr(self.client, 'session'):
-                self.client.session._default_headers.update(self.DEFAULT_HEADERS)
+                # Configure connector
+                connector = TCPConnector(
+                    ssl=True,
+                    family=socket.AF_INET if platform.system() == 'Windows' else 0,
+                    force_close=True,
+                    enable_cleanup_closed=True
+                )
                 
-                # Configure Windows-specific settings if needed
-                if platform.system() == 'Windows':
-                    self.client.session._connector = TCPConnector(
-                        ssl=True,
-                        family=socket.AF_INET,
-                        force_close=True
-                    )
+                # Create new session with our settings
+                new_session = ClientSession(
+                    connector=connector,
+                    headers=self.DEFAULT_HEADERS
+                )
+                
+                # Close old session and replace with new one
+                await self.client.session.close()
+                self.client.session = new_session
 
             # Initialize socket manager
             self.bsm = BinanceSocketManager(self.client)
@@ -88,20 +96,29 @@ class BinanceClient(BaseExchangeClient):
     async def cleanup(self):
         """Enhanced cleanup with websocket handling"""
         try:
-            # Close websocket connections
-            for symbol, streams in self._ws_connections.items():
-                for stream in streams.values():
-                    await stream.close()
-            self._ws_connections.clear()
+            # Close websocket connections first
+            if hasattr(self, '_ws_connections'):
+                for symbol, streams in self._ws_connections.items():
+                    for stream in streams.values():
+                        await stream.close()
+                self._ws_connections.clear()
             
-            # Close client session and connection
+            # Close Binance socket manager
+            if self.bsm:
+                await self.bsm.close()
+                self.bsm = None
+            
+            # Close client and session
             if self.client:
-                if hasattr(self.client, 'session'):
+                if hasattr(self.client, 'session') and not self.client.session.closed:
                     await self.client.session.close()
                 await self.client.close_connection()
                 self.client = None
                 
-            logger.info("Binance client cleaned up")
+            # Final wait to ensure all connections are closed
+            await asyncio.sleep(0.5)
+            logger.info("Binance client cleaned up successfully")
+            
         except Exception as e:
             logger.error(f"Binance cleanup failed: {e}")
 
