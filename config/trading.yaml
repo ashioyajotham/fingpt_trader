@@ -88,9 +88,10 @@ exchanges:
     test_mode: true
     connection:
       timeout: 30
-      keepalive: true
-      verify_ssl: true
-      max_retries: 3
+      nameservers:
+        - "8.8.8.8"
+        - "8.8.4.4"
+      retry_count: 3
     symbols:
       - BTCUSDT
       - ETHUSDT
