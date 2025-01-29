@@ -63,6 +63,11 @@ class FinGPT(BaseLLM):
             else:
                 model_config = config.get('llm', {}).get('fingpt', {})
             
+            # Initialize token first
+            self.token = os.getenv('HUGGINGFACE_TOKEN')
+            if not self.token:
+                raise ValueError("HuggingFace token not found. Set HUGGINGFACE_TOKEN environment variable")
+            
             super().__init__(model_config)
             
             # Model paths and configuration
@@ -128,7 +133,7 @@ class FinGPT(BaseLLM):
                 logger.info("Converting to GGML format...")
                 from .convert import convert_model
                 success = convert_model(
-                    model=merged_model,
+                    model_dir=str(base_path),  # Changed from model=merged_model
                     output_path=str(ggml_path),
                     model_type="f16"
                 )

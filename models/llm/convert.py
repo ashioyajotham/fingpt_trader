@@ -65,49 +65,42 @@ def _prepare_falcon_weights(model: AutoModelForCausalLM) -> Dict[str, np.ndarray
     return weights
 
 def convert_model(model_dir: str, output_path: str, model_type: str = "f16") -> bool:
-    """Convert Falcon model to llama.cpp compatible format"""
+    """Convert transformer model to GGML format"""
     try:
         if not Path(model_dir).exists():
             raise ValueError(f"Model directory does not exist: {model_dir}")
             
-        logger.info(f"Loading Falcon model from {model_dir}")
+        logger.info(f"Loading model from {model_dir}")
         
-        # Load model with specific dtype
-        dtype = torch.float16 if model_type == "f16" else torch.float32
+        # Load model first
         model = AutoModelForCausalLM.from_pretrained(
             model_dir,
-            torch_dtype=dtype,
             trust_remote_code=True,
-            low_cpu_mem_usage=True
+            torch_dtype=torch.float16 if model_type == "f16" else torch.float32
         )
         
-        # Prepare LLAMA-compatible weights
+        # Prepare weights in LLAMA format
         weights = _prepare_falcon_weights(model)
         
-        # Write in GGML format
-        logger.info("Writing GGML binary...")
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        # Write GGML format
+        logger.info("Writing GGML format...")
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         
         with open(output_path, 'wb') as f:
-            # Write GGML magic and version
-            f.write(struct.pack('i', 0x67676d6c))  # 'ggml'
-            f.write(struct.pack('i', 1))  # version
-            
-            # Write model params
-            f.write(struct.pack('i', model.config.vocab_size))
-            f.write(struct.pack('i', model.config.hidden_size))
-            f.write(struct.pack('i', model.config.num_attention_heads))
-            f.write(struct.pack('i', model.config.num_hidden_layers))
+            # Write header
+            f.write(struct.pack('i', 0x67676d6c))  # 'ggml' magic
+            f.write(struct.pack('i', 1))           # version
             
             # Write weights
-            for name, weight in weights.items():
+            for name, tensor in weights.items():
                 f.write(struct.pack('i', len(name)))
                 f.write(name.encode('utf-8'))
-                f.write(struct.pack('i' * len(weight.shape), *weight.shape))
-                weight.astype(np.float16 if model_type == "f16" else np.float32).tofile(f)
+                f.write(struct.pack('i' * len(tensor.shape), *tensor.shape))
+                tensor.astype(np.float16 if model_type == "f16" else np.float32).tofile(f)
         
         logger.info(f"Model converted successfully to {output_path}")
-        return True
+        return output_path.exists() and output_path.stat().st_size > 1_000_000
         
     except Exception as e:
         logger.error(f"Conversion error: {str(e)}")
