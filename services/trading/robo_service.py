@@ -42,24 +42,33 @@ class RoboService(BaseService):
     """
     
     def __init__(self, config: Optional[Dict] = None):
+        super().__init__()  # Make sure to call BaseService.__init__
         self.config = config or {}
         self.portfolio = Portfolio()
         self.advisor = RoboAdvisor(self.config)
         self.last_rebalance = None
         self.client_profiles = {}
-        self.logger = logging.getLogger(__name__)
+        self.positions = {}  # Add positions dictionary
         
-        # Add MEV and arbitrage configuration
-        self.w3 = Web3(Web3.HTTPProvider(config.get('eth_rpc', 'http://localhost:8545')))
+        # Web3 setup with better error handling
+        try:
+            self.w3 = Web3(Web3.HTTPProvider(
+                config.get('eth_rpc', 'http://localhost:8545'),
+                request_kwargs={'timeout': 30, 'retries': 3}
+            ))
+        except Exception as e:
+            logger.error(f"Web3 setup failed: {str(e)}")
+            raise
+        
         self.arb_config = {
-            'min_profit': config.get('min_arb_profit', 0.005),  # 0.5%
+            'min_profit': config.get('min_arb_profit', 0.005),
             'gas_limit': config.get('max_gas', 500000),
             'exchanges': config.get('dex_list', ['uniswap', 'sushiswap', 'curve']),
             'flash_pools': config.get('flash_pools', ['aave', 'compound'])
         }
         
-        # Initialize MEV monitoring
-        self.mempool_monitor = self._setup_mempool_monitor()
+        # Start monitoring as background task
+        self.mempool_monitor = asyncio.create_task(self._setup_mempool_monitor())
 
     async def _setup(self) -> None:
         """Initialize the robo service"""
@@ -287,6 +296,49 @@ class RoboService(BaseService):
         except Exception as e:
             logger.error(f"Cleanup failed: {str(e)}")
             raise
+
+    async def _setup_mempool_monitor(self):
+        """Setup mempool monitoring coroutine"""
+        while True:
+            try:
+                # Monitor pending transactions
+                pending = await self.w3.eth.get_block('pending')
+                for tx_hash in pending.transactions:
+                    tx = await self.w3.eth.get_transaction(tx_hash)
+                    if self._is_relevant_tx(tx):
+                        await self._analyze_transaction(tx)
+                
+                await asyncio.sleep(self.config.get('mempool_scan_interval', 1))
+                
+            except Exception as e:
+                logger.error(f"Mempool monitoring error: {str(e)}")
+                await asyncio.sleep(5)  # Back off on error
+    
+    def _is_relevant_tx(self, tx: Dict) -> bool:
+        """Check if transaction is relevant for monitoring"""
+        # Check if transaction is a DEX interaction
+        return any(
+            addr.lower() in tx.get('to', '').lower() 
+            for addr in self.arb_config['exchanges']
+        )
+    
+    async def _analyze_transaction(self, tx: Dict):
+        """Analyze transaction for opportunities"""
+        try:
+            # Basic sandwich attack check
+            if self._is_sandwichable(tx):
+                logger.info(f"Potential sandwich opportunity in tx: {tx['hash'].hex()}")
+                
+            # Record transaction for pattern analysis
+            await self._record_transaction(tx)
+            
+        except Exception as e:
+            logger.error(f"Transaction analysis error: {str(e)}")
+
+    async def _record_transaction(self, tx: Dict):
+        """Record transaction for analysis"""
+        # Implementation depends on storage requirements
+        pass
 
 class RoboAdvisor:
     def __init__(self, config: Dict):

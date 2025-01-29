@@ -8,9 +8,18 @@ from typing import Dict, List, Optional, Any
 import numpy as np
 import yaml
 from datetime import datetime
+import logging
 
 import sys
 from pathlib import Path
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
+logger = logging.getLogger(__name__)
 
 # Add project root to path
 root_dir = str(Path(__file__).parent.parent)
@@ -46,27 +55,24 @@ class TradingSystem:
             return yaml.safe_load(f)
 
     async def initialize(self):
-        """Initialize system components"""
+        """Initialize system components in order"""
         try:
-            # Initialize exchange connections
-            for exchange_config in self.config.get('exchanges', []):
-                client = await self._setup_exchange_client(exchange_config)
-                self.exchange_clients[exchange_config['name']] = client
-
-            # Initialize market data feeds
-            self.market_state = await self._initialize_market_state()
-
-            # Initialize model components
+            # 1. Initialize sentiment analyzer
             await self.sentiment_analyzer.initialize()
-            await self.market_detector.initialize()
             
-            # Initialize robo service
-            await self.robo_service._setup()
-
-            self.is_running = True
-            print("Trading system initialized successfully")
+            # 2. Setup exchange connections
+            self.exchange_client = await self._setup_exchange_client(
+                self.config.get('exchange', {})
+            )
+            
+            # 3. Initialize trading service
+            await self.robo_service.initialize()
+            
+            logger.info("Trading system initialized successfully")
+            
         except Exception as e:
-            print(f"Initialization error: {str(e)}")
+            logger.error(f"Initialization failed: {str(e)}")
+            await self.shutdown()
             raise
 
     async def shutdown(self):

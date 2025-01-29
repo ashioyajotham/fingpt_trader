@@ -2,6 +2,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Union
+import logging
 
 import numpy as np
 import pandas as pd
@@ -13,6 +14,7 @@ from llm.utils.tokenizer import TokenizerConfig
 
 from models.llm.fingpt import FinGPT
 
+logger = logging.getLogger(__name__)
 
 class SentimentAnalyzer:
     def __init__(self, model_config: Dict):
@@ -85,3 +87,11 @@ class SentimentAnalyzer:
             },
             "majority_sentiment": max(set(sentiments), key=sentiments.count),
         }
+    
+    async def cleanup(self):
+        """Cleanup resources"""
+        try:
+            if hasattr(self, 'fingpt'):
+                await self.fingpt.cleanup()
+        except Exception as e:
+            logger.error(f"Sentiment analyzer cleanup failed: {str(e)}")
