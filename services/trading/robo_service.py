@@ -16,6 +16,8 @@ from models.portfolio.rebalancing import Portfolio
 from services.base_service import BaseService
 from models.client.profile import MockClientProfile
 
+logger = logging.getLogger(__name__)
+
 class RoboService(BaseService):
     """
     Main robo service that coordinates advisory and execution.
@@ -271,6 +273,20 @@ class RoboService(BaseService):
             tx['value'] > self.config.get('min_sandwich_size', 5 * 10**18) and  # 5 ETH
             tx['gas_price'] < self.config.get('max_sandwich_gas', 100 * 10**9)  # 100 gwei
         )
+
+    async def _cleanup(self):
+        """Clean up resources and close positions"""
+        try:
+            logger.info("Cleaning up trading resources...")
+            # Close open positions
+            for position in self.positions.values():
+                await position.close()
+            self.positions.clear()
+            # Reset trading state
+            self.running = False
+        except Exception as e:
+            logger.error(f"Cleanup failed: {str(e)}")
+            raise
 
 class RoboAdvisor:
     def __init__(self, config: Dict):
