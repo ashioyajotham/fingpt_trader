@@ -1,3 +1,19 @@
+"""
+RoboService Module
+-----------------
+
+This module provides automated trading capabilities through portfolio management
+and client profile handling. It serves as the core service for automated trading
+decisions based on client preferences and market conditions.
+
+The RoboService integrates:
+- Portfolio management
+- Client profile management
+- Risk assessment
+- Trading constraints
+- ESG preferences
+"""
+
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -20,7 +36,45 @@ from models.client.profile import MockClientProfile
 logger = logging.getLogger(__name__)
 
 class RoboService(BaseService):
+    """
+    Automated trading service that manages portfolio allocation and trading decisions
+    based on client profiles and market conditions.
+
+    The service handles:
+    - Portfolio initialization and management
+    - Client profile configuration
+    - Risk management
+    - Trading constraints enforcement
+    - ESG preference implementation
+
+    Attributes:
+        portfolio (Portfolio): Manages trading positions and allocations
+        client_profile (MockClientProfile): Holds client preferences and constraints
+    """
+
     def __init__(self, config: Dict):
+        """
+        Initialize the RoboService with configuration settings.
+
+        Args:
+            config (Dict): Configuration dictionary containing:
+                - client_profile: Client preference settings
+                - portfolio: Portfolio configuration
+                - trading_pairs: List of trading pairs to monitor
+                - risk_limits: Risk management parameters
+
+        Example:
+            config = {
+                'client_profile': {
+                    'risk_score': 5,
+                    'investment_horizon': 365,
+                    'tax_rate': 0.25
+                },
+                'portfolio': {
+                    'initial_cash': 10000
+                }
+            }
+        """
         super().__init__(config)
         self.portfolio = Portfolio()  # For managing trading positions
         
@@ -35,11 +89,31 @@ class RoboService(BaseService):
         )
 
     async def initialize(self):
-        """Public initialization method"""
+        """
+        Initialize the RoboService and its components.
+        
+        This method:
+        1. Sets up the portfolio
+        2. Validates client profile
+        3. Prepares trading environment
+        
+        Raises:
+            Exception: If initialization fails
+        """
         await self._setup()
 
     async def _setup(self):
-        """Implementation of abstract _setup method"""
+        """
+        Internal setup method implementing BaseService abstract method.
+        
+        This method:
+        1. Initializes portfolio with configuration
+        2. Sets up trading parameters
+        3. Validates service configuration
+        
+        Raises:
+            Exception: If setup fails, ensures cleanup is called
+        """
         try:
             # Initialize portfolio with config
             await self.portfolio.initialize(self.config.get('portfolio', {}))
@@ -50,11 +124,28 @@ class RoboService(BaseService):
             raise
 
     async def cleanup(self):
-        """Public cleanup method"""
+        """
+        Clean up RoboService resources.
+        
+        This method ensures proper shutdown by:
+        1. Closing open positions
+        2. Saving portfolio state
+        3. Cleaning up resources
+        """
         await self._cleanup()
 
     async def _cleanup(self):
-        """Implementation of abstract _cleanup method"""
+        """
+        Internal cleanup implementation.
+        
+        This method:
+        1. Cleans up portfolio resources
+        2. Ensures proper resource disposal
+        3. Logs cleanup status
+        
+        Raises:
+            Exception: If cleanup fails
+        """
         try:
             if hasattr(self, 'portfolio'):
                 # Just log for now since Portfolio doesn't have cleanup
