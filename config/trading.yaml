@@ -91,6 +91,10 @@ robo:
       environmental_score: 7
       social_score: 6
       governance_score: 8
+  timeout: 30  # seconds
+  trading_pairs:
+    - BTCUSDT
+    - ETHUSDT
 
 # Exchange settings
 exchanges:

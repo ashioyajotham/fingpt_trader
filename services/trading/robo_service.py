@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import logging
 import asyncio
+import aiohttp
 import requests
 from aiohttp import ClientSession, TCPConnector
 
@@ -77,6 +78,9 @@ class RoboService(BaseService):
         """
         super().__init__(config)
         self.portfolio = Portfolio()  # For managing trading positions
+        self.session = None  # Add session tracking
+        self.trading_pairs = config.get('trading_pairs', [])
+        self.timeout = config.get('timeout', 30)  # Add timeout config
         
         # Initialize client profile with default values or from config
         profile_config = config.get('client_profile', {})
@@ -115,6 +119,13 @@ class RoboService(BaseService):
             Exception: If setup fails, ensures cleanup is called
         """
         try:
+            # Create session with timeout
+            connector = TCPConnector(force_close=True)
+            self.session = ClientSession(
+                connector=connector,
+                timeout=aiohttp.ClientTimeout(total=self.timeout)
+            )
+
             # Initialize portfolio with config
             await self.portfolio.initialize(self.config.get('portfolio', {}))
             logger.info("RoboService setup complete")
@@ -147,8 +158,23 @@ class RoboService(BaseService):
             Exception: If cleanup fails
         """
         try:
+            # Cancel any pending tasks first
+            tasks = [task for task in asyncio.all_tasks() 
+                    if task is not asyncio.current_task()]
+            for task in tasks:
+                task.cancel()
+            
+            # Wait for cancellations
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Close session if exists
+            if self.session and not self.session.closed:
+                await self.session.close()
+                self.session = None
+
+            # Cleanup portfolio
             if hasattr(self, 'portfolio'):
-                # Just log for now since Portfolio doesn't have cleanup
                 logger.info("Cleaning up portfolio resources")
             
             # Wait briefly for any pending operations
