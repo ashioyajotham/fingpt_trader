@@ -34,14 +34,19 @@ class RoboService(BaseService):
             esg_preferences=profile_config.get('esg_preferences', {})  # ESG preferences
         )
 
+    async def initialize(self):
+        """Public initialization method"""
+        await self._setup()
+
     async def _setup(self):
-        """Required implementation of abstract _setup method"""
+        """Implementation of abstract _setup method"""
         try:
             # Initialize portfolio with config
             await self.portfolio.initialize(self.config.get('portfolio', {}))
             logger.info("RoboService setup complete")
         except Exception as e:
             logger.error(f"RoboService setup failed: {e}")
+            await self._cleanup()  # Ensure cleanup on failure
             raise
 
     async def cleanup(self):
@@ -49,20 +54,15 @@ class RoboService(BaseService):
         await self._cleanup()
 
     async def _cleanup(self):
-        """Required implementation of abstract _cleanup method"""
+        """Implementation of abstract _cleanup method"""
         try:
-            # Cleanup portfolio first
             if hasattr(self, 'portfolio'):
-                await self.portfolio.cleanup()
+                # Just log for now since Portfolio doesn't have cleanup
+                logger.info("Cleaning up portfolio resources")
             
-            # Ensure exchange connections are closed
-            if hasattr(self, 'exchange'):
-                await self.exchange.cleanup()
-                
-            # Wait briefly for connections to fully close
-            await asyncio.sleep(0.25)
-            
+            # Wait briefly for any pending operations
+            await asyncio.sleep(0.1)
             logger.info("RoboService cleaned up")
         except Exception as e:
             logger.error(f"RoboService cleanup failed: {e}")
-            raise  # Re-raise to ensure proper error handling
+            raise

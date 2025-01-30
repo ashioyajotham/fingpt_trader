@@ -9,9 +9,21 @@ logger = logging.getLogger(__name__)
 
 class Portfolio:
     def __init__(self):
-        self.positions: Dict[str, float] = {}  # symbol -> quantity
-        self.prices: Dict[str, float] = {}  # symbol -> current price
-        self.target_weights: Dict[str, float] = {}  # symbol -> target weight
+        self.positions = {}
+        self.cash = 0.0
+
+    async def initialize(self, config: Dict):
+        """Initialize portfolio with configuration"""
+        try:
+            self.cash = float(config.get('initial_cash', 0.0))
+            logger.info(f"Portfolio initialized with {self.cash} cash")
+        except Exception as e:
+            logger.error(f"Portfolio initialization failed: {e}")
+            raise
+
+    async def cleanup(self):
+        """Cleanup any portfolio resources"""
+        logger.info("Portfolio cleanup complete")
 
     def update_prices(self, prices: Dict[str, float]) -> None:
         """Update current market prices"""

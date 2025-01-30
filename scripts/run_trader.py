@@ -28,6 +28,8 @@ async def run_trading_system(config_path: str, verbose: bool = False):
     
     try:
         await system.initialize()
+        logger = logging.getLogger(__name__)
+        logger.info("Trading system running - press Ctrl+C to exit")
         while True:
             market_data = await system.get_market_data()
             signals = await system.detect_inefficiencies(market_data)
