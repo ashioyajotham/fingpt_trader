@@ -1,154 +1,28 @@
-broker:
-  exchange: "binance"
-  test_mode: true
-  base_url: "https://testnet.binance.vision"
-  fallback_exchanges: ["kucoin", "huobi"]
-  rate_limits:
-    orders_per_second: 10
-    requests_per_minute: 1200
-
-market_data:
-  symbols: ["BTC/USDT", "ETH/USDT", "BNB/USDT"]
-  interval: "1m"
-  timeframe: "1h"
-  limit: 1000
-
-news:
-  update_interval: 300
-  max_articles: 10
-  sources: ["cryptopanic", "newsapi"]
-
-strategy:
-  sentiment_config:
-    model_config:
-      fingpt_config:
-        model_name: "falcon"
-        peft_model: "FinGPT/fingpt-mt_falcon-7b_lora"
-      min_confidence: 0.6
-    threshold: 0.3
-    lookback: 24
-    history_size: 100
-    
-  technical_config:
-    window: 20
-    z_threshold: 2.0
-    pairs: [
-      ["BTC/USDT", "ETH/USDT"],
-      ["ETH/USDT", "BNB/USDT"]
-    ]
-    
-  risk:
-    max_position_size: 0.1  # 10% of portfolio
-    stop_loss: 0.02        # 2% per trade
-    take_profit: 0.05      # 5% per trade
-    max_drawdown: 0.15     # 15% maximum drawdown
-
-  weights:
-    sentiment: 0.6
-    technical: 0.4
-  signal_threshold: 0.5
-  max_history: 1000
-
-robo_advisor:
-  risk_profile: "moderate"
-  rebalance_threshold: 0.05
-  max_position_size: 0.2
-  optimization:
-    risk_free_rate: 0.02
-    min_sharpe: 1.0
-    max_volatility: 0.15
-
-robo:
-  rebalance_threshold: 0.05
-  tax_impact_factor: 0.3
-  base_threshold: 0.02
-  max_position_size: 0.2
-  risk:
-    max_drawdown: 0.1
-    var_limit: 0.02
-  esg:
-    min_score: 0.7
-    environmental_weight: 0.4
-    social_weight: 0.3
-    governance_weight: 0.3
-  eth_rpc: "https://mainnet.infura.io/v3/4fe4b6972cee44f3963a9a28cd48cdad"  # Replace with actual Infura/Alchemy endpoint
-  mempool_scan_interval: 5
-  min_arb_profit: 0.005
-  max_gas: 500000
-  dex_list:
-    - "uniswap"
-    - "sushiswap"
-    - "curve"
-  client_profile:
-    risk_score: 5
-    investment_horizon: 365
-    constraints:
-      max_position_size: 0.1
-      min_position_size: 0.01
-      max_leverage: 1.0
-    tax_rate: 0.25
-    esg_preferences:
-      environmental_score: 7
-      social_score: 6
-      governance_score: 8
-  timeout: 30  # seconds
-  trading_pairs:
-    - BTCUSDT
-    - ETHUSDT
-
-# Exchange settings
 exchanges:
   - name: binance
     api_key: ${BINANCE_API_KEY}
     api_secret: ${BINANCE_API_SECRET}
     test_mode: true
-    connection:
+    options:
       timeout: 30
-      nameservers:
-        - "8.8.8.8"
-        - "8.8.4.4"
-      retry_count: 3
-    symbols:
-      - BTCUSDT
-      - ETHUSDT
-      - BNBUSDT
-    intervals:
-      - 1m
-      - 5m
-      - 15m
-      - 1h
+      max_retries: 3
+      use_test_net: true
 
-# Risk management settings
-risk:
-  thresholds:
-    volatility: 3.0     # Circuit breaker volatility threshold
-    volume: 5.0         # Volume spike threshold
-    spread: 0.05        # Maximum bid-ask spread
-    imbalance: 0.7      # Order book imbalance threshold
-  
-  limits:
-    max_drawdown: 0.15
-    var_limit: 0.02
-    max_leverage: 2.0
-    position_limit: 0.1
+trading:
+  pairs:
+    - BTCUSDT
+    - ETHUSDT
+  exchanges:
+    binance:
+      test_mode: true
+      api_key: your_api_key
+      api_secret: your_api_secret
 
-  regime_controls:
-    NORMAL:
-      position_scale: 1.0
-    HIGH_VOL:
-      position_scale: 0.5
-    STRESS:
-      position_scale: 0.25
-    CRISIS:
-      position_scale: 0.0
-    LOW_LIQUIDITY:
-      position_scale: 0.3
-
-# Logging configuration
-logging:
-  level: INFO
-  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-
-sentiment:
-  fingpt_config:
-    config_path: "config/model.yaml"
+robo:
+  strategy:
+    risk_profile: moderate
+    rebalance_threshold: 0.05
+    constraints:
+      min_position_size: 0.01
+      max_position_size: 0.1
+      max_leverage: 1.0

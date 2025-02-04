@@ -12,6 +12,8 @@ import logging
 
 import sys
 from pathlib import Path
+import os
+from dotenv import load_dotenv
 
 # Configure logging
 logging.basicConfig(
@@ -33,7 +35,16 @@ from services.trading.robo_service import RoboService
 
 class TradingSystem:
     def __init__(self, config_path: str):
-        self.config = self._load_config(config_path)
+        # Load environment variables first
+        load_dotenv()
+        
+        # Load and process config
+        with open(config_path, 'r') as f:
+            self.config = yaml.safe_load(f)
+            
+        # Replace environment variables in config
+        self._process_env_vars(self.config)
+        
         self.market_detector = MarketInefficencyDetector(self.config.get('market', {}))
         self.sentiment_analyzer = SentimentAnalyzer(self.config.get('sentiment', {}))
         self.portfolio_optimizer = PortfolioOptimizer(self.config.get('portfolio', {}))
@@ -50,9 +61,19 @@ class TradingSystem:
         self.robo_service = RoboService(self.config.get('robo', {}))
         self.client_profiles = {}
 
-    def _load_config(self, config_path: str) -> Dict:
-        with open(config_path, 'r') as f:
-            return yaml.safe_load(f)
+    def _process_env_vars(self, config: dict) -> None:
+        """Replace ${VAR} with environment variable values"""
+        if isinstance(config, dict):
+            for key, value in config.items():
+                if isinstance(value, (dict, list)):
+                    self._process_env_vars(value)
+                elif isinstance(value, str) and value.startswith('${') and value.endswith('}'):
+                    env_var = value[2:-1]
+                    config[key] = os.getenv(env_var)
+        elif isinstance(config, list):
+            for item in config:
+                if isinstance(item, (dict, list)):
+                    self._process_env_vars(item)
 
     async def initialize(self):
         """Initialize system components in order"""

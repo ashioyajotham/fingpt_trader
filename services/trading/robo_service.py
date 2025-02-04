@@ -33,6 +33,9 @@ sys.path.insert(0, root_dir)
 from models.portfolio.rebalancing import Portfolio
 from services.base_service import BaseService
 from models.client.profile import MockClientProfile
+from strategies.robo.allocation import AssetAllocationStrategy
+from strategies.robo.rebalancing import RebalancingStrategy
+from strategies.robo.tax_aware import TaxAwareStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +94,14 @@ class RoboService(BaseService):
             tax_rate=profile_config.get('tax_rate', 0.25),  # 25% default tax rate
             esg_preferences=profile_config.get('esg_preferences', {})  # ESG preferences
         )
+        
+        # Initialize strategies
+        strategy_config = config.get('strategy', {})
+        self.strategies = {
+            'allocation': AssetAllocationStrategy(strategy_config, self.client_profile),
+            'rebalancing': RebalancingStrategy(strategy_config, self.client_profile),
+            'tax_aware': TaxAwareStrategy(strategy_config, self.client_profile)
+        }
 
     async def initialize(self):
         """
@@ -119,6 +130,11 @@ class RoboService(BaseService):
             Exception: If setup fails, ensures cleanup is called
         """
         try:
+            # Initialize all strategies
+            for name, strategy in self.strategies.items():
+                await strategy.initialize()
+                logger.info(f"{name.capitalize()} strategy initialized")
+            
             # Create session with timeout
             connector = TCPConnector(force_close=True)
             self.session = ClientSession(
@@ -183,3 +199,23 @@ class RoboService(BaseService):
         except Exception as e:
             logger.error(f"RoboService cleanup failed: {e}")
             raise
+
+    async def generate_trading_signals(self) -> List[Dict]:
+        """Generate trading signals from all strategies"""
+        try:
+            signals = []
+            
+            # Get signals from each strategy
+            for strategy in self.strategies.values():
+                strategy_signals = await strategy.generate_signals()
+                signals.extend(strategy_signals)
+            
+            # Apply tax-aware filtering
+            if signals and self.strategies['tax_aware']:
+                signals = await self.strategies['tax_aware'].filter_signals(signals)
+            
+            return signals
+            
+        except Exception as e:
+            logger.error(f"Error generating trading signals: {e}")
+            return []
