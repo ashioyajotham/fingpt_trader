@@ -1,0 +1,20 @@
+exchange:
+  name: binance
+  test_mode: true
+  api_key: your_api_key
+  api_secret: your_api_secret
+
+client_profile:
+  risk_score: 5
+  investment_horizon: 365
+  tax_rate: 0.25
+  constraints:
+    max_position_size: 0.1
+    min_position_size: 0.01
+    max_leverage: 1.0
+
+strategies:
+  tax_aware:
+    enabled: true
+    min_holding_period: 30
+    tax_loss_threshold: -0.05

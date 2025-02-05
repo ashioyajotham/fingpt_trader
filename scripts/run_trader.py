@@ -1,55 +1,137 @@
-import os
-import asyncio
-import sys
-import logging
-from pathlib import Path
 import argparse
+import asyncio
+import logging
+import signal
+from pathlib import Path
+import sys
+from typing import Dict
+import yaml
+import platform
 
-# Fix Windows event loop policy
-if sys.platform == 'win32':
-    from asyncio import WindowsSelectorEventLoopPolicy
-    asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
+import os
 
 # Add project root to path
 root_dir = str(Path(__file__).parent.parent)
 sys.path.insert(0, root_dir)
 
-async def run_trading_system(config_path: str, verbose: bool = False):
-    # Configure logging
-    log_level = logging.DEBUG if verbose else logging.INFO
+from services.trading.robo_service import RoboService
+from services.exchanges.binance import BinanceClient
+
+logger = logging.getLogger(__name__)
+
+class TradingSystem:
+    def __init__(self, config: Dict):
+        self.config = config
+        self.running = False
+        self.exchange = None
+        self.robo_service = None
+
+    async def startup(self):
+        try:
+            self.exchange = await BinanceClient.create(self.config['exchange'])
+            self.robo_service = RoboService(self.config)
+            await self.robo_service._setup()
+            self.running = True
+            logger.info("Trading system started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start trading system: {e}")
+            await self.shutdown()
+            raise
+
+    async def shutdown(self):
+        self.running = False
+        try:
+            tasks = []
+            
+            if self.robo_service:
+                tasks.append(self.robo_service.cleanup())
+            if self.exchange:
+                tasks.append(self.exchange.cleanup())
+                
+            # Wait for all cleanup tasks to complete
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+                
+            # Final wait to ensure all connections close
+            await asyncio.sleep(0.5)
+            
+            logger.info("Trading system shutdown complete")
+            
+        except Exception as e:
+            logger.error(f"Error during shutdown: {e}")
+            raise  # Re-raise to ensure proper process termination
+
+    async def run(self):
+        try:
+            await self.startup()
+            while self.running:
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            logger.info("Shutdown signal received")
+        finally:
+            await self.shutdown()
+
+def load_config() -> Dict:
+    """Load configuration from yaml file with proper path resolution"""
+    try:
+        args = parse_args()
+        
+        # If config path is provided via command line
+        if args.config:
+            config_path = Path(args.config)
+            if not config_path.is_absolute():
+                # Make path absolute relative to project root
+                config_path = Path(__file__).parent.parent / config_path
+        else:
+            # Default config path
+            config_path = Path(__file__).parent.parent / 'config' / 'trading.yaml'
+        
+        # Check if config exists
+        if not config_path.exists():
+            raise FileNotFoundError(f"Config file not found: {config_path}")
+            
+        logger.info(f"Loading config from: {config_path}")
+        with open(config_path) as f:
+            return yaml.safe_load(f)
+                
+    except Exception as e:
+        logger.error(f"Failed to load config: {str(e)}")
+        raise
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='FinGPT Trading System')
+    parser.add_argument('--config', type=str, help='Path to config file')
+    parser.add_argument('--verbose', action='store_true', help='Enable verbose logging')
+    return parser.parse_args()
+
+def configure_windows_event_loop():
+    """Configure event loop policy for Windows"""
+    if platform.system() == 'Windows':
+        # Use ProactorEventLoop on Windows
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        # Disable asyncio debug to prevent ProactorEventLoop warnings
+        logging.getLogger('asyncio').setLevel(logging.INFO)
+
+async def main():
+    """Main entry point"""
+    # Configure logging first
     logging.basicConfig(
-        level=log_level,
+        level=logging.DEBUG if '--verbose' in sys.argv else logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
     
-    # Initialize trading system
-    from main import TradingSystem
-    system = TradingSystem(config_path=config_path)
-    
     try:
-        await system.initialize()
-        logger = logging.getLogger(__name__)
-        logger.info("Trading system running - press Ctrl+C to exit")
-        while True:
-            market_data = await system.get_market_data()
-            signals = await system.detect_inefficiencies(market_data)
-            trades = system.generate_trades(signals)
-            await system.execute_trades(trades)
-            await asyncio.sleep(1)  # Adjust timing as needed
-    except KeyboardInterrupt:
-        print("\nShutting down trading system...")
-    finally:
-        await system.shutdown()
-
-def parse_args():
-    parser = argparse.ArgumentParser(description='Run the FinGPT Trading System')
-    parser.add_argument("--config", type=str, required=True, help="Path to config file")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
-    return parser.parse_args()
-
-def main():
-    args = parse_args()
-    asyncio.run(run_trading_system(args.config, args.verbose))
+        config = load_config()
+        if not config:
+            raise ValueError("Empty configuration loaded")
+            
+        trading_system = TradingSystem(config)
+        await trading_system.run()
+        
+    except Exception as e:
+        logger.error(f"Fatal error: {str(e)}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    main()
+    configure_windows_event_loop()
+    asyncio.run(main())

@@ -1,19 +1,3 @@
-"""
-RoboService Module
------------------
-
-This module provides automated trading capabilities through portfolio management
-and client profile handling. It serves as the core service for automated trading
-decisions based on client preferences and market conditions.
-
-The RoboService integrates:
-- Portfolio management
-- Client profile management
-- Risk assessment
-- Trading constraints
-- ESG preferences
-"""
-
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -22,7 +6,6 @@ from dataclasses import dataclass
 from datetime import datetime
 import logging
 import asyncio
-import aiohttp
 import requests
 from aiohttp import ClientSession, TCPConnector
 
@@ -33,57 +16,14 @@ sys.path.insert(0, root_dir)
 from models.portfolio.rebalancing import Portfolio
 from services.base_service import BaseService
 from models.client.profile import MockClientProfile
-from strategies.robo.allocation import AssetAllocationStrategy
-from strategies.robo.rebalancing import RebalancingStrategy
-from strategies.robo.tax_aware import TaxAwareStrategy
+from strategies.tax_aware import TaxAwareStrategy
 
 logger = logging.getLogger(__name__)
 
 class RoboService(BaseService):
-    """
-    Automated trading service that manages portfolio allocation and trading decisions
-    based on client profiles and market conditions.
-
-    The service handles:
-    - Portfolio initialization and management
-    - Client profile configuration
-    - Risk management
-    - Trading constraints enforcement
-    - ESG preference implementation
-
-    Attributes:
-        portfolio (Portfolio): Manages trading positions and allocations
-        client_profile (MockClientProfile): Holds client preferences and constraints
-    """
-
     def __init__(self, config: Dict):
-        """
-        Initialize the RoboService with configuration settings.
-
-        Args:
-            config (Dict): Configuration dictionary containing:
-                - client_profile: Client preference settings
-                - portfolio: Portfolio configuration
-                - trading_pairs: List of trading pairs to monitor
-                - risk_limits: Risk management parameters
-
-        Example:
-            config = {
-                'client_profile': {
-                    'risk_score': 5,
-                    'investment_horizon': 365,
-                    'tax_rate': 0.25
-                },
-                'portfolio': {
-                    'initial_cash': 10000
-                }
-            }
-        """
         super().__init__(config)
         self.portfolio = Portfolio()  # For managing trading positions
-        self.session = None  # Add session tracking
-        self.trading_pairs = config.get('trading_pairs', [])
-        self.timeout = config.get('timeout', 30)  # Add timeout config
         
         # Initialize client profile with default values or from config
         profile_config = config.get('client_profile', {})
@@ -95,127 +35,44 @@ class RoboService(BaseService):
             esg_preferences=profile_config.get('esg_preferences', {})  # ESG preferences
         )
         
-        # Initialize strategies
-        strategy_config = config.get('strategy', {})
+        # Initialize strategies with proper configuration
+        strategy_config = config.get('strategies', {})
         self.strategies = {
-            'allocation': AssetAllocationStrategy(strategy_config, self.client_profile),
-            'rebalancing': RebalancingStrategy(strategy_config, self.client_profile),
-            'tax_aware': TaxAwareStrategy(strategy_config, self.client_profile)
+            'tax_aware': TaxAwareStrategy(
+                config=strategy_config.get('tax_aware', {}),
+                profile=self.client_profile
+            )
         }
 
-    async def initialize(self):
-        """
-        Initialize the RoboService and its components.
-        
-        This method:
-        1. Sets up the portfolio
-        2. Validates client profile
-        3. Prepares trading environment
-        
-        Raises:
-            Exception: If initialization fails
-        """
-        await self._setup()
-
     async def _setup(self):
-        """
-        Internal setup method implementing BaseService abstract method.
-        
-        This method:
-        1. Initializes portfolio with configuration
-        2. Sets up trading parameters
-        3. Validates service configuration
-        
-        Raises:
-            Exception: If setup fails, ensures cleanup is called
-        """
+        """Required implementation of abstract _setup method"""
         try:
-            # Initialize all strategies
-            for name, strategy in self.strategies.items():
-                await strategy.initialize()
-                logger.info(f"{name.capitalize()} strategy initialized")
-            
-            # Create session with timeout
-            connector = TCPConnector(force_close=True)
-            self.session = ClientSession(
-                connector=connector,
-                timeout=aiohttp.ClientTimeout(total=self.timeout)
-            )
-
             # Initialize portfolio with config
             await self.portfolio.initialize(self.config.get('portfolio', {}))
             logger.info("RoboService setup complete")
         except Exception as e:
             logger.error(f"RoboService setup failed: {e}")
-            await self._cleanup()  # Ensure cleanup on failure
             raise
 
     async def cleanup(self):
-        """
-        Clean up RoboService resources.
-        
-        This method ensures proper shutdown by:
-        1. Closing open positions
-        2. Saving portfolio state
-        3. Cleaning up resources
-        """
+        """Public cleanup method"""
         await self._cleanup()
 
     async def _cleanup(self):
-        """
-        Internal cleanup implementation.
-        
-        This method:
-        1. Cleans up portfolio resources
-        2. Ensures proper resource disposal
-        3. Logs cleanup status
-        
-        Raises:
-            Exception: If cleanup fails
-        """
+        """Required implementation of abstract _cleanup method"""
         try:
-            # Cancel any pending tasks first
-            tasks = [task for task in asyncio.all_tasks() 
-                    if task is not asyncio.current_task()]
-            for task in tasks:
-                task.cancel()
-            
-            # Wait for cancellations
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Close session if exists
-            if self.session and not self.session.closed:
-                await self.session.close()
-                self.session = None
-
-            # Cleanup portfolio
+            # Cleanup portfolio first
             if hasattr(self, 'portfolio'):
-                logger.info("Cleaning up portfolio resources")
+                await self.portfolio.cleanup()
             
-            # Wait briefly for any pending operations
-            await asyncio.sleep(0.1)
+            # Ensure exchange connections are closed
+            if hasattr(self, 'exchange'):
+                await self.exchange.cleanup()
+                
+            # Wait briefly for connections to fully close
+            await asyncio.sleep(0.25)
+            
             logger.info("RoboService cleaned up")
         except Exception as e:
             logger.error(f"RoboService cleanup failed: {e}")
-            raise
-
-    async def generate_trading_signals(self) -> List[Dict]:
-        """Generate trading signals from all strategies"""
-        try:
-            signals = []
-            
-            # Get signals from each strategy
-            for strategy in self.strategies.values():
-                strategy_signals = await strategy.generate_signals()
-                signals.extend(strategy_signals)
-            
-            # Apply tax-aware filtering
-            if signals and self.strategies['tax_aware']:
-                signals = await self.strategies['tax_aware'].filter_signals(signals)
-            
-            return signals
-            
-        except Exception as e:
-            logger.error(f"Error generating trading signals: {e}")
-            return []
+            raise  # Re-raise to ensure proper error handling

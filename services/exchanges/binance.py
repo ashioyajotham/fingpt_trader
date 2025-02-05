@@ -55,33 +55,37 @@ class BinanceClient(BaseExchangeClient):
     async def initialize(self):
         """Initialize Binance client with proper session handling"""
         try:
-            # Create async client first without custom session
+            # Configure connector for Windows
+            connector = TCPConnector(
+                ssl=True,
+                family=socket.AF_INET,  # Force IPv4
+                force_close=True,
+                enable_cleanup_closed=True,
+                verify_ssl=True
+            )
+
+            # Create custom session
+            session = ClientSession(
+                connector=connector,
+                headers=self.DEFAULT_HEADERS,
+                # Disable DNS cache on Windows to prevent aiodns issues
+                skip_auto_headers=['Content-Type'],
+                resolver=None if platform.system() == 'Windows' else None
+            )
+
+            # Create async client with custom session
             self.client = await AsyncClient.create(
                 api_key=self.api_key,
                 api_secret=self.api_secret,
                 testnet=self.testnet,
-                tld='vision' if self.testnet else 'com'
+                tld='vision' if self.testnet else 'com',
+                requests_params={'timeout': 30}
             )
 
-            # Update client's session configuration
+            # Replace client's session
             if hasattr(self.client, 'session'):
-                # Configure connector
-                connector = TCPConnector(
-                    ssl=True,
-                    family=socket.AF_INET if platform.system() == 'Windows' else 0,
-                    force_close=True,
-                    enable_cleanup_closed=True
-                )
-                
-                # Create new session with our settings
-                new_session = ClientSession(
-                    connector=connector,
-                    headers=self.DEFAULT_HEADERS
-                )
-                
-                # Close old session and replace with new one
                 await self.client.session.close()
-                self.client.session = new_session
+                self.client.session = session
 
             # Initialize socket manager
             self.bsm = BinanceSocketManager(self.client)
@@ -96,29 +100,20 @@ class BinanceClient(BaseExchangeClient):
     async def cleanup(self):
         """Enhanced cleanup with websocket handling"""
         try:
-            # Close websocket connections first
-            if hasattr(self, '_ws_connections'):
-                for symbol, streams in self._ws_connections.items():
-                    for stream in streams.values():
-                        await stream.close()
-                self._ws_connections.clear()
+            # Close websocket connections
+            for symbol, streams in self._ws_connections.items():
+                for stream in streams.values():
+                    await stream.close()
+            self._ws_connections.clear()
             
-            # Close Binance socket manager
-            if self.bsm:
-                await self.bsm.close()
-                self.bsm = None
-            
-            # Close client and session
+            # Close client session and connection
             if self.client:
-                if hasattr(self.client, 'session') and not self.client.session.closed:
+                if hasattr(self.client, 'session'):
                     await self.client.session.close()
                 await self.client.close_connection()
                 self.client = None
                 
-            # Final wait to ensure all connections are closed
-            await asyncio.sleep(0.5)
-            logger.info("Binance client cleaned up successfully")
-            
+            logger.info("Binance client cleaned up")
         except Exception as e:
             logger.error(f"Binance cleanup failed: {e}")
 
