@@ -8,9 +8,15 @@ logger = logging.getLogger(__name__)
 class TaxAwareStrategy(BaseStrategy):
     def __init__(self, config: Dict, profile: MockClientProfile = None):
         super().__init__(config)
+        logger.debug("Initializing TaxAwareStrategy...")
+        logger.debug(f"Config: {config}")
+        
         self.profile = profile
         self.tax_rate = profile.tax_rate if profile else 0.25
-        self.holding_periods = {}  # Track position holding periods
+        self.holding_periods = {}
+        
+        logger.debug(f"Tax rate: {self.tax_rate}")
+        logger.debug(f"Profile: {profile.__dict__ if profile else 'None'}")
         
     async def generate_signals(self, market_data: Dict) -> Dict:
         """Generate trading signals considering tax implications"""

@@ -28,15 +28,41 @@ class TradingSystem:
 
     async def startup(self):
         try:
+            logger.debug("Starting trading system initialization...")
+            logger.debug(f"Python version: {sys.version}")
+            logger.debug(f"Platform: {platform.platform()}")
+            
+            # Initialize exchange
+            logger.debug("Initializing exchange client...")
             self.exchange = await BinanceClient.create(self.config['exchange'])
+            
+            # Get trading pairs
+            pairs = await self.exchange.get_trading_pairs()
+            logger.debug(f"Available trading pairs: {len(pairs)}")
+            
+            # Initialize robo service
+            logger.debug("Initializing RoboService...")
             self.robo_service = RoboService(self.config)
             await self.robo_service._setup()
+            
             self.running = True
             logger.info("Trading system started successfully")
+            
+            # Log additional system info in verbose mode
+            logger.debug(f"Trading mode: {'Test' if self.config['exchange'].get('test_mode') else 'Live'}")
+            logger.debug(f"Active strategies: {list(self.config.get('strategies', {}).keys())}")
+            logger.debug(f"Memory usage: {self._get_memory_usage():.2f} MB")
+            
         except Exception as e:
             logger.error(f"Failed to start trading system: {e}")
             await self.shutdown()
             raise
+
+    def _get_memory_usage(self) -> float:
+        """Get current memory usage in MB"""
+        import psutil
+        process = psutil.Process(os.getpid())
+        return process.memory_info().rss / 1024 / 1024
 
     async def shutdown(self):
         self.running = False

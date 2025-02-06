@@ -55,8 +55,14 @@ class BinanceClient(BaseExchangeClient):
     async def initialize(self):
         """Initialize Binance client with proper session handling"""
         try:
+            logger.debug("Initializing Binance client...")
+            logger.debug(f"Base URL: {self.base_url}")
+            logger.debug(f"WebSocket URL: {self.ws_url}")
+            logger.debug(f"Test mode: {self.testnet}")
+            
             # Configure DNS resolution
             use_custom_dns = platform.system() == 'Windows'
+            logger.debug(f"Using custom DNS settings: {use_custom_dns}")
             
             # Configure connector with DNS settings
             connector = TCPConnector(
@@ -93,6 +99,7 @@ class BinanceClient(BaseExchangeClient):
             # Initialize socket manager
             self.bsm = BinanceSocketManager(self.client)
             logger.info("Binance client initialized successfully")
+            logger.debug("Connection test successful")
 
         except Exception as e:
             logger.error(f"Binance client initialization failed: {e}")
