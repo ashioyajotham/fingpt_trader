@@ -107,9 +107,19 @@ def parse_args():
 def configure_windows_event_loop():
     """Configure event loop policy for Windows"""
     if platform.system() == 'Windows':
-        # Use ProactorEventLoop on Windows
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-        # Disable asyncio debug to prevent ProactorEventLoop warnings
+        try:
+            # Import SelectorEventLoop explicitly
+            from asyncio import SelectorEventLoop, WindowsSelectorEventLoopPolicy
+            # Set policy to use SelectorEventLoop
+            asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
+            # Create and set the event loop
+            loop = SelectorEventLoop()
+            asyncio.set_event_loop(loop)
+        except ImportError:
+            logger.warning("Could not import SelectorEventLoop, falling back to ProactorEventLoop")
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        
+        # Disable asyncio debug to prevent event loop warnings
         logging.getLogger('asyncio').setLevel(logging.INFO)
 
 async def main():

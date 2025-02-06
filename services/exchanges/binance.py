@@ -55,31 +55,34 @@ class BinanceClient(BaseExchangeClient):
     async def initialize(self):
         """Initialize Binance client with proper session handling"""
         try:
-            # Configure connector for Windows
+            # Configure DNS resolution
+            use_custom_dns = platform.system() == 'Windows'
+            
+            # Configure connector with DNS settings
             connector = TCPConnector(
                 ssl=True,
                 family=socket.AF_INET,  # Force IPv4
                 force_close=True,
                 enable_cleanup_closed=True,
-                verify_ssl=True
+                verify_ssl=True,
+                use_dns_cache=not use_custom_dns,  # Disable DNS cache on Windows
+                ttl_dns_cache=300  # 5 minutes cache TTL when enabled
             )
 
-            # Create custom session
+            # Create custom session with appropriate settings
             session = ClientSession(
                 connector=connector,
                 headers=self.DEFAULT_HEADERS,
-                # Disable DNS cache on Windows to prevent aiodns issues
-                skip_auto_headers=['Content-Type'],
-                resolver=None if platform.system() == 'Windows' else None
+                skip_auto_headers=['Content-Type']
             )
 
-            # Create async client with custom session
+            # Create async client with custom session and proper timeout
             self.client = await AsyncClient.create(
                 api_key=self.api_key,
                 api_secret=self.api_secret,
                 testnet=self.testnet,
                 tld='vision' if self.testnet else 'com',
-                requests_params={'timeout': 30}
+                requests_params={'timeout': 30}  # Remove use_dns_cache from here
             )
 
             # Replace client's session
