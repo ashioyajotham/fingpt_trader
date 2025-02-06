@@ -74,6 +74,10 @@ $$ Position Size = \frac{Risk Capital \times Risk Score}{VaR_\alpha \times (1 + 
 - Risk scoring
 - Exposure limits
 
+## Usage
+
+### Production Deployment
+
 ## Quick Start
 
 1. Install dependencies:
