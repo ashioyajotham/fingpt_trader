@@ -1,29 +1,59 @@
 """
 FinGPT Trading System - Production Entry Point
 
-This is the primary entry point for the production trading system.
-Implements full system functionality including:
-- Market inefficiency detection
-- Sentiment analysis
-- Portfolio optimization
-- Risk management
-- Multi-exchange support
-- Full robo-advisory capabilities
-- Advanced trading strategies
+A comprehensive algorithmic trading system combining machine learning,
+sentiment analysis, and traditional trading strategies.
 
-Key Components:
-    - MarketInefficiencyDetector: Identifies trading opportunities
-    - SentimentAnalyzer: Processes market sentiment
-    - PortfolioOptimizer: Manages portfolio allocations
-    - RiskManager: Handles risk monitoring and limits
-    - RoboService: Provides robo-advisory functionality
+System Architecture:
+    1. Core Components:
+        - Market Analysis:
+            * Inefficiency detection
+            * Technical analysis
+            * Sentiment processing
+        - Portfolio Management:
+            * Position sizing
+            * Risk management
+            * Portfolio optimization
+        - Trading Execution:
+            * Multi-exchange support
+            * Order management
+            * Execution algorithms
+        - Robo-Advisory:
+            * Client profiling
+            * Portfolio recommendations
+            * Tax-aware trading
+
+    2. Key Features:
+        - Real-time market data processing
+        - ML-based market inefficiency detection
+        - Natural language processing for news analysis
+        - Advanced portfolio optimization
+        - Risk management and monitoring
+        - Tax-loss harvesting
+        - Multi-client portfolio management
 
 Usage:
     python main.py
 
-Environment:
-    Requires configuration in config/trading.yaml
-    Requires .env file with API keys and secrets
+Configuration:
+    The system requires proper setup of:
+    1. Environment Variables:
+        - BINANCE_API_KEY: Exchange API key
+        - BINANCE_API_SECRET: Exchange API secret
+        - HUGGINGFACE_TOKEN: For ML models
+        - NEWS_API_KEY: For news fetching
+        
+    2. Configuration Files:
+        - config/trading.yaml: Main configuration
+        - .env: Environment variables
+        
+    3. Model Files:
+        - models/: ML model weights and configurations
+
+Development vs Production:
+    - For development/testing use: scripts/run_trader.py
+    - For production deployment use: main.py (this file)
+
 """
 
 import asyncio
@@ -57,6 +87,38 @@ from models.portfolio.risk import RiskManager
 from services.trading.robo_service import RoboService
 
 class TradingSystem:
+    """
+    Production Trading System Implementation
+    
+    A comprehensive trading system that combines multiple strategies:
+    - Market inefficiency detection
+    - Sentiment analysis
+    - Portfolio optimization
+    - Risk management
+    - Robo-advisory services
+    
+    Components:
+        - MarketInefficiencyDetector: Identifies trading opportunities
+        - SentimentAnalyzer: Processes market sentiment
+        - PortfolioOptimizer: Manages portfolio allocations
+        - RiskManager: Handles risk monitoring
+        - RoboService: Provides robo-advisory functionality
+        
+    Attributes:
+        config (Dict): System configuration
+        market_detector (MarketInefficiencyDetector): Market analysis component
+        sentiment_analyzer (SentimentAnalyzer): NLP component
+        portfolio_optimizer (PortfolioOptimizer): Portfolio management
+        risk_manager (RiskManager): Risk monitoring and limits
+        robo_service (RoboService): Robo-advisory services
+        exchange_clients (Dict): Exchange connections
+        client_profiles (Dict): Client information
+        
+    Methods:
+        initialize(): Setup system components
+        run(): Main trading loop
+        shutdown(): Cleanup resources
+    """
     def __init__(self, config_path: str):
         # Load environment variables first
         load_dotenv()
