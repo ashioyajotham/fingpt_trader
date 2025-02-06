@@ -9,6 +9,10 @@ models/checkpoints/
 logs/
 *.log
 
+# Logging
+logs/
+*.log
+
 # Environment variables
 .env
 

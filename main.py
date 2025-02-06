@@ -68,12 +68,13 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+from utils.logging import LogManager
 
+# Replace existing logging config
+LogManager({
+    "log_dir": "logs",
+    "level": "INFO"
+}).setup_basic_logging()
 logger = logging.getLogger(__name__)
 
 # Add project root to path

@@ -1,3 +1,11 @@
+# External Services Configuration
+#
+# Contains API credentials and service endpoints for:
+# - News providers
+# - ML model services
+# - Fallback services
+# Do not include exchange settings (moved to trading.yaml)
+
 api:
   news:
     provider: "cryptopanic"
@@ -8,11 +16,3 @@ api:
     
   huggingface:
     token: ${HUGGINGFACE_TOKEN}
-    
-  exchange:
-    provider: "binance"
-    key: ${BINANCE_API_KEY}
-    secret: ${BINANCE_SECRET_KEY}
-    test_mode: true
-    base_url: "https://testnet.binance.vision"
-    fallback_exchanges: ["kucoin", "huobi"]
