@@ -161,7 +161,29 @@ class TradingSystem:
                     self._process_env_vars(item)
 
     async def initialize(self):
-        """Initialize system components in order"""
+        """
+        Initialize all system components sequentially.
+        
+        Initialization Order:
+        1. Sentiment Analysis Engine
+            - Load ML models
+            - Initialize news feeds
+        2. Market Detection System
+            - Configure technical indicators
+            - Load historical data
+        3. Exchange Connections
+            - Setup API clients
+            - Verify connectivity
+        4. Market State
+            - Initialize order books
+            - Setup data streams
+        5. Robo-Advisory Service
+            - Load client profiles
+            - Initialize portfolio models
+            
+        Raises:
+            Exception: If any component fails to initialize
+        """
         try:
             logger.info("Initializing trading system...")
             
@@ -266,7 +288,30 @@ class TradingSystem:
         return data
 
     async def detect_inefficiencies(self, market_data: Dict) -> Dict:
-        """Detect market inefficiencies from data"""
+        """
+        Analyze market data for trading opportunities.
+        
+        Uses multiple detection methods:
+        - Technical analysis patterns
+        - Order book imbalances
+        - Volume profile analysis
+        - Sentiment correlation
+        
+        Args:
+            market_data: Dict containing:
+                - orderbook: Current order book state
+                - trades: Recent trades
+                - candles: OHLCV data
+                
+        Returns:
+            Dict: Trading signals with:
+                - confidence: Signal strength (0-1)
+                - direction: Long/Short
+                - metadata: Supporting data
+                
+        Raises:
+            ValueError: If market data is invalid
+        """
         signals = {}
         for exchange, exchange_data in market_data.items():
             for pair, pair_data in exchange_data.items():
@@ -327,7 +372,32 @@ class TradingSystem:
         return trades
 
     async def execute_trades(self, trades: List[Dict]):
-        """Execute generated trades"""
+        """
+        Execute trades across connected exchanges.
+        
+        Features:
+        - Smart order routing
+        - Slippage protection
+        - Position sizing
+        - Risk checks
+        
+        Args:
+            trades: List of trade specifications:
+                - symbol: Trading pair
+                - size: Position size
+                - direction: Long/Short
+                - type: Order type
+                
+        Returns:
+            List[Dict]: Execution results with:
+                - order_id: Exchange order ID
+                - status: Execution status
+                - filled: Amount filled
+                - price: Average fill price
+                
+        Raises:
+            Exception: If execution fails
+        """
         if trades is None:
             raise Exception("Cannot execute None trades")
 
