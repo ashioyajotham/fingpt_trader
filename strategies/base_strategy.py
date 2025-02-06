@@ -24,13 +24,18 @@ class BaseStrategy(ABC):
         }
 
     @abstractmethod
-    async def process_market_data(self, data: Dict) -> None:
-        """Process incoming market data"""
+    async def process_market_data(self, market_data: Dict) -> Dict:
+        """Process market data and return results"""
         pass
 
     @abstractmethod
-    async def on_trade(self, trade: Dict) -> None:
+    async def on_trade(self, trade_data: Dict) -> None:
         """Handle trade execution updates"""
+        pass
+
+    @abstractmethod
+    async def _generate_base_signals(self, market_data: Dict) -> List[Dict]:
+        """Generate base trading signals - must be implemented by subclasses"""
         pass
 
     async def start(self) -> None:
@@ -82,11 +87,8 @@ class BaseStrategy(ABC):
         
         # Adjust signal sizes based on regime
         for signal in signals:
-            signal['size'] *= position_scale
-            signal['regime'] = current_regime.value
+            if self._validate_signal(signal):
+                signal['size'] *= position_scale
+                signal['regime'] = current_regime.value
             
         return signals
-        
-    async def _generate_base_signals(self, market_data: Dict) -> List[Dict]:
-        """To be implemented by concrete strategies"""
-        raise NotImplementedError
