@@ -90,3 +90,14 @@ async def generate_client_trades(self, client_id: str) -> List[Dict]:
 
 #### Verdict:
 While technically well-implemented, this project lacks the depth and novelty required for academic publication. It's more of a proof-of-concept system that demonstrates good software engineering practices but doesn't advance the state of algorithmic trading or robo-advisory services.
+
+
+run_trader.py
+# Run with max pairs limit
+python scripts/run_trader.py --config config/trading.yaml --verbose --max-pairs 5
+
+# Run with specific pairs
+python scripts/run_trader.py --config config/trading.yaml --verbose --pairs BTCUSDT,ETHUSDT,BNBUSDT
+
+# Run with development config (fallback if no command line args)
+python scripts/run_trader.py --config config/trading.yaml --verbose

@@ -7,6 +7,7 @@ Provides basic trading system functionality with focus on:
 - Basic robo-advisory features
 - Strategy validation
 - System component testing
+- Trading pair limitations for faster testing
 
 This script is NOT intended for production use.
 For production deployment, use main.py in the root directory.
@@ -17,12 +18,22 @@ Key Components:
     - RoboService: Basic robo-advisory features
 
 Usage:
-    python scripts/run_trader.py [--config CONFIG_PATH] [--verbose]
+    python scripts/run_trader.py [OPTIONS]
+
+Options:
+    --config CONFIG_PATH    Path to config file (default: config/trading.yaml)
+    --verbose              Enable verbose logging
+    --max-pairs N         Limit number of trading pairs for testing
+    --pairs SYMBOLS       Specify trading pairs (comma-separated, e.g. BTCUSDT,ETHUSDT)
     
-Development Tools:
+Development Features:
     - Verbose logging for debugging
     - Test mode by default
     - Simplified component initialization
+    - Trading pair limitation options:
+        1. Command line arguments (--max-pairs, --pairs)
+        2. Development config in trading.yaml
+        3. Full pair set if no limitations specified
 """
 
 import argparse
@@ -97,8 +108,29 @@ class TradingSystem:
             logger.debug("Initializing exchange client...")
             self.exchange = await BinanceClient.create(self.config['exchange'])
             
-            # Get trading pairs
+            # Get trading pairs with development mode handling
             pairs = await self.exchange.get_trading_pairs()
+            
+            # Handle command line pair limitations first
+            args = parse_args()
+            if args.pairs:
+                # Use specific pairs from command line
+                requested_pairs = args.pairs.upper().split(',')
+                pairs = [p for p in pairs if p in requested_pairs]
+                logger.info(f"Using specified pairs: {pairs}")
+            elif args.max_pairs:
+                # Limit number of pairs from command line
+                pairs = pairs[:args.max_pairs]
+                logger.info(f"Limited to {len(pairs)} pairs")
+            # Fall back to development config if no command line args
+            elif self.config.get('development', {}).get('enabled'):
+                dev_config = self.config['development']
+                if 'test_pairs' in dev_config:
+                    pairs = [p for p in pairs if p in dev_config['test_pairs']]
+                elif 'max_pairs' in dev_config:
+                    pairs = pairs[:dev_config['max_pairs']]
+                logger.info(f"Development mode: Using {len(pairs)} pairs")
+            
             logger.debug(f"Available trading pairs: {len(pairs)}")
             
             # Initialize robo service
@@ -202,6 +234,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description='FinGPT Trading System')
     parser.add_argument('--config', type=str, help='Path to config file')
     parser.add_argument('--verbose', action='store_true', help='Enable verbose logging')
+    parser.add_argument('--max-pairs', type=int, help='Limit number of trading pairs')
+    parser.add_argument('--pairs', type=str, help='Comma-separated list of trading pairs (e.g. BTCUSDT,ETHUSDT)')
     return parser.parse_args()
 
 def configure_windows_event_loop():

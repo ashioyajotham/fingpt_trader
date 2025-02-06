@@ -1,15 +1,8 @@
 # FinGPT Trader
 
-A quantitative trading system that combines natural language processing of market sentiment with statistical arbitrage detection. The system implements adaptive portfolio optimization using a hybrid approach of modern portfolio theory and NLP-derived market inefficiency signals.
+A quantitative trading system combining NLP-driven market sentiment analysis with statistical arbitrage detection and robo-advisory services.
 
-Key features:
-- Sentiment-aware portfolio optimization
-- Market inefficiency detection via NLP and statistical analysis
-- Adaptive risk management with dynamic VaR calculations
-- Multi-exchange support with real-time websocket data streams
-- Event-driven architecture with async execution
-
-## Architecture
+## System Architecture
 
 ```mermaid
 graph TD

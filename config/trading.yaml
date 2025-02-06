@@ -47,3 +47,11 @@ strategies:
     enabled: true
     min_holding_period: 30
     tax_loss_threshold: -0.05
+
+development:
+  enabled: true  # Enable development mode
+  test_pairs:    # Specific pairs for testing
+    - BTCUSDT
+    - ETHUSDT
+    - BNBUSDT
+  max_pairs: 10  # Or use max pairs limit instead
