@@ -1,6 +1,29 @@
 """
-Main entry point for the FinGPT Trading System.
-Handles core trading logic and system orchestration.
+FinGPT Trading System - Production Entry Point
+
+This is the primary entry point for the production trading system.
+Implements full system functionality including:
+- Market inefficiency detection
+- Sentiment analysis
+- Portfolio optimization
+- Risk management
+- Multi-exchange support
+- Full robo-advisory capabilities
+- Advanced trading strategies
+
+Key Components:
+    - MarketInefficiencyDetector: Identifies trading opportunities
+    - SentimentAnalyzer: Processes market sentiment
+    - PortfolioOptimizer: Manages portfolio allocations
+    - RiskManager: Handles risk monitoring and limits
+    - RoboService: Provides robo-advisory functionality
+
+Usage:
+    python main.py
+
+Environment:
+    Requires configuration in config/trading.yaml
+    Requires .env file with API keys and secrets
 """
 
 import asyncio

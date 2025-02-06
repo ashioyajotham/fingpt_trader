@@ -1,3 +1,30 @@
+"""
+FinGPT Trading System - Development Runner
+
+A simplified runner script for development and testing purposes.
+Provides basic trading system functionality with focus on:
+- Single exchange testing (Binance)
+- Basic robo-advisory features
+- Strategy validation
+- System component testing
+
+This script is NOT intended for production use.
+For production deployment, use main.py in the root directory.
+
+Key Components:
+    - TradingSystem: Simplified system orchestrator
+    - BinanceClient: Single exchange support
+    - RoboService: Basic robo-advisory features
+
+Usage:
+    python scripts/run_trader.py [--config CONFIG_PATH] [--verbose]
+    
+Development Tools:
+    - Verbose logging for debugging
+    - Test mode by default
+    - Simplified component initialization
+"""
+
 import argparse
 import asyncio
 import logging
@@ -20,13 +47,47 @@ from services.exchanges.binance import BinanceClient
 logger = logging.getLogger(__name__)
 
 class TradingSystem:
+    """
+    Main trading system orchestrator.
+    
+    Handles initialization, execution, and cleanup of trading components:
+    - Exchange connections
+    - Trading strategies
+    - Portfolio management
+    - Risk monitoring
+    
+    Attributes:
+        config (Dict): System configuration
+        running (bool): System running state
+        exchange (BinanceClient): Exchange client instance
+        robo_service (RoboService): Robo-advisory service instance
+    """
+    
     def __init__(self, config: Dict):
+        """
+        Initialize trading system with configuration.
+        
+        Args:
+            config (Dict): Configuration dictionary from YAML
+        """
         self.config = config
         self.running = False
         self.exchange = None
         self.robo_service = None
 
     async def startup(self):
+        """
+        Initialize system components in sequence.
+        
+        Startup sequence:
+        1. Exchange client initialization
+        2. Trading pairs discovery
+        3. RoboService setup
+        4. System state initialization
+        
+        Raises:
+            Exception: If any component fails to initialize
+        """
         try:
             logger.debug("Starting trading system initialization...")
             logger.debug(f"Python version: {sys.version}")
@@ -98,7 +159,20 @@ class TradingSystem:
             await self.shutdown()
 
 def load_config() -> Dict:
-    """Load configuration from yaml file with proper path resolution"""
+    """
+    Load and validate system configuration.
+    
+    Searches for config file in the following order:
+    1. Command line argument path
+    2. Default path (config/trading.yaml)
+    
+    Returns:
+        Dict: Parsed configuration dictionary
+        
+    Raises:
+        FileNotFoundError: If config file not found
+        ValueError: If config is empty or invalid
+    """
     try:
         args = parse_args()
         
@@ -131,7 +205,14 @@ def parse_args():
     return parser.parse_args()
 
 def configure_windows_event_loop():
-    """Configure event loop policy for Windows"""
+    """
+    Configure event loop for Windows compatibility.
+    
+    Handles Windows-specific event loop requirements:
+    - Uses SelectorEventLoop when possible
+    - Falls back to ProactorEventLoop if necessary
+    - Configures proper DNS resolution
+    """
     if platform.system() == 'Windows':
         try:
             # Import SelectorEventLoop explicitly
@@ -149,7 +230,19 @@ def configure_windows_event_loop():
         logging.getLogger('asyncio').setLevel(logging.INFO)
 
 async def main():
-    """Main entry point"""
+    """
+    Main entry point for the trading system.
+    
+    Execution flow:
+    1. Configure logging based on verbosity
+    2. Load and validate configuration
+    3. Initialize trading system
+    4. Run main trading loop
+    5. Handle graceful shutdown
+    
+    Returns:
+        int: Exit code (0 for success, 1 for error)
+    """
     # Configure logging first
     logging.basicConfig(
         level=logging.DEBUG if '--verbose' in sys.argv else logging.INFO,
