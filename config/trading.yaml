@@ -2,11 +2,10 @@ exchanges:
   - name: binance
     api_key: ${BINANCE_API_KEY}
     api_secret: ${BINANCE_API_SECRET}
-    test_mode: true
+    test_mode: true    # Single source of truth for test/prod mode
     options:
       timeout: 30
       max_retries: 3
-      use_test_net: true
 
 trading:
   pairs:
@@ -14,7 +13,6 @@ trading:
     - ETHUSDT
   exchanges:
     binance:
-      test_mode: true
       api_key: your_api_key
       api_secret: your_api_secret
 

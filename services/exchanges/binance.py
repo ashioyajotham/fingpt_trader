@@ -1,3 +1,40 @@
+"""
+Binance Exchange Client Implementation
+
+A comprehensive AsyncIO-based client for interacting with Binance exchange API.
+Supports both mainnet and testnet environments with enhanced error handling,
+connection management, and Windows-specific optimizations.
+
+Features:
+    - Async/await pattern for optimal performance
+    - Automatic reconnection handling
+    - Rate limiting compliance
+    - Custom DNS resolution for Windows
+    - WebSocket stream management
+    - Enhanced error handling
+    - Connection pooling and reuse
+    - Comprehensive market data access
+
+Usage:
+    client = await BinanceClient.create({
+        'api_key': 'your_key',
+        'api_secret': 'your_secret',
+        'test_mode': True
+    })
+    
+    # Get market data
+    pairs = await client.get_trading_pairs()
+    orderbook = await client.get_orderbook('BTCUSDT')
+    
+    # Cleanup
+    await client.cleanup()
+
+Dependencies:
+    - python-binance
+    - aiohttp
+    - asyncio
+"""
+
 import logging
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -11,6 +48,30 @@ from aiohttp import TCPConnector, ClientSession
 logger = logging.getLogger(__name__)
 
 class BinanceClient(BaseExchangeClient):
+    """
+    Asynchronous Binance exchange client with enhanced features.
+    
+    Provides a robust interface to Binance's API with:
+    - Automatic connection management
+    - WebSocket stream handling
+    - Rate limit awareness
+    - Error recovery
+    - Resource cleanup
+    
+    Attributes:
+        api_key (str): Binance API key
+        api_secret (str): Binance API secret
+        testnet (bool): Whether to use testnet
+        base_url (str): REST API base URL
+        ws_url (str): WebSocket base URL
+        client (AsyncClient): Binance async client instance
+        bsm (BinanceSocketManager): WebSocket manager
+        _ws_connections (dict): Active WebSocket connections
+        
+    Class Constants:
+        DEFAULT_HEADERS (dict): Default HTTP headers
+        URLS (dict): API endpoints for prod/test
+    """
     # Class-level constants
     DEFAULT_HEADERS = {
         'User-Agent': 'FinGPT-Trader/1.0',
@@ -53,7 +114,18 @@ class BinanceClient(BaseExchangeClient):
         return instance
 
     async def initialize(self):
-        """Initialize Binance client with proper session handling"""
+        """
+        Initialize Binance client with optimized settings.
+        
+        Performs:
+        1. Session configuration with custom DNS settings
+        2. Connection pool setup
+        3. WebSocket manager initialization
+        4. Connection testing
+        
+        Raises:
+            Exception: On initialization failure with detailed error
+        """
         try:
             logger.debug("Initializing Binance client...")
             logger.debug(f"Base URL: {self.base_url}")
@@ -108,7 +180,16 @@ class BinanceClient(BaseExchangeClient):
             raise
 
     async def cleanup(self):
-        """Enhanced cleanup with websocket handling"""
+        """
+        Perform comprehensive resource cleanup.
+        
+        Closes:
+        1. All WebSocket connections
+        2. HTTP sessions
+        3. AsyncIO client connection
+        
+        Should be called when client is no longer needed.
+        """
         try:
             # Close websocket connections
             for symbol, streams in self._ws_connections.items():
@@ -128,7 +209,15 @@ class BinanceClient(BaseExchangeClient):
             logger.error(f"Binance cleanup failed: {e}")
 
     async def get_trading_pairs(self) -> List[str]:
-        """Get available trading pairs"""
+        """
+        Retrieve available trading pairs from exchange.
+        
+        Returns:
+            List[str]: Active trading pairs (e.g., ['BTCUSDT', 'ETHUSDT'])
+            
+        Raises:
+            Exception: If API request fails
+        """
         try:
             exchange_info = await self.client.get_exchange_info()
             return [s['symbol'] for s in exchange_info['symbols'] if s['status'] == 'TRADING']
@@ -137,7 +226,24 @@ class BinanceClient(BaseExchangeClient):
             raise
 
     async def get_orderbook(self, symbol: str, limit: int = 100) -> Dict:
-        """Get order book for symbol"""
+        """
+        Fetch order book data for a trading pair.
+        
+        Args:
+            symbol (str): Trading pair symbol (e.g., 'BTCUSDT')
+            limit (int): Number of price levels to retrieve (default: 100)
+            
+        Returns:
+            Dict: Order book data:
+                {
+                    'bids': [[price, quantity], ...],
+                    'asks': [[price, quantity], ...],
+                    'timestamp': last_update_id
+                }
+                
+        Raises:
+            Exception: If symbol is invalid or request fails
+        """
         try:
             depth = await self.client.get_order_book(symbol=symbol, limit=limit)
             return {
@@ -150,7 +256,24 @@ class BinanceClient(BaseExchangeClient):
             raise
 
     async def get_recent_trades(self, symbol: str, limit: int = 1000) -> List[Dict]:
-        """Get recent trades for symbol"""
+        """
+        Fetch recent trades for a symbol.
+        
+        Args:
+            symbol (str): Trading pair symbol
+            limit (int): Number of trades to retrieve (max 1000)
+            
+        Returns:
+            List[Dict]: Recent trades with fields:
+                - id: Trade ID
+                - price: Execution price
+                - qty: Trade quantity
+                - time: Trade timestamp
+                - isBuyerMaker: True if buyer was maker
+                
+        Raises:
+            Exception: On invalid symbol or API error
+        """
         try:
             trades = await self.client.get_recent_trades(symbol=symbol, limit=limit)
             return trades
@@ -159,7 +282,24 @@ class BinanceClient(BaseExchangeClient):
             raise
 
     async def get_candles(self, symbol: str, interval: str = '1h', limit: int = 500) -> List[List]:
-        """Get candlestick data"""
+        """
+        Retrieve candlestick data for technical analysis.
+        
+        Args:
+            symbol (str): Trading pair symbol
+            interval (str): Candle interval ('1m', '5m', '1h', etc.)
+            limit (int): Number of candles (max 1000)
+            
+        Returns:
+            List[List]: Candlestick data:
+                [
+                    [timestamp, open, high, low, close, volume, ...],
+                    ...
+                ]
+                
+        Raises:
+            Exception: If parameters are invalid or request fails
+        """
         try:
             klines = await self.client.get_klines(
                 symbol=symbol,
@@ -172,7 +312,29 @@ class BinanceClient(BaseExchangeClient):
             raise
 
     async def get_market_data(self, symbol: str) -> Dict:
-        """Implement abstract method for market data"""
+        """
+        Fetch comprehensive market data for a symbol.
+        
+        Retrieves synchronized snapshot of:
+        - Order book
+        - Recent trades
+        - Candlestick data
+        
+        Args:
+            symbol (str): Trading pair symbol
+            
+        Returns:
+            Dict: Market data snapshot:
+                {
+                    'orderbook': {...},
+                    'trades': [...],
+                    'candles': [...],
+                    'timestamp': current_timestamp
+                }
+                
+        Raises:
+            Exception: If any data fetch fails
+        """
         try:
             # Get all required market data
             [orderbook, trades, klines] = await asyncio.gather(
@@ -192,7 +354,40 @@ class BinanceClient(BaseExchangeClient):
             raise
 
     async def place_order(self, order: Dict) -> Dict:
-        """Implement abstract method for order placement"""
+        """
+        Place a new order on the exchange.
+        
+        Supports multiple order types:
+        - LIMIT
+        - MARKET
+        - STOP_LOSS
+        - STOP_LOSS_LIMIT
+        - TAKE_PROFIT
+        - TAKE_PROFIT_LIMIT
+        
+        Args:
+            order (Dict): Order specification:
+                - symbol: Trading pair
+                - side: 'BUY' or 'SELL'
+                - type: Order type
+                - quantity: Order size
+                - price: Limit price (optional)
+                - stop_price: Stop price (optional)
+                
+        Returns:
+            Dict: Order result:
+                {
+                    'id': Order ID
+                    'status': Order status
+                    'filled': Amount filled
+                    'remaining': Amount remaining
+                    'price': Average fill price
+                    'raw': Raw exchange response
+                }
+                
+        Raises:
+            Exception: If order parameters are invalid or placement fails
+        """
         try:
             params = {
                 'symbol': order['symbol'],
