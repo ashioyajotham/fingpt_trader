@@ -69,6 +69,8 @@ import os
 from dotenv import load_dotenv
 
 from utils.logging import LogManager
+from services.data_feeds.news_service import NewsService
+from services.data_feeds.market_data_service import MarketDataService
 
 # Replace existing logging config
 LogManager({
@@ -91,7 +93,6 @@ class TradingSystem:
     """
     Production Trading System Implementation
     
-    A comprehensive trading system that combines multiple strategies:
     - Market inefficiency detection
     - Sentiment analysis
     - Portfolio optimization
@@ -107,7 +108,7 @@ class TradingSystem:
         
     Attributes:
         config (Dict): System configuration
-        market_detector (MarketInefficiencyDetector): Market analysis component
+        market_detector (MarketInefficencyDetector): Market analysis component
         sentiment_analyzer (SentimentAnalyzer): NLP component
         portfolio_optimizer (PortfolioOptimizer): Portfolio management
         risk_manager (RiskManager): Risk monitoring and limits
@@ -146,6 +147,10 @@ class TradingSystem:
         # Add robo advisor components
         self.robo_service = RoboService(self.config.get('robo', {}))
         self.client_profiles = {}
+
+        # Initialize data services
+        self.news_service = NewsService(self.config.get('news', {}))
+        self.market_data_service = MarketDataService(self.config.get('market_data', {}))
 
     def _process_env_vars(self, config: dict) -> None:
         """Replace ${VAR} with environment variable values"""
@@ -188,6 +193,11 @@ class TradingSystem:
         try:
             logger.info("Initializing trading system...")
             
+            # Initialize data services first
+            await self.news_service._setup()
+            await self.market_data_service.start()
+            logger.info("Data services initialized")
+            
             # 1. Initialize base components
             await self.sentiment_analyzer.initialize()
             await self.market_detector.initialize()
@@ -221,6 +231,11 @@ class TradingSystem:
             if hasattr(self, 'robo_service'):
                 await self.robo_service.cleanup()
                 
+            # Cleanup data services
+            await self.news_service._cleanup()
+            await self.market_data_service.stop()
+            logger.info("Data services cleaned up")
+            
             logger.info("Trading system shutdown complete")
             
         except Exception as e:
@@ -253,20 +268,20 @@ class TradingSystem:
         """Initialize market state with required data"""
         state = {}
         for exchange, client in self.exchange_clients.items():
-            # Get trading pairs
-            pairs = await client.get_trading_pairs()
-            logger.info(f"Initialized {len(pairs)} trading pairs for {exchange}")
+            # Get configured trading pairs instead of all pairs
+            configured_pairs = self.config.get('trading', {}).get('pairs', [])
+            logger.info(f"Initializing {len(configured_pairs)} configured pairs for {exchange}")
             
             # Get initial market data
             state[exchange] = {
-                'pairs': pairs,
+                'pairs': configured_pairs,
                 'orderbooks': {},
                 'trades': {},
                 'candles': {}
             }
             
-            # Initialize data for each pair
-            for pair in pairs:
+            # Initialize data for each configured pair
+            for pair in configured_pairs:
                 logger.info(f"Loading market data for {pair}...")
                 state[exchange]['orderbooks'][pair] = await client.get_orderbook(pair)
                 state[exchange]['trades'][pair] = await client.get_recent_trades(pair)
@@ -276,6 +291,13 @@ class TradingSystem:
                 if state[exchange]['trades'][pair]:
                     latest_price = float(state[exchange]['trades'][pair][-1]['price'])
                     logger.info(f"Current {pair} price: {latest_price:.2f}")
+                    
+                # Add status indicators
+                state[exchange]['status'] = {
+                    'active': True,
+                    'timestamp': datetime.now().timestamp(),
+                    'initialized_pairs': configured_pairs
+                }
                 
         return state
 
@@ -361,8 +383,32 @@ class TradingSystem:
 
     async def _fetch_relevant_news(self, pair: str) -> List[str]:
         """Fetch relevant news for the trading pair"""
-        # Implement news fetching logic
-        return []
+        try:
+            # Convert pair to searchable terms (e.g., BTCUSDT -> "Bitcoin cryptocurrency")
+            base_asset = pair.replace('USDT', '').replace('USD', '')
+            search_terms = {
+                'BTC': 'Bitcoin cryptocurrency',
+                'ETH': 'Ethereum cryptocurrency',
+                'BNB': 'Binance Coin'
+            }
+            
+            search_term = search_terms.get(base_asset, f"{base_asset} cryptocurrency")
+            news_articles = await self.news_service.get_news(search_term)
+            
+            # Extract relevant text from articles
+            texts = []
+            for article in news_articles:
+                if article.get('title'):
+                    texts.append(article['title'])
+                if article.get('description'):
+                    texts.append(article['description'])
+            
+            logger.info(f"Fetched {len(texts)} news items for {pair}")
+            return texts
+            
+        except Exception as e:
+            logger.error(f"Failed to fetch news for {pair}: {e}")
+            return []
 
     def generate_trades(self, signals: Dict) -> List[Dict]:
         """Generate trades based on signals and portfolio optimization"""
@@ -632,8 +678,8 @@ class TradingSystem:
                     logger.info("\nRisk Metrics:")
                     logger.info(f"Max Drawdown: {risk_metrics.get('max_drawdown', 0):.2%}")
                     logger.info(f"VaR: {risk_metrics.get('var', 0):.2%}")
-                    logger.info(f"Exposure: {risk_metrics.get('exposure', 0):.2%}")
-                    logger.info(f"Concentration: {risk_metrics.get('concentration', 0):.2%}")
+                    logger.info(f"Exposure: {risk_metrics.get('exposure', 0)::.2%}")
+                    logger.info(f"Concentration: {risk_metrics.get('concentration', 0)::.2%}")
                     
                     # Check risk limits with defaults
                     if (risk_metrics.get('max_drawdown', 0) > risk_config.get('max_drawdown', 0.10) or
