@@ -153,8 +153,8 @@ class BinanceClient(BaseExchangeClient):
                 ttl_dns_cache=300  # 5 minutes cache TTL when enabled
             )
 
-            # Create custom session with appropriate settings
-            session = ClientSession(
+            # Create custom session and store it
+            self.session = ClientSession(
                 connector=connector,
                 headers=self.DEFAULT_HEADERS,
                 skip_auto_headers=['Content-Type']
@@ -172,7 +172,7 @@ class BinanceClient(BaseExchangeClient):
             # Replace client's session
             if hasattr(self.client, 'session'):
                 await self.client.session.close()
-                self.client.session = session
+                self.client.session = self.session
 
             # Initialize socket manager
             self.bsm = BinanceSocketManager(self.client)
@@ -181,8 +181,10 @@ class BinanceClient(BaseExchangeClient):
 
         except Exception as e:
             logger.error(f"Binance client initialization failed: {e}")
-            if hasattr(self, 'client') and hasattr(self.client, 'session'):
-                await self.client.session.close()
+            if hasattr(self, 'session'):
+                await self.session.close()
+            if hasattr(self, 'client') and self.client:
+                await self.client.close_connection()
             raise
 
     async def cleanup(self):
@@ -203,6 +205,11 @@ class BinanceClient(BaseExchangeClient):
                     await stream.close()
             self._ws_connections.clear()
             
+            # Close session
+            if hasattr(self, 'session'):
+                await self.session.close()
+                self.session = None
+                
             # Close client session and connection
             if self.client:
                 if hasattr(self.client, 'session'):
@@ -513,9 +520,13 @@ class BinanceClient(BaseExchangeClient):
     async def ping(self) -> bool:
         """Test connectivity to the exchange"""
         try:
-            endpoint = f"{self.base_url}/v3/ping"
-            async with self.client.session.get(endpoint) as response:
+            if not hasattr(self, 'session'):
+                raise Exception("Client session not initialized")
+                
+            endpoint = f"{self.base_url}/api/v3/ping"  # Fixed endpoint path
+            async with self.session.get(endpoint) as response:
                 if response.status == 200:
+                    logger.info("Successfully pinged Binance API")
                     return True
                 raise Exception(f"Ping failed with status {response.status}")
         except Exception as e:

@@ -1,155 +1,144 @@
-# FinGPT Trader
+# FinGPT Trader 🔬📈
 
-A quantitative trading system combining NLP-driven market sentiment analysis with statistical arbitrage detection and robo-advisory services.
+A quantitative trading system integrating large language models (Falcon-7B) with statistical arbitrage strategies. Combines natural language processing for market sentiment analysis with traditional quantitative methods for market inefficiency detection.
 
-## System Architecture
+## System Overview
+
+- **Quantitative Analysis Engine**
+  - Statistical arbitrage detection
+  - Order book imbalance analysis
+  - Market microstructure modeling
+
+- **NLP-Enhanced Market Analysis**
+  - Sentiment extraction using Falcon-7B
+  - News impact quantification
+  - Text-based signal generation
+
+- **Systematic Trading Framework**
+  - Event-driven architecture
+  - Asynchronous execution
+  - Multi-asset portfolio optimization
+
+## Core Features 🚀
+
+- **AI-Driven Market Analysis**
+  - Real-time sentiment analysis using Falcon-7B
+  - Pattern recognition in order book data
+  - Market inefficiency detection using ML
+
+- **Smart Portfolio Management**
+  - Dynamic position sizing based on Kelly Criterion
+  - Tax-aware trading with loss harvesting
+  - Risk-adjusted rebalancing
+
+- **Multi-Exchange Support**
+  - Binance integration (testnet/mainnet)
+  - Advanced connection management
+  - Rate limit handling
+
+## System Architecture 🏗️
 
 ```mermaid
 graph TD
-    A[FinGPT Core] --> B[Market Analysis]
-    A --> C[Portfolio Management]
-    A --> D[Risk Management]
-    
-    B --> B1[Sentiment Analysis]
-    B --> B2[Technical Analysis]
-    B --> B3[Market Inefficiency Detection]
-    
-    C --> C1[Position Sizing]
-    C --> C2[Rebalancing]
-    C --> C3[Tax Optimization]
-    
-    D --> D1[Risk Scoring]
-    D --> D2[VaR Calculation]
-    D --> D3[Position Limits]
-
-    E[Exchange API] --> |Market Data| B
-    C --> |Orders| E
+    A[Falcon-7B Model] -->|Sentiment Analysis| B[Market Analysis Engine]
+    B -->|Signals| C[Trading Core]
+    D[Binance API] -->|Market Data| B
+    C -->|Orders| D
+    E[Risk Manager] -->|Limits| C
+    F[Portfolio Manager] -->|Positions| C
+    G[Tax Optimizer] -->|Strategy| F
 ```
 
-## Mathematical Foundation
+## Quick Start 🚦
 
-### Portfolio Optimization
-
-Our portfolio optimization uses a modified Markowitz model with sentiment factors:
-
-$$ \max_w \{ w^T\mu - \lambda w^T\Sigma w + \gamma w^T S \} $$
-
-Where:
-- $w$ = portfolio weights
-- $\mu$ = expected returns
-- $\Sigma$ = covariance matrix
-- $S$ = sentiment score matrix
-- $\lambda$ = risk aversion parameter
-- $\gamma$ = sentiment sensitivity parameter
-
-### Risk Management
-
-Value at Risk (VaR) calculation using GPT-enhanced historical simulation:
-
-$$ VaR_\alpha = -\inf\{l \in \mathbb{R}: P(L \leq l) \geq \alpha\} $$
-
-Combined with sentiment-adjusted position sizing:
-
-$$ Position Size = \frac{Risk Capital \times Risk Score}{VaR_\alpha \times (1 + \|Sentiment Score\|)} $$
-
-## Components
-
-### 1. RoboService
-- Core trading logic orchestration
-- Client profile management
-- Portfolio rebalancing
-
-### 2. Exchange Clients
-- Binance integration (with testnet support)
-- Websocket market data streams
-- Order execution
-
-### 3. Market Analysis
-- Sentiment analysis using GPT
-- Technical indicator calculation
-- Market inefficiency detection
-
-### 4. Risk Management
-- Position sizing
-- Risk scoring
-- Exposure limits
-
-## Usage
-
-### Production Deployment
-
-## Quick Start
-
-1. Install dependencies:
+1. **Environment Setup**
 ```bash
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # or `venv\Scripts\activate` on Windows
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-2. Configure your settings in `config.yaml`:
-```yaml
-exchange:
-  name: binance
-  test_mode: true
-  api_key: your_api_key
-  api_secret: your_api_secret
-
-client_profile:
-  risk_score: 5
-  investment_horizon: 365
-  tax_rate: 0.25
-
-portfolio:
-  initial_capital: 100000
-  max_position_size: 0.1
-  rebalancing_interval: 86400
-```
-
-3. Run the trader:
+2. **Configuration**
 ```bash
-python run_trader.py
+# Set up your .env file
+cp .env.example .env
+# Edit with your API keys and tokens:
+# - BINANCE_API_KEY
+# - BINANCE_SECRET_KEY
+# - HUGGINGFACE_TOKEN
 ```
 
-## Testing
-
-Run backtests with historical data:
+3. **Run Trading System**
 ```bash
-python scripts/backtest.py --config config.yaml --start 2023-01-01 --end 2023-12-31
+# Development mode (testnet)
+python main.py
+
+# With specific pairs
+python scripts/run_trader.py --pairs BTCUSDT,ETHUSDT
 ```
 
-## Implementation Details
+## Unique Features 💫
 
-### Market Data Processing
+### 1. AI-Enhanced Market Analysis
 ```python
-async def get_market_data(symbol: str) -> Dict:
-    [orderbook, trades, klines] = await asyncio.gather(
-        self.get_orderbook(symbol),
-        self.get_recent_trades(symbol),
-        self.get_candles(symbol)
-    )
-    return {
-        'orderbook': orderbook,
-        'trades': trades,
-        'candles': klines,
-        'timestamp': datetime.now().timestamp()
-    }
+# Example of sentiment-adjusted trading signal
+sentiment_score = await analyzer.get_sentiment(news_data)
+market_signal = detector.analyze_inefficiencies(
+    orderbook_data=depth,
+    sentiment_weight=sentiment_score
+)
 ```
 
-### Risk Calculation
-Risk scoring combines traditional metrics with GPT sentiment:
-```python
-def calculate_risk_score(self, 
-                        volatility: float,
-                        sentiment: float,
-                        market_impact: float) -> float:
-    return (volatility * 0.4 + 
-            abs(sentiment) * 0.3 + 
-            market_impact * 0.3)
-```
+### 2. Advanced Risk Management
+- Dynamic VaR calculation
+- Sentiment-adjusted position sizing
+- Real-time drawdown monitoring
 
-## Contributing
- 
-Follow the steps as outlined in [CONTRIBUTING.md](CONTRIBUTING.md)
+### 3. Tax-Aware Trading
+- Automated tax-loss harvesting
+- Wash sale prevention
+- Tax efficiency optimization
 
-## License
+## Development Status 🔄
 
-MIT License - see [LICENSE](LICENSE) for more details
+Currently in active development with focus on:
+- [ ] WebSocket connection stability
+- [ ] Enhanced error recovery
+- [ ] Performance optimization
+- [ ] Advanced backtesting framework
+
+## Contributing 🤝
+
+1. Fork the repository
+2. Create your feature branch
+3. Test thoroughly using testnet
+4. Submit a pull request
+
+## Trading Strategies 📊
+
+Current implementation includes:
+- Sentiment-driven market making
+- Statistical arbitrage
+- Tax-loss harvesting
+- Portfolio rebalancing
+
+## Warning ⚠️
+
+This is a complex trading system. Always:
+- Start with testnet trading
+- Use small position sizes
+- Monitor system performance
+- Understand the risks involved
+
+## License 📄
+
+MIT License - See [LICENSE](LICENSE)
+
+## Acknowledgments 🙏
+
+- [Falcon-7B](https://huggingface.co/tiiuae/falcon-7b) for NLP capabilities
+- [python-binance](https://python-binance.readthedocs.io/) for exchange connectivity
+- [FinRL](https://github.com/AI4Finance-Foundation/FinRL) for inspiration
