@@ -179,7 +179,14 @@ def load_config() -> Dict:
         # Load environment variables first
         env_path = Path(__file__).parent.parent / '.env'
         load_dotenv(env_path)
-        print(f"Loaded .env from: {env_path}")  # Debug print
+        print("\n=== FinGPT Trading System ===")
+        print(f"✓ Environment loaded\n")
+        
+        # Security-conscious debug prints
+        print("\nEnvironment Status:")
+        print(f"BINANCE_API_KEY: {'✓ Present' if os.environ.get('BINANCE_API_KEY') else '✗ Missing'}")
+        print(f"BINANCE_SECRET_KEY: {'✓ Present' if os.environ.get('BINANCE_SECRET_KEY') else '✗ Missing'}")
+        print() # Empty line for readability
         
         args = parse_args()
         
@@ -200,13 +207,16 @@ def load_config() -> Dict:
         logger.info(f"Loading config from: {config_path}")
         with open(config_path) as f:
             # Load YAML with environment variable substitution
-            config = yaml.safe_load(os.path.expandvars(f.read()))
-            
+            config_text = f.read()
+            # Replace SECRET_KEY with API_SECRET to match yaml expectations
+            config_text = config_text.replace('${BINANCE_API_SECRET}', os.environ.get('BINANCE_SECRET_KEY', ''))
+            config = yaml.safe_load(os.path.expandvars(config_text))
+        
         # Debug prints
-        print(f"API Key present: {'BINANCE_API_KEY' in os.environ}")
-        print(f"API Secret present: {'BINANCE_API_SECRET' in os.environ}")
-        print(f"Test Mode: {config['exchanges'][0].get('test_mode')}")
-            
+        print(f"Config loaded successfully")
+        print(f"Exchange API Key configured: {bool(config['exchange']['api_key'])}")
+        print(f"Exchange API Secret configured: {bool(config['exchange']['api_secret'])}")
+        
         return config
                 
     except Exception as e:
@@ -258,13 +268,21 @@ async def main():
     Returns:
         int: Exit code (0 for success, 1 for error)
     """
-    # Initialize logging first
+    # Configure console logging
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter('%(asctime)s | %(levelname)s | %(message)s'))
+    logging.getLogger().addHandler(console_handler)
+    
+    # Set log level based on verbosity
+    log_level = "DEBUG" if '--verbose' in sys.argv else "INFO"
+    logging.getLogger().setLevel(log_level)
+    
+    # Initialize file logging
     log_config = {
         "log_dir": "logs",
-        "level": "DEBUG" if '--verbose' in sys.argv else "INFO"
+        "level": log_level
     }
     LogManager(log_config).setup_basic_logging()
-    logger = logging.getLogger(__name__)
     
     try:
         config = load_config()

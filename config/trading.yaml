@@ -5,7 +5,7 @@
 #
 # Environment Variables:
 #   BINANCE_API_KEY: Exchange API key
-#   BINANCE_API_SECRET: Exchange API secret
+#   BINANCE_SECRET_KEY: Exchange API secret
 #
 # Usage:
 #   Production: python main.py
@@ -15,7 +15,7 @@
 exchange:
   name: binance                    # Exchange identifier
   api_key: ${BINANCE_API_KEY}      # From environment variable
-  api_secret: ${BINANCE_API_SECRET} # From environment variable
+  api_secret: ${BINANCE_SECRET_KEY} # From environment variable
   test_mode: true                  # Controls testnet/mainnet - SINGLE SOURCE OF TRUTH
   options:
     timeout: 30                    # API timeout in seconds
