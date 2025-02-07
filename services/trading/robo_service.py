@@ -38,12 +38,10 @@ class RoboService(BaseService):
         
         # Initialize strategies with proper configuration
         strategy_config = config.get('strategies', {})
-        self.strategies = {
-            'tax_aware': TaxAwareStrategy(
-                config=strategy_config.get('tax_aware', {}),
-                profile=self.client_profile
-            )
-        }
+        self.tax_aware_strategy = TaxAwareStrategy(
+            config=config,  # Pass full config to allow access to all settings
+            profile=self.client_profile.__dict__  # Pass profile as dict
+        )
 
     async def _setup(self):
         """Required implementation of abstract _setup method"""
