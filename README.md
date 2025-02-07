@@ -102,6 +102,75 @@ market_signal = detector.analyze_inefficiencies(
 - Wash sale prevention
 - Tax efficiency optimization
 
+## Mathematical Framework 📐
+
+### Sentiment-Adjusted Market Inefficiency Detection
+
+The system uses a composite signal model:
+
+$$ S(t) = \alpha M(t) + \beta I(t) + \gamma L(t) $$
+
+Where:
+- $S(t)$ is the final trading signal
+- $M(t)$ is market microstructure score
+- $I(t)$ is orderbook imbalance
+- $L(t)$ is NLP sentiment score
+- $\alpha, \beta, \gamma$ are weights
+
+### Order Book Imbalance
+
+$$ I(t) = \frac{\sum_{i=1}^n V^b_i - \sum_{i=1}^n V^a_i}{\sum_{i=1}^n V^b_i + \sum_{i=1}^n V^a_i} $$
+
+Where:
+- $V^b_i$ is bid volume at level i
+- $V^a_i$ is ask volume at level i
+- $n$ is depth of orderbook
+
+### Position Sizing with Kelly Criterion
+
+Modified Kelly formula incorporating sentiment:
+
+$$ f^* = \frac{p(1+r) - q}{r} \cdot (1 + \lambda|S|) $$
+
+Where:
+- $f^* is optimal fraction
+- $p$ is win probability
+- $q = 1-p$ is loss probability
+- $r$ is win/loss ratio
+- $S$ is sentiment score
+- $\lambda$ is sentiment sensitivity
+
+### Risk Management
+
+Value at Risk with sentiment adjustment:
+
+$$ VaR_{\alpha}(S) = -\inf\{l \in \mathbb{R}: P(L \leq l | S) \geq \alpha\} $$
+
+Portfolio risk score:
+
+$$ R = \sqrt{w^T\Sigma w} \cdot (1 + \delta|S|) $$
+
+Where:
+- $w$ is portfolio weights
+- $\Sigma$ is covariance matrix
+- $S$ is sentiment score
+- $\delta$ is risk adjustment factor
+
+### Tax-Loss Harvesting
+
+Harvesting threshold with wash sale prevention:
+
+$$ H(p, t) = \begin{cases} 
+1 & \text{if } \frac{p_t - p_0}{p_0} < \tau \text{ and } t > T_{wash} \\
+0 & \text{otherwise}
+\end{cases} $$
+
+Where:
+- $p_t$ is current price
+- $p_0$ is entry price
+- $\tau$ is loss threshold
+- $T_{wash}$ is wash sale period
+
 ## Development Status 🔄
 
 Currently in active development with focus on:
