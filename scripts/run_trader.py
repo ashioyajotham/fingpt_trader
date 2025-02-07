@@ -39,6 +39,7 @@ import os
 from dotenv import load_dotenv  # Add this import
 import time
 import datetime
+import pandas as pd  # Add missing import
 
 # Add project root to path
 root_dir = str(Path(__file__).parent.parent)
@@ -90,6 +91,12 @@ class TradingSystem:
         }
         self.trade_history = []
         self.analysis_data = {}
+        self.price_history = {pair: pd.DataFrame() for pair in self.monitored_pairs}
+        self.technical = self  # Use self as technical analyzer
+        self.position_tracking = {
+            'BTCUSDT': {'entry_price': 0, 'entry_time': None},
+            'ETHUSDT': {'entry_price': 0, 'entry_time': None}
+        }
 
     async def startup(self):
         """
@@ -168,52 +175,204 @@ class TradingSystem:
         """Update price data for monitored pairs"""
         try:
             for pair in self.monitored_pairs:
-                ticker = await self.exchange.get_ticker(pair)
-                self.price_data[pair] = {
-                    'price': float(ticker['lastPrice']),
-                    'change_24h': float(ticker['priceChangePercent']),
-                    'volume': float(ticker['volume'])
-                }
+                try:
+                    # Get current ticker and candles
+                    ticker = await self.exchange.get_ticker(pair)
+                    candles = await self.exchange.get_candles(pair, interval='5m', limit=100)
+                    
+                    if ticker and ticker.get('price'):
+                        # Update current price data
+                        self.price_data[pair] = {
+                            'price': float(ticker['price']),
+                            'timestamp': ticker['timestamp']
+                        }
+                        
+                        # Update price history with proper column handling
+                        if candles:
+                            df = pd.DataFrame(candles)
+                            df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 
+                                        'close_time', 'quote_volume', 'trades', 'taker_buy_base',
+                                        'taker_buy_quote', 'ignore']
+                            # Convert numeric columns
+                            for col in ['open', 'high', 'low', 'close', 'volume']:
+                                df[col] = df[col].astype(float)
+                            
+                            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                            df.set_index('timestamp', inplace=True)
+                            self.price_history[pair] = df
+
+                except Exception as e:
+                    logger.error(f"Failed to update {pair} market data: {e}")
+                    continue
+
         except Exception as e:
-            logger.error(f"Failed to update market data: {e}")
+            logger.error(f"Market data update failed: {e}")
+
+    def calculate_sma(self, prices: pd.Series, period: int) -> float:
+        """Calculate Simple Moving Average"""
+        return prices.rolling(period).mean().iloc[-1]
+        
+    def calculate_rsi(self, prices: pd.Series, period: int = 14) -> float:
+        """Calculate Relative Strength Index"""
+        delta = prices.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        rs = gain / loss
+        return 100 - (100 / (1 + rs)).iloc[-1]
+        
+    def detect_trend(self, prices: pd.Series, sma_short: int = 20, sma_long: int = 50) -> str:
+        """Detect market trend using moving averages"""
+        short_ma = prices.rolling(sma_short).mean().iloc[-1]
+        long_ma = prices.rolling(sma_long).mean().iloc[-1]
+        
+        if short_ma > long_ma:
+            return "BULLISH"
+        elif short_ma < long_ma:
+            return "BEARISH"
+        return "NEUTRAL"
 
     async def analyze_market(self):
-        """Market analysis using configured strategies"""
+        """Market analysis using technical indicators and strategies"""
         try:
             for pair in self.monitored_pairs:
-                current_price = float(self.price_data[pair]['price'])
-                base_asset = pair.replace('USDT', '')
-                position_size = self.test_balance[base_asset]
+                if pair not in self.price_data or pair not in self.price_history:
+                    continue
+                    
+                df = self.price_history[pair]
+                if len(df) < 50:  # Need enough data for analysis
+                    continue
+                    
+                closes = df['close']
+                current_price = self.price_data[pair]['price']
                 
-                # Get robo-advisory signals
+                # Technical Analysis
+                rsi = self.calculate_rsi(closes)
+                trend = self.detect_trend(closes)
+                sma_20 = self.calculate_sma(closes, 20)
+                sma_50 = self.calculate_sma(closes, 50)
+                
+                # Calculate holding period
+                holding_period = 0
+                if self.test_balance[pair.replace('USDT', '')] > 0:
+                    if self.position_tracking[pair]['entry_time']:
+                        holding_period = (datetime.datetime.now() - 
+                                       self.position_tracking[pair]['entry_time']).days
+
+                # Get RoboService strategy signal with proper position info
                 robo_signal = await self.robo_service.analyze_position(
                     pair=pair,
                     price=current_price,
-                    position=position_size
+                    position={
+                        'size': self.test_balance[pair.replace('USDT', '')],
+                        'entry_price': self.position_tracking[pair]['entry_price'],
+                        'holding_period': holding_period
+                    }
                 )
                 
-                # Technical analysis
-                candles = await self.exchange.get_candles(pair, interval='5m', limit=20)
-                closes = [float(candle[4]) for candle in candles]
-                sma_5 = sum(closes[-5:]) / 5
-                sma_20 = sum(closes) / 20
+                # Combine technical and strategy signals
+                signal = None
+                tech_signal = None
                 
-                tech_signal = self._generate_signal(current_price, sma_5, sma_20)
+                # Technical signal generation
+                if trend == "BULLISH" and (
+                    (rsi < 30) or  # Oversold condition
+                    (current_price > sma_20 and rsi < 60)  # Uptrend confirmation
+                ):
+                    tech_signal = "BUY"
+                elif trend == "BEARISH" and (
+                    (rsi > 70) or  # Overbought condition
+                    (current_price < sma_20 and rsi > 40)  # Downtrend confirmation
+                ):
+                    tech_signal = "SELL"
                 
-                # Combine signals
-                signals = [s for s in [robo_signal, tech_signal] if s]
+                # Combine signals - need both technical and strategy agreement
+                if tech_signal and robo_signal and tech_signal == robo_signal:
+                    signal = tech_signal
                 
                 self.analysis_data[pair] = {
-                    'sma_5': sma_5,
+                    'price': current_price,
+                    'trend': trend,
+                    'rsi': rsi,
                     'sma_20': sma_20,
-                    'trend': 'bullish' if sma_5 > sma_20 else 'bearish',
-                    'signal': self._combine_signals(signals),
-                    'strategy_signals': signals,
-                    'robo_signal': robo_signal
+                    'sma_50': sma_50,
+                    'tech_signal': tech_signal,
+                    'robo_signal': robo_signal,
+                    'signal': signal
                 }
                 
         except Exception as e:
-            logger.error(f"Market analysis failed: {e}")
+            logger.error(f"Market analysis failed: {str(e)}")
+
+    async def analyze_market(self):
+        """Market analysis using technical indicators and strategies"""
+        try:
+            for pair in self.monitored_pairs:
+                if pair not in self.price_data or pair not in self.price_history:
+                    continue
+                    
+                df = self.price_history[pair]
+                if len(df) < 50:  # Need enough data for analysis
+                    continue
+                    
+                closes = df['close']
+                current_price = self.price_data[pair]['price']
+                
+                # Technical Analysis
+                rsi = self.calculate_rsi(closes)
+                trend = self.detect_trend(closes)
+                sma_20 = self.calculate_sma(closes, 20)
+                sma_50 = self.calculate_sma(closes, 50)
+                
+                # Get position info for strategy
+                base_asset = pair.replace('USDT', '')
+                position_size = self.test_balance[base_asset]
+                entry_price = self.position_tracking[pair]['entry_price']
+                holding_period = 0
+                
+                if position_size > 0 and self.position_tracking[pair]['entry_time']:
+                    holding_period = (datetime.datetime.now() - 
+                                   self.position_tracking[pair]['entry_time']).days
+                    
+                # Calculate unrealized PnL    
+                unrealized_pnl = 0
+                if position_size > 0:
+                    unrealized_pnl = (current_price - entry_price) / entry_price
+
+                # Get strategy signal with complete position info
+                robo_signal = await self.robo_service.analyze_position(
+                    pair=pair,
+                    price=current_price,
+                    position={
+                        'size': position_size,
+                        'entry_price': entry_price,
+                        'holding_period': holding_period,
+                        'unrealized_pnl': unrealized_pnl
+                    }
+                )
+
+                # Generate technical signal
+                tech_signal = None
+                if trend == "BULLISH" and rsi < 30:  # Simplified conditions
+                    tech_signal = "BUY"
+                elif trend == "BEARISH" and rsi > 70:
+                    tech_signal = "SELL"
+
+                # Final signal if either condition is met
+                signal = robo_signal if robo_signal else tech_signal
+
+                self.analysis_data[pair] = {
+                    'price': current_price,
+                    'trend': trend,
+                    'rsi': rsi,
+                    'sma_20': sma_20,
+                    'sma_50': sma_50,
+                    'tech_signal': tech_signal,
+                    'robo_signal': robo_signal,
+                    'signal': signal
+                }
+                
+        except Exception as e:
+            logger.error(f"Market analysis failed: {str(e)}")
 
     def _generate_signal(self, price: float, sma_5: float, sma_20: float) -> Optional[str]:
         """Generate trading signal based on SMAs"""
@@ -264,6 +423,11 @@ class TradingSystem:
                 self.trade_history.append(trade)
                 logger.info(f"TEST TRADE: Bought {quantity:.6f} {base_asset} at ${current_price:.2f}")
                 
+                self.position_tracking[pair] = {
+                    'entry_price': current_price,
+                    'entry_time': datetime.datetime.now()
+                }
+                
             elif side == 'SELL' and self.test_balance[base_asset] > 0:
                 quantity = self.test_balance[base_asset] * 0.1  # Sell 10% of holdings
                 value_usdt = quantity * current_price
@@ -281,6 +445,11 @@ class TradingSystem:
                 }
                 self.trade_history.append(trade)
                 logger.info(f"TEST TRADE: Sold {quantity:.6f} {base_asset} at ${current_price:.2f}")
+                
+                self.position_tracking[pair] = {
+                    'entry_price': 0,
+                    'entry_time': None
+                }
                 
         except Exception as e:
             logger.error(f"Test trade execution failed: {e}")
@@ -307,20 +476,26 @@ class TradingSystem:
             
             # Market Data and Analysis
             for pair in self.monitored_pairs:
+                if pair not in self.price_data:
+                    continue
+                    
                 base_asset = pair.replace('USDT', '')
-                asset_value_usdt = float(self.price_data[pair]['price']) * self.test_balance[base_asset]
+                current_price = self.price_data[pair]['price']
+                asset_value_usdt = current_price * self.test_balance[base_asset]
                 total_value_usdt += asset_value_usdt
                 
                 logger.info(f"\n{pair}:")
-                logger.info(f"  Price: ${self.price_data[pair]['price']:.2f}")
-                logger.info(f"  24h Change: {self.price_data[pair]['change_24h']:.2f}%")
+                logger.info(f"  Price: ${current_price:.2f}")
                 logger.info(f"  Holdings: {self.test_balance[base_asset]:.6f} {base_asset}")
                 logger.info(f"  Value: ${asset_value_usdt:.2f}")
                 
                 if pair in self.analysis_data:
-                    logger.info(f"  Trend: {self.analysis_data[pair]['trend']}")
-                    logger.info(f"  Signal: {self.analysis_data[pair]['signal'] or 'NONE'}")
-                    logger.info(f"  Strategy Signals: {', '.join(self.analysis_data[pair]['strategy_signals']) or 'NONE'}")
+                    analysis = self.analysis_data[pair]
+                    logger.info(f"  Trend: {analysis['trend']}")
+                    logger.info(f"  RSI: {analysis['rsi']:.1f}")
+                    logger.info(f"  Technical Signal: {analysis['tech_signal']}")
+                    logger.info(f"  Strategy Signal: {analysis['robo_signal']}")
+                    logger.info(f"  Final Signal: {analysis['signal']}")
             
             # Portfolio Status
             logger.info(f"\nPortfolio Status:")
@@ -335,26 +510,31 @@ class TradingSystem:
             logger.info("==================\n")
 
     async def run(self):
+        """Main trading loop"""
         try:
             self.start_time = time.time()
             await self.startup()
             
             while self.running:
-                # Update market data
-                await self.update_market_data()
-                
-                # Perform market analysis
-                await self.analyze_market()
-                
-                # Check trading conditions
-                await self.check_trading_conditions()
-                
-                # Print status update
-                await self.print_status_update()
-                
-                # Main loop interval
-                await asyncio.sleep(1)
-                
+                try:
+                    # Update market data
+                    await self.update_market_data()
+                    
+                    # Only proceed with analysis if we have market data
+                    if self.price_data:
+                        await self.analyze_market()
+                        await self.check_trading_conditions()
+                        await self.print_status_update()
+                    else:
+                        logger.warning("Skipping trading loop - no market data available")
+                        
+                    # Main loop interval
+                    await asyncio.sleep(1)
+                    
+                except Exception as e:
+                    logger.error(f"Error in trading loop: {e}")
+                    await asyncio.sleep(5)  # Back off on error
+                    
         except KeyboardInterrupt:
             logger.info("Shutdown signal received")
         finally:

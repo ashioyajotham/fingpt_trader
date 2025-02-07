@@ -43,6 +43,7 @@ from .base import BaseExchangeClient
 import asyncio
 import platform
 import socket
+import pandas as pd
 from aiohttp import TCPConnector, ClientSession
 
 logger = logging.getLogger(__name__)
@@ -495,3 +496,16 @@ class BinanceClient(BaseExchangeClient):
         except Exception as e:
             logger.error(f"Failed to get historical trades for {symbol}: {e}")
             raise
+
+    async def get_ticker(self, symbol: str) -> dict:
+        """Get current ticker data for a symbol"""
+        try:
+            response = await self.client.get_symbol_ticker(symbol=symbol)
+            return {
+                'symbol': response['symbol'],
+                'price': float(response['price']),
+                'timestamp': pd.Timestamp.now()
+            }
+        except Exception as e:
+            logger.error(f"Failed to get ticker for {symbol}: {e}")
+            return None
