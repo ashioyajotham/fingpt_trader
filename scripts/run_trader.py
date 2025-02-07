@@ -31,7 +31,7 @@ import logging
 import signal
 from pathlib import Path
 import sys
-from typing import Dict
+from typing import Dict, Optional, List
 import yaml
 import platform
 
@@ -82,6 +82,14 @@ class TradingSystem:
         self.status_interval = 60  # Status update every 60 seconds
         self.monitored_pairs = ['BTCUSDT', 'ETHUSDT']  # Default pairs to monitor
         self.price_data = {}
+        # Add test account settings
+        self.test_balance = {
+            'USDT': 10000.0,  # Initial test funding
+            'BTC': 0.0,
+            'ETH': 0.0
+        }
+        self.trade_history = []
+        self.analysis_data = {}
 
     async def startup(self):
         """
@@ -169,25 +177,167 @@ class TradingSystem:
         except Exception as e:
             logger.error(f"Failed to update market data: {e}")
 
+    async def analyze_market(self):
+        """Market analysis using configured strategies"""
+        try:
+            for pair in self.monitored_pairs:
+                # Get market data needed by strategies
+                candles = await self.exchange.get_candles(pair, interval='5m', limit=20)
+                current_price = float(self.price_data[pair]['price'])
+                
+                # Basic technical analysis
+                closes = [float(candle[4]) for candle in candles]
+                sma_5 = sum(closes[-5:]) / 5
+                sma_20 = sum(closes) / 20
+                
+                # Get strategy signals
+                strategy_signals = []
+                
+                # Get tax-aware strategy signal
+                if self.robo_service and hasattr(self.robo_service, 'tax_aware_strategy'):
+                    tax_signal = await self.robo_service.tax_aware_strategy.analyze(
+                        pair=pair,
+                        current_price=current_price,
+                        position_size=self.test_balance[pair.replace('USDT', '')],
+                        holding_period=0,  # You might want to track this
+                        unrealized_pnl=(current_price / sma_20 - 1) if sma_20 > 0 else 0
+                    )
+                    if tax_signal:
+                        strategy_signals.append(tax_signal)
+                
+                # Technical analysis signal
+                tech_signal = self._generate_signal(current_price, sma_5, sma_20)
+                if tech_signal:
+                    strategy_signals.append(tech_signal)
+                
+                self.analysis_data[pair] = {
+                    'sma_5': sma_5,
+                    'sma_20': sma_20,
+                    'trend': 'bullish' if sma_5 > sma_20 else 'bearish',
+                    'signal': self._combine_signals(strategy_signals),
+                    'strategy_signals': strategy_signals
+                }
+                
+        except Exception as e:
+            logger.error(f"Market analysis failed: {e}")
+
+    def _generate_signal(self, price: float, sma_5: float, sma_20: float) -> Optional[str]:
+        """Generate trading signal based on SMAs"""
+        if sma_5 > sma_20 and price > sma_5:
+            return 'BUY'
+        elif sma_5 < sma_20 and price < sma_5:
+            return 'SELL'
+        return None
+
+    def _combine_signals(self, signals: List[str]) -> Optional[str]:
+        """Combine signals from different strategies"""
+        if not signals:
+            return None
+            
+        # If any strategy says SELL, we sell
+        if 'SELL' in signals:
+            return 'SELL'
+            
+        # Need unanimous BUY signals to buy
+        if all(s == 'BUY' for s in signals):
+            return 'BUY'
+            
+        return None
+
+    async def execute_test_trade(self, pair: str, side: str, signal_type: str):
+        """Execute a simulated trade"""
+        try:
+            current_price = float(self.price_data[pair]['price'])
+            base_asset = pair.replace('USDT', '')
+            
+            # Calculate trade size (1% of USDT balance)
+            trade_size_usdt = self.test_balance['USDT'] * 0.01
+            
+            if side == 'BUY' and self.test_balance['USDT'] >= trade_size_usdt:
+                quantity = trade_size_usdt / current_price
+                self.test_balance['USDT'] -= trade_size_usdt
+                self.test_balance[base_asset] += quantity
+                
+                trade = {
+                    'timestamp': datetime.datetime.now(),
+                    'pair': pair,
+                    'side': 'BUY',
+                    'price': current_price,
+                    'quantity': quantity,
+                    'value_usdt': trade_size_usdt,
+                    'signal': signal_type
+                }
+                self.trade_history.append(trade)
+                logger.info(f"TEST TRADE: Bought {quantity:.6f} {base_asset} at ${current_price:.2f}")
+                
+            elif side == 'SELL' and self.test_balance[base_asset] > 0:
+                quantity = self.test_balance[base_asset] * 0.1  # Sell 10% of holdings
+                value_usdt = quantity * current_price
+                self.test_balance['USDT'] += value_usdt
+                self.test_balance[base_asset] -= quantity
+                
+                trade = {
+                    'timestamp': datetime.datetime.now(),
+                    'pair': pair,
+                    'side': 'SELL',
+                    'price': current_price,
+                    'quantity': quantity,
+                    'value_usdt': value_usdt,
+                    'signal': signal_type
+                }
+                self.trade_history.append(trade)
+                logger.info(f"TEST TRADE: Sold {quantity:.6f} {base_asset} at ${current_price:.2f}")
+                
+        except Exception as e:
+            logger.error(f"Test trade execution failed: {e}")
+
+    async def check_trading_conditions(self):
+        """Check and execute trades based on conditions"""
+        for pair in self.monitored_pairs:
+            if pair not in self.analysis_data:
+                continue
+                
+            signal = self.analysis_data[pair]['signal']
+            if signal:
+                await self.execute_test_trade(pair, signal, 'SMA_CROSS')
+
     async def print_status_update(self):
         """Print periodic status update"""
         now = time.time()
         if now - self.last_status_update >= self.status_interval:
             self.last_status_update = now
+            total_value_usdt = self.test_balance['USDT']
+            
             logger.info("\n=== Status Update ===")
             logger.info(f"Time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             
-            # Market Data
-            for pair, data in self.price_data.items():
+            # Market Data and Analysis
+            for pair in self.monitored_pairs:
+                base_asset = pair.replace('USDT', '')
+                asset_value_usdt = float(self.price_data[pair]['price']) * self.test_balance[base_asset]
+                total_value_usdt += asset_value_usdt
+                
                 logger.info(f"\n{pair}:")
-                logger.info(f"  Price: ${data['price']:.2f}")
-                logger.info(f"  24h Change: {data['change_24h']:.2f}%")
-                logger.info(f"  Volume: {data['volume']:.2f}")
+                logger.info(f"  Price: ${self.price_data[pair]['price']:.2f}")
+                logger.info(f"  24h Change: {self.price_data[pair]['change_24h']:.2f}%")
+                logger.info(f"  Holdings: {self.test_balance[base_asset]:.6f} {base_asset}")
+                logger.info(f"  Value: ${asset_value_usdt:.2f}")
+                
+                if pair in self.analysis_data:
+                    logger.info(f"  Trend: {self.analysis_data[pair]['trend']}")
+                    logger.info(f"  Signal: {self.analysis_data[pair]['signal'] or 'NONE'}")
+                    logger.info(f"  Strategy Signals: {', '.join(self.analysis_data[pair]['strategy_signals']) or 'NONE'}")
+            
+            # Portfolio Status
+            logger.info(f"\nPortfolio Status:")
+            logger.info(f"  USDT Balance: ${self.test_balance['USDT']:.2f}")
+            logger.info(f"  Total Value: ${total_value_usdt:.2f}")
             
             # System Status
             logger.info(f"\nSystem Status:")
             logger.info(f"  Running Time: {time.time() - self.start_time:.1f}s")
             logger.info(f"  Memory Usage: {self._get_memory_usage():.1f}MB")
+            logger.info(f"  Trades Today: {len(self.trade_history)}")
             logger.info("==================\n")
 
     async def run(self):
@@ -198,6 +348,12 @@ class TradingSystem:
             while self.running:
                 # Update market data
                 await self.update_market_data()
+                
+                # Perform market analysis
+                await self.analyze_market()
+                
+                # Check trading conditions
+                await self.check_trading_conditions()
                 
                 # Print status update
                 await self.print_status_update()
