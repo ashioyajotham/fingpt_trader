@@ -181,41 +181,35 @@ class TradingSystem:
         """Market analysis using configured strategies"""
         try:
             for pair in self.monitored_pairs:
-                # Get market data needed by strategies
-                candles = await self.exchange.get_candles(pair, interval='5m', limit=20)
                 current_price = float(self.price_data[pair]['price'])
+                base_asset = pair.replace('USDT', '')
+                position_size = self.test_balance[base_asset]
                 
-                # Basic technical analysis
+                # Get robo-advisory signals
+                robo_signal = await self.robo_service.analyze_position(
+                    pair=pair,
+                    price=current_price,
+                    position=position_size
+                )
+                
+                # Technical analysis
+                candles = await self.exchange.get_candles(pair, interval='5m', limit=20)
                 closes = [float(candle[4]) for candle in candles]
                 sma_5 = sum(closes[-5:]) / 5
                 sma_20 = sum(closes) / 20
                 
-                # Get strategy signals
-                strategy_signals = []
-                
-                # Get tax-aware strategy signal
-                if self.robo_service and hasattr(self.robo_service, 'tax_aware_strategy'):
-                    tax_signal = await self.robo_service.tax_aware_strategy.analyze(
-                        pair=pair,
-                        current_price=current_price,
-                        position_size=self.test_balance[pair.replace('USDT', '')],
-                        holding_period=0,  # You might want to track this
-                        unrealized_pnl=(current_price / sma_20 - 1) if sma_20 > 0 else 0
-                    )
-                    if tax_signal:
-                        strategy_signals.append(tax_signal)
-                
-                # Technical analysis signal
                 tech_signal = self._generate_signal(current_price, sma_5, sma_20)
-                if tech_signal:
-                    strategy_signals.append(tech_signal)
+                
+                # Combine signals
+                signals = [s for s in [robo_signal, tech_signal] if s]
                 
                 self.analysis_data[pair] = {
                     'sma_5': sma_5,
                     'sma_20': sma_20,
                     'trend': 'bullish' if sma_5 > sma_20 else 'bearish',
-                    'signal': self._combine_signals(strategy_signals),
-                    'strategy_signals': strategy_signals
+                    'signal': self._combine_signals(signals),
+                    'strategy_signals': signals,
+                    'robo_signal': robo_signal
                 }
                 
         except Exception as e:

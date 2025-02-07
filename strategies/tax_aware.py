@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 from models.client.profile import MockClientProfile
 from .base_strategy import BaseStrategy
 import logging
@@ -129,3 +129,42 @@ class TaxAwareStrategy(BaseStrategy):
         """Estimate tax impact of closing a position"""
         # Simple estimation - can be enhanced with actual P&L calculations
         return self.tax_rate if symbol in self.holding_periods else 0
+
+    async def analyze(self, pair: str, current_price: float, position_size: float, 
+                     holding_period: int, unrealized_pnl: float) -> Optional[str]:
+        """
+        Analyze position and generate tax-optimized trading signals.
+        
+        Returns:
+            str: 'BUY', 'SELL', or None
+        """
+        if not self.enabled:
+            return None
+
+        try:
+            # Tax loss harvesting opportunity
+            if (unrealized_pnl < self.tax_loss_threshold and 
+                holding_period >= self.min_holding_period):
+                return 'SELL'  # Harvest tax losses
+
+            # Long-term holding opportunity
+            if holding_period < self.min_holding_period:
+                if position_size == 0:
+                    return 'BUY'  # Start new long-term position
+                elif unrealized_pnl > 0:
+                    return None   # Hold for tax efficiency
+            
+            # Check position constraints
+            max_position = self.profile.get('constraints', {}).get('max_position_size', 0.1)
+            if position_size >= max_position:
+                return 'SELL'    # Reduce oversized position
+            
+            # Normal trading conditions - Use trend
+            if unrealized_pnl > 0.03:  # 3% profit threshold
+                return 'BUY' if position_size < max_position else None
+
+            return None  # No tax-aware signal
+
+        except Exception as e:
+            logger.error(f"Tax strategy analysis failed: {str(e)}")
+            return None
