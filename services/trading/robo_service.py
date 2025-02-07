@@ -24,7 +24,6 @@ class RoboService(BaseService):
     def __init__(self, config: Dict):
         super().__init__(config)
         self.portfolio = Portfolio()  # For managing trading positions
-        self.last_price = {}  # Add this line to initialize price tracking
         
         # Initialize client profile with default values or from config
         profile_config = config.get('client_profile', {})
@@ -39,8 +38,8 @@ class RoboService(BaseService):
         # Initialize strategies with proper configuration
         strategy_config = config.get('strategies', {})
         self.tax_aware_strategy = TaxAwareStrategy(
-            config=config,  # Pass full config to allow access to all settings
-            profile=self.client_profile.__dict__  # Pass profile as dict
+            config=config,  # Pass full config
+            profile=self.client_profile.__dict__  # Convert profile to dict
         )
 
     async def _setup(self):
@@ -48,52 +47,10 @@ class RoboService(BaseService):
         try:
             # Initialize portfolio with config
             await self.portfolio.initialize(self.config.get('portfolio', {}))
-            
-            # Initialize tax-aware strategy
-            self.tax_aware_strategy = TaxAwareStrategy(self.config)
             logger.info("RoboService setup complete")
-            
         except Exception as e:
             logger.error(f"RoboService setup failed: {e}")
             raise
-
-    async def analyze_position(self, pair: str, price: float, position: float,
-                             holding_days: int = 0) -> Optional[str]:
-        """Get combined strategy signals for a position"""
-        try:
-            signals = []
-            
-            # Calculate PnL using stored last price or current price as fallback
-            pnl = 0
-            if pair in self.last_price:
-                pnl = (price / self.last_price[pair] - 1)
-            
-            # Get tax strategy signal
-            if hasattr(self, 'tax_aware_strategy'):
-                tax_signal = await self.tax_aware_strategy.analyze(
-                    pair=pair,
-                    current_price=price,
-                    position_size=position,
-                    holding_period=holding_days,
-                    unrealized_pnl=pnl
-                )
-                if tax_signal:
-                    signals.append(tax_signal)
-
-            # Store price for next PnL calculation
-            self.last_price[pair] = price
-            
-            # Combine signals (prefer SELL over BUY)
-            if 'SELL' in signals:
-                return 'SELL'
-            if all(s == 'BUY' for s in signals):
-                return 'BUY'
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"Position analysis failed: {e}")
-            return None
 
     async def cleanup(self):
         """Public cleanup method"""
@@ -117,3 +74,70 @@ class RoboService(BaseService):
         except Exception as e:
             logger.error(f"RoboService cleanup failed: {e}")
             raise  # Re-raise to ensure proper error handling
+
+    async def analyze_position(self, pair: str, price: float, position: Dict = None) -> Optional[str]:
+        """
+        Analyze position and generate trading signals based on strategies
+        
+        Args:
+            pair: Trading pair symbol (e.g. 'BTCUSDT') 
+            price: Current market price
+            position: Optional position info dictionary or float amount, will be fetched if not provided
+            
+        Returns:
+            Optional[str]: Trading signal ('BUY', 'SELL', or None)
+        """
+        try:
+            # Convert float position to dict format
+            if isinstance(position, (int, float)):
+                position = {
+                    'size': float(position),
+                    'entry_price': price,
+                    'holding_period': 0
+                }
+            # Get current position info if not provided
+            elif position is None:
+                position = self.portfolio.get_position(pair)
+
+            # Extract position details with defaults            
+            position_size = position.get('size', 0) if position else 0
+            entry_price = position.get('entry_price', price) if position else price
+            holding_period = position.get('holding_period', 0) if position else 0
+            
+            # Calculate unrealized PnL
+            if position_size > 0:
+                unrealized_pnl = (price - entry_price) / entry_price
+            else:
+                unrealized_pnl = 0
+
+            # Collect signals from all strategies
+            signals = []
+            
+            # Get tax-aware strategy signal
+            tax_signal = await self.tax_aware_strategy.analyze(
+                pair=pair,
+                current_price=price, 
+                position_size=position_size,
+                holding_period=holding_period,
+                unrealized_pnl=unrealized_pnl
+            )
+            if tax_signal:
+                signals.append(tax_signal)
+
+            # Determine final signal based on majority
+            if not signals:
+                return None
+                
+            buy_signals = signals.count('BUY')
+            sell_signals = signals.count('SELL')
+            
+            if buy_signals > sell_signals:
+                return 'BUY'
+            elif sell_signals > buy_signals:
+                return 'SELL'
+            
+            return None
+
+        except Exception as e:
+            logger.error(f"Position analysis failed: {str(e)}")
+            return None

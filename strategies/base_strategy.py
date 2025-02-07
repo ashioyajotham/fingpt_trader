@@ -8,8 +8,19 @@ import pandas as pd
 
 
 class BaseStrategy(ABC):
-    def __init__(self, config: Optional[Dict] = None):
+    """Abstract base class for all trading strategies"""
+    
+    def __init__(self, config: Optional[Dict] = None, profile: Optional[Dict] = None):
+        """
+        Initialize strategy with config and profile
+        
+        Args:
+            config: Strategy configuration parameters
+            profile: Trading profile parameters
+        """
         self.config = config or {}
+        self.profile = profile or {}
+        self.enabled = self.config.get('enabled', True)
         self.positions: Dict[str, float] = {}
         self.regime_detector = MarketRegimeDetector()
         self.circuit_breaker = CircuitBreaker(config.get('risk', {}).get('thresholds', {}))
@@ -92,3 +103,34 @@ class BaseStrategy(ABC):
                 signal['regime'] = current_regime.value
             
         return signals
+
+    @abstractmethod
+    async def analyze(self, pair: str, current_price: float = None, price: float = None,
+                     position: float = 0, position_size: float = None,
+                     holding_period: int = None, unrealized_pnl: float = None) -> Optional[str]:
+        """
+        Analyze market data and generate trading signals
+        
+        Args:
+            pair: Trading pair symbol
+            current_price: Current market price
+            price: Alternative price input
+            position: Current position size (legacy)
+            position_size: Current position size (new format)
+            holding_period: Days position has been held
+            unrealized_pnl: Current unrealized profit/loss
+            
+        Returns:
+            Optional[str]: Trading signal ('BUY', 'SELL', or None)
+        """
+        pass
+        
+    @abstractmethod
+    async def validate(self, **kwargs) -> bool:
+        """
+        Validate strategy parameters and configuration
+        
+        Returns:
+            bool: True if valid, False otherwise
+        """
+        pass
