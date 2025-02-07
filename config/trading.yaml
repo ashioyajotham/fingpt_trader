@@ -24,7 +24,9 @@ exchanges:                          # Changed to plural
 # Trading Parameters
 trading:
   initial_balance: 10000.0
-  confidence_threshold: 0.7        # Added confidence threshold
+  confidence_threshold: 0.5        # Lowered from 0.7 to see more signals
+  min_trade_amount: 10.0          # Minimum trade size in USDT
+  loop_interval: 30               # Reduced from 60 to 30 seconds
   pairs:                          
     - "BTCUSDT"                   # Changed format to match Binance
     - "ETHUSDT"                   # Changed format to match Binance
@@ -32,11 +34,11 @@ trading:
 
 # Risk Management Settings
 risk:
-  max_drawdown: 0.10              # 10% maximum drawdown
-  position_limit: 0.20            # 20% maximum position size
-  var_limit: 0.02                # 2% Value at Risk limit
+  max_drawdown: 0.15              # Increased from 0.10 to allow more trades
+  position_limit: 0.25            # Increased from 0.20
+  var_limit: 0.03                # Increased from 0.02
   leverage_limit: 1.0            # Maximum leverage
-  concentration_limit: 0.30      # 30% maximum concentration in single asset
+  concentration_limit: 0.35      # Increased from 0.30
   min_position_size: 0.01        # 1% minimum position size
 
 # Robo-Advisory Settings

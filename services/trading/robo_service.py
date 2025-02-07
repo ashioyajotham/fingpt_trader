@@ -48,6 +48,13 @@ class RoboService(BaseService):
     async def _setup(self):
         """Required implementation of abstract _setup method"""
         try:
+            # Initialize with default portfolio positions
+            initial_positions = {
+                'BTCUSDT': 0.1,  # 0.1 BTC
+                'ETHUSDT': 1.0,  # 1 ETH
+                'BNBUSDT': 5.0   # 5 BNB
+            }
+            
             # Get risk config with defaults
             risk_config = self.config.get('risk', {
                 'max_drawdown': 0.10,
@@ -56,8 +63,10 @@ class RoboService(BaseService):
                 'leverage_limit': 1.0
             })
             
-            # Initialize portfolio with portfolio-specific config
+            # Initialize portfolio with specific config
             portfolio_config = {
+                'initial_balance': self.config.get('trading', {}).get('initial_balance', 10000.0),
+                'positions': initial_positions,
                 'position_limits': {
                     'max_position': risk_config.get('position_limit', 0.20),
                     'min_position': risk_config.get('min_position_size', 0.01)
@@ -70,7 +79,8 @@ class RoboService(BaseService):
             }
             
             await self.portfolio.initialize(portfolio_config)
-            logger.info("RoboService setup complete")
+            logger.info(f"RoboService setup complete with initial balance: {portfolio_config['initial_balance']}")
+            logger.info(f"Initial positions: {initial_positions}")
         except Exception as e:
             logger.error(f"RoboService setup failed: {e}")
             raise

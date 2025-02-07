@@ -255,6 +255,7 @@ class TradingSystem:
         for exchange, client in self.exchange_clients.items():
             # Get trading pairs
             pairs = await client.get_trading_pairs()
+            logger.info(f"Initialized {len(pairs)} trading pairs for {exchange}")
             
             # Get initial market data
             state[exchange] = {
@@ -266,10 +267,16 @@ class TradingSystem:
             
             # Initialize data for each pair
             for pair in pairs:
+                logger.info(f"Loading market data for {pair}...")
                 state[exchange]['orderbooks'][pair] = await client.get_orderbook(pair)
                 state[exchange]['trades'][pair] = await client.get_recent_trades(pair)
                 state[exchange]['candles'][pair] = await client.get_candles(pair)
-        
+                
+                # Log current price
+                if state[exchange]['trades'][pair]:
+                    latest_price = float(state[exchange]['trades'][pair][-1]['price'])
+                    logger.info(f"Current {pair} price: {latest_price:.2f}")
+                
         return state
 
     async def get_market_data(self, symbol: Optional[str] = None) -> Dict:
@@ -558,9 +565,20 @@ class TradingSystem:
             logger.info("Starting trading system initialization...")
             await self.initialize()
             
+            # Add heartbeat logging
+            last_heartbeat = 0
+            HEARTBEAT_INTERVAL = 10  # seconds
+            
             iteration = 0
             while self.is_running:
                 try:
+                    current_time = datetime.now().timestamp()
+                    
+                    # Log heartbeat
+                    if current_time - last_heartbeat >= HEARTBEAT_INTERVAL:
+                        logger.info("System heartbeat - Trading system active")
+                        last_heartbeat = current_time
+                    
                     iteration += 1
                     logger.info(f"\n{'='*50}\nTrading Iteration {iteration}\n{'='*50}")
                     
