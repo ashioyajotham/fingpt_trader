@@ -12,14 +12,14 @@
 #   Development: python scripts/run_trader.py
 
 # Exchange Configuration
-exchanges:
-  - name: binance                    # Exchange identifier
-    api_key: ${BINANCE_API_KEY}      # From environment variable
-    api_secret: ${BINANCE_API_SECRET} # From environment variable
-    test_mode: true                  # Controls testnet/mainnet - SINGLE SOURCE OF TRUTH
-    options:
-      timeout: 30                    # API timeout in seconds
-      max_retries: 3                 # Maximum retry attempts
+exchange:
+  name: binance                    # Exchange identifier
+  api_key: ${BINANCE_API_KEY}      # From environment variable
+  api_secret: ${BINANCE_API_SECRET} # From environment variable
+  test_mode: true                  # Controls testnet/mainnet - SINGLE SOURCE OF TRUTH
+  options:
+    timeout: 30                    # API timeout in seconds
+    max_retries: 3                 # Maximum retry attempts
 
 # Trading Parameters
 trading:

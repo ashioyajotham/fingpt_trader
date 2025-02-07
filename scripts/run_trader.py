@@ -36,6 +36,7 @@ import yaml
 import platform
 
 import os
+from dotenv import load_dotenv  # Add this import
 
 # Add project root to path
 root_dir = str(Path(__file__).parent.parent)
@@ -175,6 +176,11 @@ def load_config() -> Dict:
         ValueError: If config is empty or invalid
     """
     try:
+        # Load environment variables first
+        env_path = Path(__file__).parent.parent / '.env'
+        load_dotenv(env_path)
+        print(f"Loaded .env from: {env_path}")  # Debug print
+        
         args = parse_args()
         
         # If config path is provided via command line
@@ -193,7 +199,15 @@ def load_config() -> Dict:
             
         logger.info(f"Loading config from: {config_path}")
         with open(config_path) as f:
-            return yaml.safe_load(f)
+            # Load YAML with environment variable substitution
+            config = yaml.safe_load(os.path.expandvars(f.read()))
+            
+        # Debug prints
+        print(f"API Key present: {'BINANCE_API_KEY' in os.environ}")
+        print(f"API Secret present: {'BINANCE_API_SECRET' in os.environ}")
+        print(f"Test Mode: {config['exchanges'][0].get('test_mode')}")
+            
+        return config
                 
     except Exception as e:
         logger.error(f"Failed to load config: {str(e)}")
