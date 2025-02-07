@@ -8,87 +8,124 @@ import logging
 logger = logging.getLogger(__name__)
 
 class Portfolio:
-    def __init__(self):
-        self.positions = {}
-        self.cash = 0.0
+    """Portfolio management class for tracking positions and performance"""
+    
+    def __init__(self, initial_balance: float):
+        self.cash = initial_balance
+        self.positions = {}  # symbol -> quantity
+        self.trades = []
+        self.total_trades = 0
+        self.portfolio_history = []
+        self.last_prices = {}  # Track last known prices
 
-    async def initialize(self, config: Dict):
+    def update_prices(self, market_data: Dict[str, Dict[str, float]]) -> None:
+        """Update last known prices for all assets
+        
+        Args:
+            market_data: Dict of symbol -> {price: float, ...}
+        """
+        for symbol, data in market_data.items():
+            self.last_prices[symbol] = data['price']
+
+    async def initialize(self, config: dict = None) -> None:
         """Initialize portfolio with configuration"""
-        try:
-            self.cash = float(config.get('initial_cash', 0.0))
-            logger.info(f"Portfolio initialized with {self.cash} cash")
-        except Exception as e:
-            logger.error(f"Portfolio initialization failed: {e}")
-            raise
+        if config is None:
+            config = {}
+        # Initialize any additional settings from config
+        self.position_limits = config.get('position_limits', {})
+        self.risk_limits = config.get('risk_limits', {})
+        logger.info("Portfolio initialized successfully")
 
-    async def cleanup(self):
-        """Cleanup any portfolio resources"""
-        logger.info("Portfolio cleanup complete")
+    async def cleanup(self) -> None:
+        """Cleanup portfolio resources"""
+        # Clear positions and state
+        self.positions.clear()
+        self.last_prices.clear()
+        self.trades.clear()
+        self.portfolio_history.clear()
+        logger.info("Portfolio cleaned up successfully")
 
-    def update_prices(self, prices: Dict[str, float]) -> None:
-        """Update current market prices"""
-        self.prices = prices
+    async def buy(self, symbol: str, size: float, price: float):
+        cost = size * price
+        if cost <= self.cash:
+            self.cash -= cost
+            self.positions[symbol] = self.positions.get(symbol, 0) + size
+            self.trades.append({
+                'type': 'BUY',
+                'symbol': symbol,
+                'size': size,
+                'price': price,
+                'timestamp': pd.Timestamp.now()
+            })
+            self.total_trades += 1
 
-    def get_current_weights(self) -> Dict[str, float]:
-        """Calculate current portfolio weights"""
-        total_value = self.get_portfolio_value()
-        if total_value == 0:
-            return {symbol: 0.0 for symbol in self.positions}
+    async def sell(self, symbol: str, size: float, price: float):
+        if symbol in self.positions and self.positions[symbol] >= size:
+            self.cash += size * price
+            self.positions[symbol] -= size
+            if self.positions[symbol] == 0:
+                del self.positions[symbol]
+            self.trades.append({
+                'type': 'SELL',
+                'symbol': symbol,
+                'size': size,
+                'price': price,
+                'timestamp': pd.Timestamp.now()
+            })
+            self.total_trades += 1
 
-        weights = {}
-        for symbol in self.positions:
-            position_value = self.positions[symbol] * self.prices[symbol]
-            weights[symbol] = position_value / total_value
-        return weights
+    def get_position(self, symbol: str) -> float:
+        return self.positions.get(symbol, 0)
 
-    def get_portfolio_value(self) -> float:
-        """Calculate total portfolio value"""
-        return sum(self.positions[s] * self.prices[s] for s in self.positions)
+    def get_position_value(self, symbol: str) -> float:
+        if symbol not in self.last_prices:
+            logger.warning(f"No price data for {symbol}")
+            return 0.0
+        return self.positions.get(symbol, 0) * self.last_prices[symbol]
 
-    def equal_weight_rebalance(self) -> List[Tuple[str, float]]:
-        """Rebalance to equal weights across all assets"""
-        n_assets = len(self.positions)
-        if n_assets == 0:
-            return []
+    def total_value(self) -> float:
+        if not self.last_prices:
+            logger.warning("No price data available for portfolio valuation")
+            return self.cash
+        return self.cash + sum(
+            pos * self.last_prices.get(sym, 0)
+            for sym, pos in self.positions.items()
+        )
 
-        target_weight = 1.0 / n_assets
-        self.target_weights = {symbol: target_weight for symbol in self.positions}
-        return self._generate_rebalance_trades()
+    def get_position_size(self, cash: float, price: float) -> float:
+        # Use a portion of available cash (e.g., 95% to leave room for fees)
+        return (cash * 0.95) / price
 
-    def target_weight_rebalance(
-        self, target_weights: Dict[str, float]
-    ) -> List[Tuple[str, float]]:
-        """Rebalance to specified target weights"""
-        if abs(sum(target_weights.values()) - 1.0) > 1e-6:
-            raise ValueError("Target weights must sum to 1.0")
+    def calculate_sharpe_ratio(self) -> float:
+        if not self.portfolio_history:
+            return 0.0
+        returns = pd.Series([x['total_value'] for x in self.portfolio_history]).pct_change()
+        if returns.std() == 0:
+            return 0.0
+        return (returns.mean() / returns.std()) * np.sqrt(252)
 
-        self.target_weights = target_weights
-        return self._generate_rebalance_trades()
+    def calculate_max_drawdown(self) -> float:
+        if not self.portfolio_history:
+            return 0.0
+        values = pd.Series([x['total_value'] for x in self.portfolio_history])
+        peaks = values.expanding(min_periods=1).max()
+        drawdowns = (values - peaks) / peaks
+        return abs(drawdowns.min())
 
-    def threshold_rebalance(self, threshold: float = 0.05) -> List[Tuple[str, float]]:
-        """Rebalance only if any position deviated more than threshold"""
-        current_weights = self.get_current_weights()
+    def calculate_win_rate(self) -> float:
+        if not self.trades:
+            return 0.0
+        profitable_trades = sum(1 for t in self.trades if 
+            (t['type'] == 'SELL' and t['price'] > t.get('entry_price', 0)) or
+            (t['type'] == 'BUY' and t['price'] < t.get('entry_price', 0)))
+        return profitable_trades / len(self.trades)
 
-        for symbol, weight in current_weights.items():
-            if abs(weight - self.target_weights[symbol]) > threshold:
-                return self._generate_rebalance_trades()
-        return []
-
-    def _generate_rebalance_trades(self) -> List[Tuple[str, float]]:
-        """Generate trades to achieve target weights"""
-        portfolio_value = self.get_portfolio_value()
-        trades = []
-
-        for symbol in self.positions:
-            target_value = portfolio_value * self.target_weights[symbol]
-            current_value = self.positions[symbol] * self.prices[symbol]
-            trade_value = target_value - current_value
-
-            if abs(trade_value) > 1e-6:  # Ignore tiny trades
-                trade_quantity = trade_value / self.prices[symbol]
-                trades.append((symbol, trade_quantity))
-
-        return trades
+    def calculate_profit_factor(self) -> float:
+        gains = sum(t['price'] * t['size'] for t in self.trades 
+                   if t['type'] == 'SELL' and t['price'] > t.get('entry_price', 0))
+        losses = sum(t['price'] * t['size'] for t in self.trades 
+                    if t['type'] == 'SELL' and t['price'] < t.get('entry_price', 0))
+        return gains / losses if losses != 0 else 0.0
 
 
 class PortfolioRebalancer:

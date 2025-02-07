@@ -1,344 +1,280 @@
+"""Backtesting system that matches live trading behavior"""
+
 import sys
-from pathlib import Path
-import asyncio
-import argparse
-import yaml
+import os
 import logging
-from datetime import datetime, timedelta
-import numpy as np
+import yaml
+import asyncio
 import pandas as pd
-from typing import Dict, List, Optional
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Dict, Any
 
-# Add project root to Python path
-root_dir = str(Path(__file__).parent.parent)
-sys.path.insert(0, root_dir)
+# Add project root to path
+project_root = str(Path(__file__).parent.parent)
+sys.path.append(project_root)
 
-from strategies.base_strategy import BaseStrategy
-from strategies.tax_aware import TaxAwareStrategy
+from services.trading.robo_service import RoboService 
 from models.portfolio.rebalancing import Portfolio
-from models.client.profile import MockClientProfile
+from services.exchanges.binance import BinanceClient
 
 logger = logging.getLogger(__name__)
 
-class BacktestPortfolio:
-    """Portfolio simulator for backtesting"""
-    def __init__(self, initial_capital: float = 10000.0):
-        self.cash = initial_capital
-        self.positions = {}
-        self.trades = []
-        self.nav_history = []
+class BacktestEngine:
+    """Backtesting engine that simulates live trading"""
+    
+    def __init__(self, config_path: str):
+        """Initialize backtester with config"""
+        self.config = self._load_config(config_path)
         
-    def execute_trade(self, symbol: str, side: str, price: float, 
-                     amount: float, timestamp: datetime) -> bool:
-        """Execute trade with slippage simulation"""
-        slippage = self._calculate_slippage(price, amount)
-        executed_price = price * (1 + slippage if side == 'BUY' else -slippage)
+        # Initialize exchange client
+        exchange_config = {
+            'api_key': self.config['exchange']['api_key'],
+            'api_secret': self.config['exchange']['api_secret'],
+            'testnet': self.config['exchange'].get('test_mode', True),
+            'options': self.config['exchange'].get('options', {})
+        }
+        self.exchange = BinanceClient(**exchange_config)
+        self.portfolio = Portfolio(10000.0)
+        self.service = None
+        self.data: Dict[str, pd.DataFrame] = {}
+        self.pair_format_map = {}  # Maps config pairs to exchange format
         
-        cost = amount * executed_price
-        if side == 'BUY':
-            if cost > self.cash:
-                return False
-            self.cash -= cost
-            self.positions[symbol] = self.positions.get(symbol, 0) + amount
-        else:
-            if amount > self.positions.get(symbol, 0):
-                return False
-            self.cash += cost
-            self.positions[symbol] = self.positions.get(symbol, 0) - amount
+    def _load_config(self, path: str) -> dict:
+        """Load config from yaml file"""
+        with open(path) as f:
+            return yaml.safe_load(f)
             
-        self.trades.append({
-            'timestamp': timestamp,
-            'symbol': symbol,
-            'side': side,
-            'price': executed_price,
-            'amount': amount,
-            'cost': cost,
-            'slippage': slippage
-        })
-        return True
-        
-    def _calculate_slippage(self, price: float, amount: float) -> float:
-        """Simulate market impact and slippage"""
-        base_slippage = 0.0001  # 1 bps
-        impact = amount * price / 1_000_000  # Simple market impact model
-        return base_slippage + impact
-
-    def get_position(self, symbol: str) -> float:
-        return self.positions.get(symbol, 0)
-        
-    def get_nav(self, prices: Dict[str, float]) -> float:
-        """Calculate Net Asset Value"""
-        positions_value = sum(
-            self.positions.get(s, 0) * p 
-            for s, p in prices.items()
-        )
-        return self.cash + positions_value
-
-class Backtester:
-    def __init__(self, config: Dict):
-        self.config = config
-        self.initial_capital = config.get('trading', {}).get('initial_capital', 10000.0)
-        self.portfolio = BacktestPortfolio(initial_capital=self.initial_capital)
-        self.data = {}
-        self.results = []
-        self.stats = {}
-        
-    async def run(self, strategy: BaseStrategy, start_date: str, end_date: str):
-        """Run backtest"""
-        logger.info(f"Running backtest from {start_date} to {end_date}")
-        
-        # Load data
-        await self._load_data(start_date, end_date)
-        
-        # Run simulation
-        await self._simulate_trading(strategy)
-        
-        # Calculate statistics
-        self._calculate_stats()
-        self._print_results()
-        return self.stats
-
-    async def _load_data(self, start_date: str, end_date: str):
-        """Load historical price and market data"""
-        logger.info("Loading historical data...")
-        
-        # Load OHLCV data for configured pairs
-        pairs = self.config['trading']['pairs']
-        for pair in pairs:
-            self.data[pair] = await self._load_market_data(
-                pair, start_date, end_date
-            )
+    def _convert_pair_format(self, pair: str, reverse: bool = False) -> str:
+        """Convert between config pair format and exchange format"""
+        if reverse:
+            return pair.replace('/', '')  # "BTC/USDT" -> "BTCUSDT"
+        return '/'.join([pair[:3], pair[3:]])  # "BTCUSDT" -> "BTC/USDT"
             
-        # Load additional market data
-        await self._load_sentiment_data(start_date, end_date)
-        await self._load_fundamentals_data(start_date, end_date)
-
-    async def _load_market_data(self, pair: str, start: str, end: str) -> pd.DataFrame:
-        """Generate realistic market data"""
-        dates = pd.date_range(start=start, end=end, freq='1min')
-        df = pd.DataFrame(index=dates)
+    async def load_data(self, start_date: datetime, end_date: datetime):
+        """Load historical market data"""
+        logger.info("Loading historical market data...")
         
-        # Generate realistic price movements
-        if pair == 'BTCUSDT':
-            base_price = 97000.0
-            volatility = 0.0002  # Annualized volatility
-            drift = 0.00005     # Annualized drift
-        elif pair == 'ETHUSDT':
-            base_price = 2700.0
-            volatility = 0.0003
-            drift = 0.00004
-        else:
-            base_price = 100.0
-            volatility = 0.0001
-            drift = 0.00002
+        # Load price data for each pair
+        for pair in self.config['trading']['pairs']:
+            # Convert pair format for exchange API
+            exchange_pair = self._convert_pair_format(pair, reverse=True)
+            self.pair_format_map[pair] = exchange_pair
             
-        # Generate log returns with drift and volatility
-        dt = 1/252/24/60  # Time step in years (1 minute)
-        returns = np.random.normal(
-            loc=drift*dt, 
-            scale=volatility*np.sqrt(dt),
-            size=len(dates)
+            try:
+                self.data[pair] = await self._load_historical_data(
+                    pair=exchange_pair,
+                    start=start_date,
+                    end=end_date,
+                    interval='1d'
+                )
+                logger.info(f"Loaded data for {pair}")
+            except Exception as e:
+                logger.error(f"Failed to load data for {pair}: {str(e)}")
+                continue
+        
+    async def _load_historical_data(self, pair: str, start: datetime, end: datetime, 
+                                  interval: str) -> pd.DataFrame:
+        """Load historical OHLCV data from exchange"""
+        data = await self.exchange.get_historical_klines(
+            symbol=pair,
+            interval=interval,
+            start_str=start.isoformat(),
+            end_str=end.isoformat()
         )
         
-        # Calculate price path
-        df['close'] = base_price * np.exp(np.cumsum(returns))
-        df['open'] = df['close'].shift(1).fillna(base_price)
-        df['high'] = df['close'] * (1 + abs(np.random.normal(0, 0.0003, len(dates))))
-        df['low'] = df['close'] * (1 - abs(np.random.normal(0, 0.0003, len(dates))))
-        df['volume'] = np.random.lognormal(10, 1, len(dates))
+        df = pd.DataFrame(data, columns=[
+            'timestamp', 'open', 'high', 'low', 'close', 'volume',
+            'close_time', 'quote_volume', 'trades', 'taker_buy_base',
+            'taker_buy_quote', 'ignore'
+        ])
         
-        # Add technical indicators
-        df['sma_20'] = df['close'].rolling(20).mean()
-        df['sma_50'] = df['close'].rolling(50).mean()
-        df['rsi'] = self._calculate_rsi(df['close'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df.set_index('timestamp', inplace=True)
         
+        # Convert string values to float
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            df[col] = df[col].astype(float)
+            
         return df
 
-    def _calculate_rsi(self, prices: pd.Series, periods: int = 14) -> pd.Series:
-        """Calculate RSI technical indicator"""
-        delta = prices.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=periods).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=periods).mean()
-        
-        rs = gain / loss
-        return 100 - (100 / (1 + rs))
-
-    async def _load_sentiment_data(self, start: str, end: str):
-        """Load sentiment data"""
-        logger.info("Loading sentiment data...")
-        dates = pd.date_range(start=start, end=end, freq='1min')
-        df = pd.DataFrame(index=dates)
-        
-        # Generate synthetic sentiment scores (-1 to 1)
-        df['sentiment'] = np.random.normal(0, 0.2, len(dates))
-        df['sentiment'] = df['sentiment'].clip(-1, 1)
-        
-        self.data['sentiment'] = df
-        
-    async def _load_fundamentals_data(self, start: str, end: str):
-        """Load fundamental data"""
-        logger.info("Loading fundamentals data...")
-        dates = pd.date_range(start=start, end=end, freq='1min')
-        df = pd.DataFrame(index=dates)
-        
-        # Generate synthetic fundamental metrics
-        df['pe_ratio'] = np.random.normal(20, 5, len(dates))
-        df['volume'] = np.random.lognormal(10, 1, len(dates))
-        df['market_cap'] = np.random.lognormal(25, 2, len(dates))
-        
-        self.data['fundamentals'] = df
-
-    async def _simulate_trading(self, strategy: BaseStrategy):
-        """Simulate trading with realistic conditions"""
-        logger.info("Simulating trades...")
-        
-        # Get common date range across all data
-        trading_pairs = self.config['trading']['pairs']
-        dates = sorted(set.intersection(*[
-            set(data.index) for symbol, data in self.data.items() 
-            if symbol in trading_pairs
-        ]))
-        
-        # Simulate trading bar by bar
-        for timestamp in dates:
-            # Get current market prices
-            prices = {
-                pair: self.data[pair].loc[timestamp, 'close']
-                for pair in trading_pairs if pair in self.data
-            }
+    async def simulate_trading(self, current_time: datetime) -> None:
+        """Simulate one trading interval"""
+        try:
+            # Get current market data
+            market_data = {}
+            signals = {}
             
-            # Skip if missing prices
-            if not prices:
-                continue
-                
-            # Update portfolio NAV history
-            nav = self.portfolio.get_nav(prices)
-            self.portfolio.nav_history.append((timestamp, nav))
-            
-            # Get trading signals for each pair
-            for pair in trading_pairs:
-                if pair not in self.data:
+            for pair in self.config['trading']['pairs']:
+                exchange_pair = self.pair_format_map.get(pair)
+                if not exchange_pair:
+                    logger.warning(f"No exchange pair mapping for {pair}")
                     continue
                     
+                if pair not in self.data:
+                    logger.warning(f"No historical data for {pair}")
+                    continue
+                    
+                try:
+                    current_price = float(self.data[pair].loc[current_time, 'close'])
+                    market_data[pair] = {
+                        'price': current_price,
+                        'volume': float(self.data[pair].loc[current_time, 'volume']),
+                        'high': float(self.data[pair].loc[current_time, 'high']),
+                        'low': float(self.data[pair].loc[current_time, 'low'])
+                    }
+                except KeyError:
+                    logger.debug(f"No data for {pair} at {current_time}")
+                    continue
+                except Exception as e:
+                    logger.error(f"Error processing {pair} data: {str(e)}")
+                    continue
+
+            # Skip if no market data available
+            if not market_data:
+                logger.warning(f"No market data available for {current_time}")
+                return
+            
+            # Update portfolio prices first
+            self.portfolio.update_prices(market_data)
+            
+            # Generate signals and execute trades
+            for pair, data in market_data.items():
+                # Get current position
                 position = self.portfolio.get_position(pair)
-                current_price = prices[pair]
                 
-                # Get strategy signal
-                signal = await strategy.analyze(
+                # Generate trading signal
+                signal = await self.service.analyze_position(
                     pair=pair,
-                    price=current_price,
+                    price=data['price'],
                     position=position
                 )
+                signals[pair] = signal
                 
-                # Execute trades based on signal
-                if signal == 'BUY':
-                    size = self._calculate_position_size(pair, current_price)
-                    self.portfolio.execute_trade(
-                        pair, 'BUY', current_price, size, timestamp
-                    )
-                elif signal == 'SELL':
-                    position = self.portfolio.get_position(pair)
-                    if position > 0:
-                        self.portfolio.execute_trade(
-                            pair, 'SELL', current_price, position, timestamp
-                        )
-
-    def _calculate_position_size(self, pair: str, price: float) -> float:
-        """Calculate trade size based on position sizing rules"""
-        nav = self.portfolio.get_nav({pair: price})
-        max_size = self.config['robo']['strategy']['constraints']['max_position_size']
-        position_value = nav * max_size
-        return position_value / price
-
-    def _calculate_stats(self):
-        """Calculate comprehensive performance statistics"""
-        if not self.portfolio.nav_history:
-            self.stats = {
-                'total_trades': 0,
-                'total_return': 0.0,
-                'sharpe_ratio': 0.0,
-                'max_drawdown': 0.0,
-                'win_rate': 0.0,
-                'profit_factor': float('inf')
-            }
-            return
+                # Execute trades based on signals
+                if signal:
+                    await self._execute_trade(pair, signal, data['price'])
+                    
+            # Log portfolio state
+            await self._log_state(current_time, market_data, signals)
             
-        nav_df = pd.DataFrame(
-            self.portfolio.nav_history, 
-            columns=['timestamp', 'nav']
-        ).set_index('timestamp')
-        
-        returns = nav_df['nav'].pct_change().dropna()
-        
-        # Handle empty returns
-        if len(returns) < 2:
-            sharpe = 0.0
-        else:
-            sharpe = np.sqrt(252) * returns.mean() / returns.std() if returns.std() != 0 else 0.0
-        
-        # Calculate drawdown
-        peaks = nav_df['nav'].cummax()
-        drawdowns = (nav_df['nav'] - peaks) / peaks
-        max_drawdown = drawdowns.min() if not drawdowns.empty else 0.0
-        
-        # Calculate trade statistics
-        trades = self.portfolio.trades
-        if trades:
-            profits = [t['cost'] for t in trades]
-            winning_trades = sum(1 for p in profits if p > 0)
-            win_rate = winning_trades / len(profits)
+        except Exception as e:
+            logger.error(f"Error in simulation at {current_time}: {str(e)}")
             
-            total_profit = sum(p for p in profits if p > 0)
-            total_loss = abs(sum(p for p in profits if p < 0))
-            profit_factor = total_profit / total_loss if total_loss != 0 else float('inf')
-        else:
-            win_rate = 0.0
-            profit_factor = float('inf')
+    async def _execute_trade(self, pair: str, signal: str, price: float):
+        """Execute a simulated trade"""
+        if signal == 'BUY':
+            # Calculate position size based on available cash
+            size = self.portfolio.get_position_size(
+                cash=self.portfolio.cash,
+                price=price
+            )
+            if size > 0:
+                logger.info(f"TEST TRADE: Bought {size:.6f} {pair} at ${price:.2f}")
+                await self.portfolio.buy(pair, size, price)
+                
+        elif signal == 'SELL':
+            size = self.portfolio.get_position(pair)
+            if size > 0:
+                logger.info(f"TEST TRADE: Sold {size:.6f} {pair} at ${price:.2f}")
+                await self.portfolio.sell(pair, size, price)
+
+    async def run(self, start_date: datetime, end_date: datetime):
+        """Run backtest simulation"""
+        logger.info(f"Running backtest from {start_date.date()} to {end_date.date()}")
         
-        self.stats = {
-            'total_trades': len(trades),
-            'total_return': (nav_df['nav'].iloc[-1] / nav_df['nav'].iloc[0] - 1) if len(nav_df) > 0 else 0.0,
-            'sharpe_ratio': sharpe,
-            'max_drawdown': max_drawdown,
-            'win_rate': win_rate,
-            'profit_factor': profit_factor
+        # Initialize exchange client first
+        await self.exchange.initialize()
+        
+        # Initialize services
+        self.service = RoboService(self.config)
+        await self.service.start()
+        
+        # Load data
+        await self.load_data(start_date, end_date)
+        
+        # Simulate trading
+        logger.info("Simulating trades...")
+        current_time = start_date
+        while current_time <= end_date:
+            if current_time.weekday() < 5:  # Only trade on weekdays
+                await self.simulate_trading(current_time)
+            current_time += timedelta(days=1)
+            
+        # Generate final results
+        await self._generate_results()
+
+    async def cleanup(self):
+        """Cleanup resources"""
+        if self.exchange:
+            await self.exchange.cleanup()
+        if self.service:
+            await self.service.cleanup()
+
+    async def _log_state(self, timestamp: datetime, market_data: dict, signals: dict):
+        """Log current simulation state"""
+        total_value = self.portfolio.total_value()
+        
+        logger.info("\n=== Status Update ===")
+        logger.info(f"Time: {timestamp}")
+        logger.info("")
+        
+        for pair in self.config['trading']['pairs']:
+            logger.info(f"{pair}:")
+            logger.info(f"  Price: ${market_data[pair]['price']:.2f}")
+            logger.info(f"  Volume: {market_data[pair]['volume']:.2f}")
+            logger.info(f"  Holdings: {self.portfolio.get_position(pair):.6f}")
+            logger.info(f"  Value: ${self.portfolio.get_position_value(pair):.2f}")
+            logger.info(f"  Signal: {signals[pair]}")
+            logger.info("")
+            
+        logger.info("Portfolio Status:")
+        logger.info(f"  USDT Balance: ${self.portfolio.cash:.2f}")
+        logger.info(f"  Total Value: ${total_value:.2f}")
+        logger.info("==================\n")
+
+    async def _generate_results(self):
+        """Generate backtest results summary"""
+        results = {
+            'total_trades': self.portfolio.total_trades,
+            'total_return': (self.portfolio.total_value() / 10000.0) - 1,
+            'sharpe_ratio': self.portfolio.calculate_sharpe_ratio(),
+            'max_drawdown': self.portfolio.calculate_max_drawdown(),
+            'win_rate': self.portfolio.calculate_win_rate(),
+            'profit_factor': self.portfolio.calculate_profit_factor()
         }
         
-    def _print_results(self):
-        """Print detailed backtest results"""
         logger.info("\n=== Backtest Results ===")
-        logger.info(f"Total Trades: {self.stats['total_trades']}")
-        logger.info(f"Total Return: {self.stats['total_return']*100:.2f}%")
-        logger.info(f"Sharpe Ratio: {self.stats['sharpe_ratio']:.2f}")
-        logger.info(f"Max Drawdown: {self.stats['max_drawdown']*100:.2f}%")
-        logger.info(f"Win Rate: {self.stats['win_rate']*100:.1f}%")
-        logger.info(f"Profit Factor: {self.stats['profit_factor']:.2f}")
-        logger.info("=====================")
-
+        logger.info(f"Total Trades: {results['total_trades']}")
+        logger.info(f"Total Return: {results['total_return']:.2%}")
+        logger.info(f"Sharpe Ratio: {results['sharpe_ratio']:.2f}")
+        logger.info(f"Max Drawdown: {results['max_drawdown']:.2%}")
+        logger.info(f"Win Rate: {results['win_rate']:.1%}")
+        logger.info(f"Profit Factor: {results['profit_factor']:.2f}")
+        
 async def main():
-    parser = argparse.ArgumentParser(description='FinGPT Backtester')
-    parser.add_argument('--config', type=str, default='config/trading.yaml', help='Path to config file')
-    parser.add_argument('--start', type=str, default='2025-01-01', help='Start date (YYYY-MM-DD)')
-    parser.add_argument('--end', type=str, default='2025-02-07', help='End date (YYYY-MM-DD)')
-    parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
-    args = parser.parse_args()
+    """Run backtest"""
+    config_path = os.path.join(project_root, "config", "trading.yaml")
+    engine = BacktestEngine(config_path)
+    
+    start = datetime(2025, 1, 1)
+    end = datetime.now()
+    
+    try:
+        await engine.run(start, end)
+    finally:
+        await engine.cleanup()
 
-    # Setup logging
+if __name__ == "__main__":
     logging.basicConfig(
-        level=logging.INFO if args.verbose else logging.WARNING,
-        format='%(asctime)s [%(levelname)s] %(message)s'
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
     )
-
-    # Load config
-    with open(args.config, 'r') as f:
-        config = yaml.safe_load(f)
-
-    # Initialize strategy and backtester
-    strategy = TaxAwareStrategy(config=config)
-    backtester = Backtester(config)
-
-    # Run backtest
-    await backtester.run(strategy, args.start, args.end)
-
-if __name__ == '__main__':
+    
+    # Fix for Windows event loop
+    if sys.platform == 'win32':
+        from asyncio import WindowsSelectorEventLoopPolicy, set_event_loop_policy
+        set_event_loop_policy(WindowsSelectorEventLoopPolicy())
+    
     asyncio.run(main())

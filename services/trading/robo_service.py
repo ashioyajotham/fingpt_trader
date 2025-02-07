@@ -23,7 +23,11 @@ logger = logging.getLogger(__name__)
 class RoboService(BaseService):
     def __init__(self, config: Dict):
         super().__init__(config)
-        self.portfolio = Portfolio()  # For managing trading positions
+        self.config = config
+        
+        # Get initial balance from config, default to 10000.0
+        initial_balance = self.config.get('trading', {}).get('initial_balance', 10000.0)
+        self.portfolio = Portfolio(initial_balance)  # Pass initial balance
         
         # Initialize client profile with default values or from config
         profile_config = config.get('client_profile', {})
@@ -45,8 +49,18 @@ class RoboService(BaseService):
     async def _setup(self):
         """Required implementation of abstract _setup method"""
         try:
-            # Initialize portfolio with config
-            await self.portfolio.initialize(self.config.get('portfolio', {}))
+            # Initialize portfolio with portfolio-specific config
+            portfolio_config = self.config.get('portfolio', {
+                'position_limits': {
+                    'max_position': 0.2,  # 20% max position size
+                    'min_position': 0.01  # 1% min position size
+                },
+                'risk_limits': {
+                    'max_drawdown': 0.1,  # 10% max drawdown
+                    'max_leverage': 1.0    # no leverage
+                }
+            })
+            await self.portfolio.initialize(portfolio_config)
             logger.info("RoboService setup complete")
         except Exception as e:
             logger.error(f"RoboService setup failed: {e}")

@@ -23,6 +23,7 @@ exchange:
 
 # Trading Parameters
 trading:
+  initial_balance: 10000.0
   pairs:                            # Default trading pairs if not limited
     - BTCUSDT                       # Bitcoin/USDT pair
     - ETHUSDT                       # Ethereum/USDT pair

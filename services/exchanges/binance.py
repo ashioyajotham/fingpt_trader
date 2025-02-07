@@ -44,10 +44,6 @@ import asyncio
 import platform
 import socket
 from aiohttp import TCPConnector, ClientSession
-import hmac
-import hashlib
-import time
-import aiohttp
 
 logger = logging.getLogger(__name__)
 
@@ -94,18 +90,22 @@ class BinanceClient(BaseExchangeClient):
         }
     }
 
-    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, testnet: bool = True):
+    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, 
+                 testnet: bool = True, options: dict = None):
+        """Initialize Binance client"""
         self.api_key = api_key
         self.api_secret = api_secret
         self.testnet = testnet
-        self.test_mode = testnet  # Add this line to maintain compatibility
-        self.client = None
-        self.bsm = None
-        self._ws_connections = {}
+        self.options = options or {}
         
+        # Use testnet to determine URLs
         urls = self.URLS['test'] if testnet else self.URLS['prod']
         self.base_url = urls['rest']
         self.ws_url = urls['ws']
+        
+        self.client = None
+        self.bsm = None
+        self._ws_connections = {}
 
     @classmethod
     async def create(cls, config: Dict) -> 'BinanceClient':
@@ -420,37 +420,6 @@ class BinanceClient(BaseExchangeClient):
             logger.error(f"Order placement failed: {e}")
             raise
 
-    async def get_ticker(self, symbol: str) -> dict:
-        """Get ticker information for a symbol."""
-        try:
-            endpoint = "/api/v3/ticker/24hr"
-            params = {"symbol": symbol}
-            
-            # Make request without auth params for public endpoint
-            base_url = "https://testnet.binance.vision" if self.testnet else "https://api.binance.com"
-            url = f"{base_url}{endpoint}"
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return {
-                            "lastPrice": data["lastPrice"],
-                            "priceChangePercent": data["priceChangePercent"],
-                            "volume": data["volume"]
-                        }
-                    else:
-                        error_data = await response.text()
-                        raise Exception(f"API request failed: {error_data}")
-                        
-        except Exception as e:
-            logger.error(f"Failed to get ticker for {symbol}: {str(e)}")
-            raise
-
-    # Remove or comment out the _make_request method since we're not using it for this endpoint
-    # async def _make_request(self, method: str, endpoint: str, params: dict = None) -> dict:
-    #     ...existing code...
-
     async def _start_market_stream(self, symbol: str):
         """Start market data websocket stream"""
         try:
@@ -468,4 +437,61 @@ class BinanceClient(BaseExchangeClient):
             logger.info(f"Started market streams for {symbol}")
         except Exception as e:
             logger.error(f"Failed to start market stream for {symbol}: {e}")
+            raise
+
+    async def get_historical_klines(self, symbol: str, interval: str, 
+                                  start_str: str, end_str: str) -> List:
+        """
+        Get historical candlestick data.
+
+        Args:
+            symbol (str): Trading pair symbol (e.g. 'BTCUSDT')  
+            interval (str): Kline interval ('1m','1h','1d', etc.)
+            start_str (str): Start time in ISO format 
+            end_str (str): End time in ISO format
+
+        Returns:
+            List[List]: Historical klines data:
+                [
+                    [timestamp, open, high, low, close, volume, ...],
+                    ...
+                ]
+        """
+        try:
+            klines = await self.client.get_historical_klines(
+                symbol=symbol,
+                interval=interval,
+                start_str=start_str, 
+                end_str=end_str,
+                limit=1000  # Maximum allowed
+            )
+            return klines
+            
+        except Exception as e:
+            logger.error(f"Failed to get historical klines for {symbol}: {e}")
+            raise
+
+    async def get_aggregate_trades(self, symbol: str, start_str: str, 
+                                 end_str: str) -> List[Dict]:
+        """
+        Get historical aggregated trade data.
+
+        Args:
+            symbol (str): Trading pair symbol
+            start_str (str): Start time in ISO format
+            end_str (str): End time in ISO format 
+
+        Returns:
+            List[Dict]: Historical trades
+        """
+        try:
+            trades = await self.client.get_aggregate_trades(
+                symbol=symbol,
+                startTime=start_str,
+                endTime=end_str,
+                limit=1000
+            )
+            return trades
+        except Exception as e:
+            logger.error(f"Failed to get historical trades for {symbol}: {e}")
             raise
