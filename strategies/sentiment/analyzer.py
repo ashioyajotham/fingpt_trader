@@ -25,6 +25,14 @@ class SentimentAnalyzer:
         # Add financial terms to VADER lexicon
         self.vader.lexicon.update(self.term_scores)
 
+    async def initialize(self) -> None:
+        """Initialize the analyzer - required by system interface"""
+        pass  # Nothing to initialize for VADER/TextBlob
+
+    async def cleanup(self) -> None:
+        """Cleanup resources - required by system interface"""
+        pass  # Nothing to cleanup for VADER/TextBlob
+
     def analyze(self, text: str) -> Dict[str, float]:
         """Analyze text sentiment using multiple models"""
         # Get VADER sentiment

@@ -188,38 +188,44 @@ class BinanceClient(BaseExchangeClient):
             raise
 
     async def cleanup(self):
-        """
-        Perform comprehensive resource cleanup.
-        
-        Closes:
-        1. All WebSocket connections
-        2. HTTP sessions
-        3. AsyncIO client connection
-        
-        Should be called when client is no longer needed.
-        """
+        """Perform comprehensive resource cleanup"""
         try:
-            # Close websocket connections
-            for symbol, streams in self._ws_connections.items():
-                for stream in streams.values():
-                    await stream.close()
-            self._ws_connections.clear()
+            # Close websocket connections first
+            if hasattr(self, '_ws_connections'):
+                for symbol, streams in self._ws_connections.items():
+                    for stream in streams.values():
+                        try:
+                            await stream.close()
+                        except:
+                            pass
+                self._ws_connections.clear()
             
-            # Close session
+            # Close session explicitly
             if hasattr(self, 'session'):
-                await self.session.close()
+                try:
+                    await self.session.close()
+                    await asyncio.sleep(0.1)  # Give time for cleanup
+                except:
+                    pass
                 self.session = None
                 
-            # Close client session and connection
+            # Close client connection
             if self.client:
-                if hasattr(self.client, 'session'):
-                    await self.client.session.close()
-                await self.client.close_connection()
+                try:
+                    if hasattr(self.client, 'session'):
+                        await self.client.session.close()
+                    await self.client.close_connection()
+                    await asyncio.sleep(0.1)  # Give time for cleanup
+                except:
+                    pass
                 self.client = None
                 
-            logger.info("Binance client cleaned up")
+            logger.info("Binance client resources cleaned up")
         except Exception as e:
-            logger.error(f"Binance cleanup failed: {e}")
+            logger.error(f"Error during Binance cleanup: {e}")
+        finally:
+            # Ensure event loop has time to clean up
+            await asyncio.sleep(0.5)
 
     async def get_trading_pairs(self) -> List[str]:
         """
@@ -532,3 +538,12 @@ class BinanceClient(BaseExchangeClient):
         except Exception as e:
             logger.error(f"Ping failed: {str(e)}")
             raise
+
+    async def get_24h_volume(self, symbol: str) -> float:
+        """Get 24-hour volume for a symbol"""
+        try:
+            ticker = await self.client.get_ticker(symbol=symbol)
+            return float(ticker['volume'])
+        except Exception as e:
+            logger.error(f"Failed to get 24h volume for {symbol}: {e}")
+            return 0.0

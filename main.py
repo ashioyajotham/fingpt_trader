@@ -59,6 +59,7 @@ Development vs Production:
 import asyncio
 from typing import Dict, List, Optional, Any
 import numpy as np
+import pandas as pd
 import yaml
 from datetime import datetime
 import logging
@@ -84,7 +85,7 @@ root_dir = str(Path(__file__).parent.parent)
 sys.path.insert(0, root_dir)
 
 from models.market.inefficiency import MarketInefficencyDetector
-from models.sentiment.analyzer import SentimentAnalyzer
+from strategies.sentiment.analyzer import SentimentAnalyzer  # Change import to use correct analyzer
 from models.portfolio.optimization import PortfolioOptimizer
 from models.portfolio.risk import RiskManager
 from services.trading.robo_service import RoboService
@@ -315,11 +316,14 @@ class TradingSystem:
 
             exchange_data = {}
             for pair in pairs:
+                # Get ticker data first
+                ticker = await client.get_ticker(pair)
+                
                 exchange_data[pair] = {
                     'orderbook': await client.get_orderbook(pair),
                     'trades': await client.get_recent_trades(pair),
                     'candles': await client.get_candles(pair),
-                    'volume': await client.get_24h_volume(pair)
+                    'volume': float(ticker.get('volume', 0))  # Get volume from ticker
                 }
             data[exchange] = exchange_data
 
@@ -358,13 +362,17 @@ class TradingSystem:
                 
                 # Get sentiment analysis
                 news_data = await self._fetch_relevant_news(pair)
-                sentiment = await self.sentiment_analyzer.analyze_text(news_data)
+                # Combine all news texts
+                combined_text = " ".join(news_data)
+                # Use correct sentiment analyzer method
+                sentiment_result = self.sentiment_analyzer.analyze(combined_text)
+                sentiment_score = sentiment_result['compound']  # Get compound score
                 
                 # Detect inefficiencies
                 signal = self.market_detector.detect_inefficiencies(
                     prices=processed_data['prices'],
                     volume=processed_data['volume'],
-                    sentiment=sentiment
+                    sentiment=sentiment_score
                 )
                 
                 signals[f"{exchange}_{pair}"] = signal
@@ -374,11 +382,16 @@ class TradingSystem:
     def _preprocess_market_data(self, pair_data: Dict) -> Dict:
         """Preprocess market data for analysis"""
         candles = np.array(pair_data['candles'])
+        
+        # Convert to pandas DataFrame with proper column names
+        df = pd.DataFrame(candles, columns=[
+            'timestamp', 'open', 'high', 'low', 'close', 'volume'
+        ])
+        
         return {
-            'prices': candles[:, 4],  # Close prices
-            'volume': candles[:, 5],  # Volume
-            'highs': candles[:, 2],   # High prices
-            'lows': candles[:, 3]     # Low prices
+            'prices': df,  # Full DataFrame for inefficiency detection
+            'volume': df['volume'].values,  # Numpy array for other calculations
+            'timestamp': df['timestamp'].values
         }
 
     async def _fetch_relevant_news(self, pair: str) -> List[str]:
@@ -560,6 +573,56 @@ class TradingSystem:
             if await exchange.has_symbol(symbol):
                 return True
         return False
+
+    # Add the missing risk reduction method
+    async def _reduce_exposure(self):
+        """Reduce portfolio exposure when risk limits are exceeded"""
+        try:
+            if not self.portfolio:
+                return
+                
+            # Sort positions by size (largest first)
+            positions = sorted(
+                self.portfolio['positions'].items(),
+                key=lambda x: self.portfolio['values'].get(x[0], 0),
+                reverse=True
+            )
+            
+            # Calculate target reduction (reduce by 25%)
+            current_exposure = self._calculate_exposure()
+            target_exposure = self.config['risk']['leverage_limit'] * 0.75
+            
+            for symbol, amount in positions:
+                if current_exposure <= target_exposure:
+                    break
+                    
+                # Calculate reduction amount
+                current_value = self.portfolio['values'].get(symbol, 0)
+                reduction_pct = min(0.5, (current_exposure - target_exposure) / current_exposure)
+                reduction_amount = amount * reduction_pct
+                
+                # Create reduction trade
+                if reduction_amount > 0:
+                    trade = {
+                        'exchange': next(iter(self.exchange_clients.keys())),  # Use first exchange
+                        'symbol': symbol,
+                        'size': reduction_amount,
+                        'direction': -1,  # Sell/reduce
+                        'type': 'market',
+                        'timestamp': datetime.utcnow().isoformat()
+                    }
+                    
+                    # Execute reduction trade
+                    logger.warning(f"Reducing exposure: Selling {reduction_amount:.4f} {symbol}")
+                    await self.execute_trades([trade])
+                    
+                    # Update exposure
+                    current_exposure = self._calculate_exposure()
+            
+            logger.info(f"Exposure reduction complete. New exposure: {current_exposure:.2%}")
+            
+        except Exception as e:
+            logger.error(f"Error reducing exposure: {e}")
 
     # Add robo advisor methods
     async def register_client(self, client_id: str, profile: Dict) -> None:
