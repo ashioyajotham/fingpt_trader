@@ -101,3 +101,11 @@ python scripts/run_trader.py --config config/trading.yaml --verbose --pairs BTCU
 
 # Run with development config (fallback if no command line args)
 python scripts/run_trader.py --config config/trading.yaml --verbose
+
+
+To see more activity you would need to:
+
+Fund the test account
+Trigger trading conditions
+Implement real-time market analysis
+Add periodic status updates

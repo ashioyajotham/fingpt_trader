@@ -44,6 +44,10 @@ import asyncio
 import platform
 import socket
 from aiohttp import TCPConnector, ClientSession
+import hmac
+import hashlib
+import time
+import aiohttp
 
 logger = logging.getLogger(__name__)
 
@@ -414,6 +418,63 @@ class BinanceClient(BaseExchangeClient):
         except Exception as e:
             logger.error(f"Order placement failed: {e}")
             raise
+
+    async def get_ticker(self, symbol: str) -> dict:
+        """
+        Get ticker information for a symbol.
+        
+        Args:
+            symbol (str): Trading pair symbol (e.g. 'BTCUSDT')
+            
+        Returns:
+            dict: Ticker data containing:
+                - lastPrice: Current price
+                - priceChangePercent: 24h price change %
+                - volume: 24h volume
+        """
+        try:
+            endpoint = "/api/v3/ticker/24hr"
+            params = {"symbol": symbol}
+            
+            response = await self._make_request("GET", endpoint, params)
+            
+            return {
+                "lastPrice": response["lastPrice"],
+                "priceChangePercent": response["priceChangePercent"],
+                "volume": response["volume"]
+            }
+        except Exception as e:
+            logger.error(f"Failed to get ticker for {symbol}: {str(e)}")
+            raise
+
+    async def _make_request(self, method: str, endpoint: str, params: dict = None) -> dict:
+        """Make authenticated request to Binance API"""
+        base_url = "https://testnet.binance.vision" if self.test_mode else "https://api.binance.com"
+        url = f"{base_url}{endpoint}"
+        
+        # Add timestamp for authenticated endpoints
+        if params is None:
+            params = {}
+        params["timestamp"] = int(time.time() * 1000)
+        
+        # Generate signature
+        query_string = "&".join([f"{k}={v}" for k, v in params.items()])
+        signature = hmac.new(
+            self.api_secret.encode("utf-8"),
+            query_string.encode("utf-8"),
+            hashlib.sha256
+        ).hexdigest()
+        params["signature"] = signature
+        
+        headers = {"X-MBX-APIKEY": self.api_key}
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.request(method, url, params=params, headers=headers) as response:
+                if response.status == 200:
+                    return await response.json()
+                else:
+                    error_data = await response.text()
+                    raise Exception(f"API request failed: {error_data}")
 
     async def _start_market_stream(self, symbol: str):
         """Start market data websocket stream"""

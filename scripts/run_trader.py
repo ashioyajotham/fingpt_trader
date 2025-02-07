@@ -37,6 +37,8 @@ import platform
 
 import os
 from dotenv import load_dotenv  # Add this import
+import time
+import datetime
 
 # Add project root to path
 root_dir = str(Path(__file__).parent.parent)
@@ -76,6 +78,10 @@ class TradingSystem:
         self.running = False
         self.exchange = None
         self.robo_service = None
+        self.last_status_update = 0
+        self.status_interval = 60  # Status update every 60 seconds
+        self.monitored_pairs = ['BTCUSDT', 'ETHUSDT']  # Default pairs to monitor
+        self.price_data = {}
 
     async def startup(self):
         """
@@ -150,11 +156,55 @@ class TradingSystem:
             logger.error(f"Error during shutdown: {e}")
             raise  # Re-raise to ensure proper process termination
 
+    async def update_market_data(self):
+        """Update price data for monitored pairs"""
+        try:
+            for pair in self.monitored_pairs:
+                ticker = await self.exchange.get_ticker(pair)
+                self.price_data[pair] = {
+                    'price': float(ticker['lastPrice']),
+                    'change_24h': float(ticker['priceChangePercent']),
+                    'volume': float(ticker['volume'])
+                }
+        except Exception as e:
+            logger.error(f"Failed to update market data: {e}")
+
+    async def print_status_update(self):
+        """Print periodic status update"""
+        now = time.time()
+        if now - self.last_status_update >= self.status_interval:
+            self.last_status_update = now
+            logger.info("\n=== Status Update ===")
+            logger.info(f"Time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # Market Data
+            for pair, data in self.price_data.items():
+                logger.info(f"\n{pair}:")
+                logger.info(f"  Price: ${data['price']:.2f}")
+                logger.info(f"  24h Change: {data['change_24h']:.2f}%")
+                logger.info(f"  Volume: {data['volume']:.2f}")
+            
+            # System Status
+            logger.info(f"\nSystem Status:")
+            logger.info(f"  Running Time: {time.time() - self.start_time:.1f}s")
+            logger.info(f"  Memory Usage: {self._get_memory_usage():.1f}MB")
+            logger.info("==================\n")
+
     async def run(self):
         try:
+            self.start_time = time.time()
             await self.startup()
+            
             while self.running:
+                # Update market data
+                await self.update_market_data()
+                
+                # Print status update
+                await self.print_status_update()
+                
+                # Main loop interval
                 await asyncio.sleep(1)
+                
         except KeyboardInterrupt:
             logger.info("Shutdown signal received")
         finally:
