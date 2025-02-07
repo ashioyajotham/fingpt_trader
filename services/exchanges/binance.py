@@ -509,3 +509,15 @@ class BinanceClient(BaseExchangeClient):
         except Exception as e:
             logger.error(f"Failed to get ticker for {symbol}: {e}")
             return None
+
+    async def ping(self) -> bool:
+        """Test connectivity to the exchange"""
+        try:
+            endpoint = f"{self.base_url}/v3/ping"
+            async with self.client.session.get(endpoint) as response:
+                if response.status == 200:
+                    return True
+                raise Exception(f"Ping failed with status {response.status}")
+        except Exception as e:
+            logger.error(f"Ping failed: {str(e)}")
+            raise

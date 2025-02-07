@@ -1,6 +1,7 @@
 import logging
-import logging.handlers
+import sys
 from pathlib import Path
+from datetime import datetime
 from typing import Dict
 
 class LogManager:
@@ -8,22 +9,38 @@ class LogManager:
     
     def __init__(self, config: Dict = None):
         self.config = config or {}
+        self.log_dir = Path(self.config.get("log_dir", "logs"))
+        self.level = getattr(logging, self.config.get("level", "INFO"))
         
     def setup_basic_logging(self) -> None:
-        """Setup basic rotating file logger"""
-        log_dir = Path(self.config.get("log_dir", "logs"))
-        log_dir.mkdir(exist_ok=True)
-
-        root_logger = logging.getLogger()
-        root_logger.setLevel(self.config.get("level", "INFO"))
-
-        # File handler with rotation
-        file_handler = logging.handlers.RotatingFileHandler(
-            log_dir / "fingpt.log", 
-            maxBytes=10_000_000, 
-            backupCount=5
+        """Setup basic logging with console and file output"""
+        self.log_dir.mkdir(exist_ok=True)
+        
+        # Create formatters
+        console_formatter = logging.Formatter(
+            '%(asctime)s [%(levelname)s] %(message)s',
+            datefmt='%H:%M:%S'
         )
-        file_handler.setFormatter(self._get_formatter())
+        
+        file_formatter = logging.Formatter(
+            '%(asctime)s [%(levelname)s] %(name)s - %(message)s'
+        )
+
+        # Setup console handler
+        console = logging.StreamHandler(sys.stdout)
+        console.setLevel(self.level)
+        console.setFormatter(console_formatter)
+
+        # Setup file handler
+        log_file = self.log_dir / f"trading_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(self.level)
+        file_handler.setFormatter(file_formatter)
+
+        # Configure root logger
+        root_logger = logging.getLogger()
+        root_logger.setLevel(self.level)
+        root_logger.addHandler(console)
         root_logger.addHandler(file_handler)
         
     @staticmethod

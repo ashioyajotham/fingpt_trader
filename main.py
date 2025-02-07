@@ -231,14 +231,22 @@ class TradingSystem:
         try:
             exchange_type = exchange_config.get('name', '').lower()
             
+            # Validate required config
+            if not exchange_config.get('api_key') or not exchange_config.get('api_secret'):
+                raise ValueError(f"Missing API credentials for {exchange_type}")
+            
             if exchange_type == 'binance':
                 from services.exchanges.binance import BinanceClient
-                return await BinanceClient.create(exchange_config)
+                client = await BinanceClient.create(exchange_config)
+                # Verify connection
+                await client.ping()
+                logger.info(f"Successfully connected to {exchange_type} {'testnet' if exchange_config.get('test_mode') else 'mainnet'}")
+                return client
             else:
                 raise ValueError(f"Unsupported exchange type: {exchange_type}")
                 
         except Exception as e:
-            logger.error(f"Failed to setup exchange client: {str(e)}")
+            logger.error(f"Failed to setup {exchange_type} client: {str(e)}")
             raise
 
     async def _initialize_market_state(self) -> Dict:
@@ -547,53 +555,103 @@ class TradingSystem:
     async def run(self):
         """Main trading loop"""
         try:
+            logger.info("Starting trading system initialization...")
             await self.initialize()
             
+            iteration = 0
             while self.is_running:
                 try:
+                    iteration += 1
+                    logger.info(f"\n{'='*50}\nTrading Iteration {iteration}\n{'='*50}")
+                    
                     # 1. Get market data
+                    logger.info("Fetching market data...")
                     market_data = await self.get_market_data()
+                    logger.info(f"Received data for {len(market_data)} exchanges")
                     
                     # 2. Detect trading opportunities
+                    logger.info("Analyzing market inefficiencies...")
                     signals = await self.detect_inefficiencies(market_data)
+                    if signals:
+                        logger.info(f"Detected {len(signals)} trading signals")
+                        for market_id, signal in signals.items():
+                            logger.info(f"Signal for {market_id}: "
+                                      f"confidence={signal['confidence']:.2f}, "
+                                      f"direction={'LONG' if signal['direction'] > 0 else 'SHORT'}")
                     
                     # 3. Generate system trades
+                    logger.info("Generating system trades...")
                     system_trades = self.generate_trades(signals)
+                    if system_trades:
+                        logger.info(f"Generated {len(system_trades)} system trades")
                     
                     # 4. Handle robo-advisory tasks
+                    logger.info("Processing robo-advisory tasks...")
                     for client_id in self.client_profiles:
-                        # Generate client-specific trades
+                        logger.info(f"Generating trades for client {client_id}")
                         robo_trades = await self.generate_client_trades(client_id)
-                        # Execute approved trades
                         if robo_trades:
-                            await self.execute_trades(robo_trades)
+                            logger.info(f"Executing {len(robo_trades)} robo-advisory trades")
+                            results = await self.execute_trades(robo_trades)
+                            logger.info(f"Robo trades execution complete: {len(results)} orders filled")
                     
                     # 5. Execute system trades
                     if system_trades:
-                        await self.execute_trades(system_trades)
+                        logger.info(f"Executing {len(system_trades)} system trades...")
+                        results = await self.execute_trades(system_trades)
+                        logger.info(f"System trades execution complete: {len(results)} orders filled")
                     
                     # 6. Update portfolio state
+                    logger.info("Updating portfolio state...")
                     await self._update_portfolio_state()
                     
                     # 7. Check risk metrics
+                    logger.info("Calculating risk metrics...")
                     risk_metrics = self.update_risk_metrics()
-                    if risk_metrics.get('max_drawdown', 0) > self.config['risk']['max_drawdown']:
-                        print("Risk limit exceeded, reducing exposure")
+                    risk_config = self.config.get('risk', {})
+                    
+                    # Log risk metrics
+                    logger.info("\nRisk Metrics:")
+                    logger.info(f"Max Drawdown: {risk_metrics.get('max_drawdown', 0):.2%}")
+                    logger.info(f"VaR: {risk_metrics.get('var', 0):.2%}")
+                    logger.info(f"Exposure: {risk_metrics.get('exposure', 0):.2%}")
+                    logger.info(f"Concentration: {risk_metrics.get('concentration', 0):.2%}")
+                    
+                    # Check risk limits with defaults
+                    if (risk_metrics.get('max_drawdown', 0) > risk_config.get('max_drawdown', 0.10) or
+                        risk_metrics.get('var', 0) > risk_config.get('var_limit', 0.02) or
+                        risk_metrics.get('exposure', 0) > risk_config.get('leverage_limit', 1.0)):
+                        logger.warning("⚠️ Risk limit exceeded, reducing exposure")
                         await self._reduce_exposure()
                     
                     # 8. Wait for next iteration
-                    await asyncio.sleep(self.config.get('trading', {}).get('loop_interval', 60))
+                    interval = self.config.get('trading', {}).get('loop_interval', 60)
+                    logger.info(f"\nWaiting {interval} seconds until next iteration...\n")
+                    await asyncio.sleep(interval)
                     
                 except Exception as e:
-                    print(f"Error in trading loop: {str(e)}")
+                    logger.error(f"Error in trading loop: {str(e)}", exc_info=True)
                     await asyncio.sleep(5)  # Brief pause before retrying
                     
         except KeyboardInterrupt:
-            print("\nShutting down gracefully...")
+            logger.info("\nReceived shutdown signal. Cleaning up...")
         finally:
+            logger.info("Initiating shutdown sequence...")
             await self.shutdown()
+            logger.info("Trading system shutdown complete")
 
 if __name__ == "__main__":
+    # Windows-specific event loop policy
+    if sys.platform.startswith('win'):
+        import asyncio
+        import nest_asyncio
+        
+        # Apply nest_asyncio to allow nested event loops
+        nest_asyncio.apply()
+        
+        # Use WindowsSelectorEventLoopPolicy
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    
     # Load config
     config_path = "config/trading.yaml"
     
