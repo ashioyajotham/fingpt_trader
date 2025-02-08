@@ -6,7 +6,10 @@ import pandas as pd
 from scipy import stats
 from enum import Enum
 from typing import TypeVar, Protocol
+from datetime import datetime
+import logging
 
+logger = logging.getLogger(__name__)
 
 @dataclass
 class RiskMetrics:
@@ -215,77 +218,143 @@ class SentimentIndicator:
 
 
 class MarketRegimeDetector:
+    """Detects market regime based on multiple indicators"""
+    
     def __init__(self):
-        self.indicators = {
-            'volatility': VolatilityIndicator(),
-            'liquidity': LiquidityMetrics(),
-            'correlation': CorrelationMatrix(),
-            'sentiment': SentimentIndicator()
+        # Thresholds for regime classification
+        self.thresholds = {
+            'volatility': {
+                'high': 0.03,    # 3% daily volatility
+                'stress': 0.05,  # 5% daily volatility
+                'crisis': 0.07   # 7% daily volatility
+            },
+            'volume': {
+                'low': 0.5,     # 50% below average
+                'crisis': 0.2    # 80% below average
+            },
+            'spread': {
+                'high': 0.002,   # 20bps spread
+                'stress': 0.005  # 50bps spread
+            },
+            'price_impact': {
+                'high': 0.001,   # 10bps for standard size
+                'stress': 0.002  # 20bps for standard size
+            }
         }
         
-    def detect_regime(self, market_data: Dict) -> MarketRegime:
-        """Detect current market regime using multiple indicators"""
-        signals = {}
-        
-        # Get signals from all indicators
-        for name, indicator in self.indicators.items():
-            try:
-                signals[name] = indicator.get_signal(market_data.get(name, {}))
-            except Exception as e:
-                signals[name] = 0.0
-                
-        # Regime detection logic
-        if signals['volatility'] > 2.0:
-            return MarketRegime.HIGH_VOL
-        elif signals['liquidity'] > 0.05:
-            return MarketRegime.LOW_LIQUIDITY
-        elif signals['correlation'] > 0.8:
-            return MarketRegime.STRESS
-        elif sum(signals.values()) / len(signals) > 1.5:
-            return MarketRegime.CRISIS
+        # Regime history
+        self.history = []
+        self.max_history = 100
+
+    def detect_regime(self, data: Dict) -> MarketRegime:
+        """Detect current market regime from market data"""
+        try:
+            vol = data.get('volatility', 0)
+            volume = data.get('volume', 0)
+            spread = data.get('spread', 0)
+            impact = data.get('price_impact', 0)
             
-        return MarketRegime.NORMAL
+            # Crisis conditions
+            if (vol > self.thresholds['volatility']['crisis'] or
+                volume < self.thresholds['volume']['crisis']):
+                regime = MarketRegime.CRISIS
+                
+            # Stress conditions
+            elif (vol > self.thresholds['volatility']['stress'] or
+                  spread > self.thresholds['spread']['stress'] or
+                  impact > self.thresholds['price_impact']['stress']):
+                regime = MarketRegime.STRESS
+                
+            # High volatility conditions
+            elif vol > self.thresholds['volatility']['high']:
+                regime = MarketRegime.HIGH_VOL
+                
+            # Low liquidity conditions
+            elif volume < self.thresholds['volume']['low']:
+                regime = MarketRegime.LOW_LIQUIDITY
+                
+            # Normal conditions
+            else:
+                regime = MarketRegime.NORMAL
+                
+            # Update history
+            self._update_history(regime)
+            return regime
+            
+        except Exception as e:
+            logger.error(f"Error detecting market regime: {e}")
+            return MarketRegime.HIGH_VOL  # Conservative default
+            
+    def _update_history(self, regime: MarketRegime) -> None:
+        """Update regime history"""
+        self.history.append({
+            'regime': regime,
+            'timestamp': datetime.now()
+        })
+        
+        if len(self.history) > self.max_history:
+            self.history.pop(0)
 
 
 class CircuitBreaker:
-    def __init__(self, thresholds: Dict[str, float]):
-        self.thresholds = {
-            'volatility': thresholds.get('volatility', 3.0),
-            'volume': thresholds.get('volume', 5.0),
-            'spread': thresholds.get('spread', 0.05),
-            'imbalance': thresholds.get('imbalance', 0.7)
+    """Trading circuit breaker implementation"""
+    
+    def __init__(self, thresholds: Optional[Dict] = None):
+        self.thresholds = thresholds or {
+            'price_change': 0.1,    # 10% price change
+            'volume_spike': 5.0,     # 5x normal volume
+            'spread_widening': 0.01  # 100bps spread
         }
-        
+        self.triggered = False
+        self.trigger_time = None
+        self.cooldown_minutes = 30
+
     def check_conditions(self, market_data: Dict) -> bool:
-        """Check market conditions against circuit breaker rules"""
+        """Check if circuit breaker conditions are met"""
         try:
-            # Check volatility threshold
-            if market_data.get('volatility', 0) > self.thresholds['volatility']:
+            # Skip if in cooldown
+            if self._in_cooldown():
+                return self.triggered
+                
+            # Check conditions
+            price_change = abs(market_data.get('price_change', 0))
+            volume_ratio = market_data.get('volume_ratio', 1.0)
+            spread = market_data.get('spread', 0)
+            
+            # Trigger breaker if any threshold exceeded
+            if (price_change > self.thresholds['price_change'] or
+                volume_ratio > self.thresholds['volume_spike'] or
+                spread > self.thresholds['spread_widening']):
+                
+                self._trigger()
                 return True
                 
-            # Check volume spike
-            if market_data.get('volume_change', 0) > self.thresholds['volume']:
-                return True
-                
-            # Check bid-ask spread
-            bid = market_data.get('bid', 0)
-            ask = market_data.get('ask', 0)
-            if bid and ask:
-                spread = (ask - bid) / ((ask + bid) / 2)
-                if spread > self.thresholds['spread']:
-                    return True
-                    
-            # Check order book imbalance
-            bids_volume = sum(bid[1] for bid in market_data.get('bids', []))
-            asks_volume = sum(ask[1] for ask in market_data.get('asks', []))
-            total_volume = bids_volume + asks_volume
-            if total_volume > 0:
-                imbalance = abs(bids_volume - asks_volume) / total_volume
-                if imbalance > self.thresholds['imbalance']:
-                    return True
-                    
             return False
             
         except Exception as e:
-            # Log error and trigger circuit breaker for safety
-            return True
+            logger.error(f"Error in circuit breaker: {e}")
+            return True  # Conservative default
+            
+    def _trigger(self) -> None:
+        """Trigger the circuit breaker"""
+        self.triggered = True
+        self.trigger_time = datetime.now()
+        logger.warning("Circuit breaker triggered")
+
+    def _in_cooldown(self) -> bool:
+        """Check if circuit breaker is in cooldown period"""
+        if not self.triggered or not self.trigger_time:
+            return False
+            
+        elapsed = (datetime.now() - self.trigger_time).total_seconds() / 60
+        if elapsed > self.cooldown_minutes:
+            self.triggered = False
+            self.trigger_time = None
+            return False
+            
+        return True
+
+    def reset(self) -> None:
+        """Reset circuit breaker state"""
+        self.triggered = False
+        self.trigger_time = None
