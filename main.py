@@ -321,8 +321,14 @@ class TradingSystem:
                     logger.error("Missing Binance credentials in environment")
                     raise ValueError("Binance API credentials not set")
 
-                # Create client with test_mode from config, credentials from env
-                client = await BinanceClient.create(test_mode=exchange_config.get('test_mode', True))
+                # Create client config dict
+                client_config = {
+                    'api_key': api_key,
+                    'api_secret': api_secret,
+                    'test_mode': exchange_config.get('test_mode', True)
+                }
+                
+                client = await BinanceClient.create(client_config)
                 logger.info(f"Successfully connected to {exchange_type}")
                 return client
                 
@@ -405,7 +411,8 @@ class TradingSystem:
                 # Get sentiment analysis and convert to time series
                 news_data = await self._fetch_relevant_news(pair)
                 combined_text = " ".join(news_data)
-                sentiment_result = self.sentiment_analyzer.analyze(combined_text)
+                # Add await here
+                sentiment_result = await self.sentiment_analyzer.analyze(combined_text)
                 
                 # Create sentiment Series with same index as price data
                 sentiment_series = pd.Series(
@@ -417,7 +424,7 @@ class TradingSystem:
                 signal = self.market_detector.detect_inefficiencies(
                     prices=processed_data['prices'],
                     volume=processed_data['volume'],
-                    sentiment=sentiment_series  # Now a pandas Series with time index
+                    sentiment=sentiment_series
                 )
                 
                 signals[f"{exchange}_{pair}"] = signal

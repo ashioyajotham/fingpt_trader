@@ -152,12 +152,11 @@ class NewsDataFeed(BaseService):
 class NewsService(BaseService):
     def __init__(self, config: Optional[Dict] = None):
         super().__init__(config or {})
-        self.api_key = os.getenv("NEWS_API_KEY")
-        self.base_url = "https://newsapi.org/v2"
-        self.fallback_urls = [
-            "https://cryptopanic.com/api/v1",
-            "https://api.alternative.me/v2",
-        ]
+        self.cryptopanic_key = os.getenv("CRYPTOPANIC_API_KEY")
+        self.newsapi_key = os.getenv("NEWS_API_KEY")  # Fallback
+        self.base_url = "https://cryptopanic.com/api/v1"
+        self.fallback_url = "https://newsapi.org/v2"
+        
         self.max_retries = 3
         self.retry_delay = 5
         self.session = None
@@ -172,8 +171,8 @@ class NewsService(BaseService):
 
     async def _setup(self) -> None:
         """Initialize news service"""
-        if not self.api_key:
-            raise ValueError("NEWS_API_KEY not set")
+        if not self.cryptopanic_key:
+            raise ValueError("CRYPTOPANIC_API_KEY not set")
         self.session = aiohttp.ClientSession()
 
     async def _cleanup(self) -> None:
@@ -183,30 +182,68 @@ class NewsService(BaseService):
         self.cache.clear()
 
     async def get_news(self, query: str) -> List[Dict]:
-        """Get latest news for query"""
+        """Get latest news prioritizing CryptoPanic"""
         await self._check_rate_limit()
 
+        # Try CryptoPanic first
         for attempt in range(self.max_retries):
             try:
                 params = {
-                    "q": query,
-                    "apiKey": self.api_key,
-                    "sortBy": "publishedAt",
-                    "language": "en",
+                    "auth_token": self.cryptopanic_key,
+                    "filter": "important",
+                    "currencies": query.lower(),
+                    "public": "true"
                 }
 
                 async with self.session.get(
-                    f"{self.base_url}/everything", params=params, timeout=10
+                    f"{self.base_url}/posts/", params=params, timeout=10
                 ) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return data.get("articles", [])
+                        return self._process_cryptopanic_response(data)
+                        
             except Exception as e:
+                logger.error(f"CryptoPanic error: {e}")
                 if attempt == self.max_retries - 1:
-                    print(f"Error fetching news, trying fallback sources")
-                    return await self._try_fallback_sources(query)
+                    logger.info("Falling back to NewsAPI")
+                    return await self._get_newsapi_fallback(query)
                 await asyncio.sleep(self.retry_delay)
+        
         return []
+
+    def _process_cryptopanic_response(self, data: Dict) -> List[Dict]:
+        """Process CryptoPanic response format"""
+        articles = []
+        for item in data.get('results', []):
+            articles.append({
+                'title': item['title'],
+                'content': item.get('text', ''),
+                'source': item['source']['domain'],
+                'published_at': item['published_at'],
+                'url': item['url'],
+                'currencies': [c['code'] for c in item.get('currencies', [])]
+            })
+        return articles
+
+    async def _get_newsapi_fallback(self, query: str) -> List[Dict]:
+        """Fallback to NewsAPI"""
+        try:
+            params = {
+                "q": query,
+                "apiKey": self.newsapi_key,
+                "sortBy": "publishedAt",
+                "language": "en",
+            }
+
+            async with self.session.get(
+                f"{self.fallback_url}/everything", params=params, timeout=10
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data.get("articles", [])
+        except Exception as e:
+            logger.error(f"NewsAPI fallback error: {e}")
+            return []
 
     async def _check_rate_limit(self) -> None:
         """Check and enforce rate limits"""

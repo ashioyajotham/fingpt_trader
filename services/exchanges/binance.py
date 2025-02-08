@@ -40,13 +40,6 @@ class BinanceClient:
     @classmethod
     async def create(cls, config: Dict) -> 'BinanceClient':
         """Factory method for client creation"""
-        if not all(k in config for k in ('api_key', 'api_secret')):
-            raise ValueError("Missing required credentials")
-            
-        # Use existing instance if available
-        if cls._instance:
-            return cls._instance
-            
         instance = cls(
             api_key=config['api_key'],
             api_secret=config['api_secret']
@@ -54,9 +47,6 @@ class BinanceClient:
         
         instance.testnet = config.get('test_mode', True)
         await instance.initialize()
-        
-        # Set singleton instance
-        cls._instance = instance
         return instance
 
     def __init__(self, api_key: str, api_secret: str):
@@ -256,3 +246,77 @@ class BinanceClient:
                 except Exception as e:
                     logger.error(f"Stream processing error: {e}")
                     await asyncio.sleep(1)
+
+    async def get_orderbook(self, symbol: str, limit: int = 20) -> Dict:
+        """Get orderbook for symbol"""
+        try:
+            orderbook = await self.client.get_order_book(symbol=symbol, limit=limit)
+            return {
+                'bids': [[price, qty] for price, qty in orderbook['bids']],
+                'asks': [[price, qty] for price, qty in orderbook['asks']],
+                'timestamp': orderbook['lastUpdateId']
+            }
+        except Exception as e:
+            logger.error(f"Error fetching orderbook for {symbol}: {e}")
+            return {'bids': [], 'asks': [], 'timestamp': None}
+
+    async def get_recent_trades(self, symbol: str, limit: int = 100) -> List[Dict]:
+        """Get recent trades for symbol"""
+        try:
+            trades = await self.client.get_recent_trades(symbol=symbol, limit=limit)
+            return [{
+                'id': trade['id'],
+                'price': float(trade['price']),
+                'quantity': float(trade['qty']),
+                'timestamp': trade['time'],
+                'side': 'buy' if trade['isBuyerMaker'] else 'sell'
+            } for trade in trades]
+        except Exception as e:
+            logger.error(f"Error fetching trades for {symbol}: {e}")
+            return []
+
+    async def get_candles(self, symbol: str, interval: str = '1m', limit: int = 100) -> List:
+        """Get candlestick data for symbol"""
+        try:
+            candles = await self.client.get_klines(
+                symbol=symbol,
+                interval=interval,
+                limit=limit
+            )
+            return candles  # Returns raw candle data
+        except Exception as e:
+            logger.error(f"Error fetching candles for {symbol}: {e}")
+            return []
+
+    async def get_ticker(self, symbol: str) -> Dict:
+        """Get ticker data for symbol"""
+        try:
+            ticker = await self.client.get_ticker(symbol=symbol)
+            return {
+                'price': float(ticker['lastPrice']),
+                'volume': float(ticker['volume']),
+                'high': float(ticker['highPrice']),
+                'low': float(ticker['lowPrice'])
+            }
+        except Exception as e:
+            logger.error(f"Error fetching ticker for {symbol}: {e}")
+            return {}
+
+    async def has_symbol(self, symbol: str) -> bool:
+        """Check if symbol is valid"""
+        try:
+            info = await self.client.get_exchange_info()
+            symbols = [s['symbol'] for s in info['symbols']]
+            return symbol in symbols
+        except Exception as e:
+            logger.error(f"Error checking symbol {symbol}: {e}")
+            return False
+
+    async def get_price(self, symbol: str) -> float:
+        """Get current price for symbol"""
+        try:
+            ticker = await self.client.get_ticker(symbol=symbol)
+            return float(ticker['lastPrice'])
+        except Exception as e:
+            logger.error(f"Error fetching price for {symbol}: {e}")
+            return 0.0

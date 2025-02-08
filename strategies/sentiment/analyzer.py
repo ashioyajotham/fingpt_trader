@@ -161,27 +161,51 @@ class SentimentAnalyzer(BaseService):
             logger.error(f"Error during cleanup: {e}")
 
     async def analyze(self, text: str) -> Dict[str, float]:
-        """Enhanced sentiment analysis with FinGPT"""
-        # Use existing FinGPT instance
-        sentiment = await self.fingpt.predict_sentiment(text)
+        """Enhanced sentiment analysis with text chunking"""
+        # Split into smaller chunks
+        chunks = self._chunk_text(text, max_tokens=750)  # Reduced max tokens
         
-        # Get traditional sentiment as backup
-        basic_sentiment = self._get_basic_sentiment(text)
+        # Process each chunk
+        sentiments = []
+        for chunk in chunks:
+            try:
+                sentiment = await self.fingpt.predict_sentiment(chunk)
+                sentiments.append(sentiment)
+            except Exception as e:
+                logger.error(f"Error processing chunk (length={len(chunk)}): {e}")
+                continue
         
-        # Combine with proper weights
-        combined = (
-            self.sentiment_scores['fingpt'] * sentiment +
-            self.sentiment_scores['vader'] * basic_sentiment['vader']['compound'] +
-            self.sentiment_scores['textblob'] * basic_sentiment['textblob']['polarity']
-        )
+        # If no valid sentiments, return neutral
+        if not sentiments:
+            logger.warning("No valid sentiment chunks processed, returning neutral")
+            return {'compound': 0.0, 'confidence': 0.0}
+            
+        # Average the valid sentiments
+        compound = sum(s['sentiment'] for s in sentiments) / len(sentiments)
+        confidence = sum(s['confidence'] for s in sentiments) / len(sentiments)
         
         return {
-            'compound': combined,
-            'components': {
-                'fingpt': sentiment,
-                'basic': basic_sentiment
-            }
+            'compound': compound,
+            'confidence': confidence
         }
+
+    def _chunk_text(self, text: str, max_tokens: int = 750) -> List[str]:  # Reduced from 1500 to 750
+        """Split text into smaller chunks that fit context window"""
+        words = text.split()
+        chunks = []
+        current_chunk = []
+        current_length = 0
+        
+        # Rough estimation: average word is 5 chars + space
+        # Plus extra room for prompt template
+        words_per_chunk = max_tokens // 6  # Conservative estimate
+        
+        for i in range(0, len(words), words_per_chunk):
+            chunk = ' '.join(words[i:i + words_per_chunk])
+            if len(chunk) > 10:  # Minimum meaningful chunk size
+                chunks.append(chunk)
+        
+        return chunks
 
     async def update_market_data(self) -> None:
         """Update market data from feed"""
