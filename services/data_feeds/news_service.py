@@ -45,6 +45,28 @@ class NewsDataFeed(BaseService):
             # Add more pairs as needed
         }
 
+    async def _setup(self) -> None:
+        """Required implementation of abstract method"""
+        try:
+            self.running = True
+            self.session = aiohttp.ClientSession()
+            logger.info("News data feed setup complete")
+        except Exception as e:
+            logger.error(f"News data feed setup failed: {e}")
+            raise
+
+    async def _cleanup(self) -> None:
+        """Required implementation of abstract method"""
+        try:
+            self.running = False
+            if self.session:
+                await self.session.close()
+            self.cache.clear()
+            logger.info("News data feed cleanup complete")
+        except Exception as e:
+            logger.error(f"News data feed cleanup failed: {e}")
+            raise
+
     async def start(self) -> None:
         """Start the news feed"""
         self.running = True
