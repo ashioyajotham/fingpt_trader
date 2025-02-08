@@ -14,8 +14,8 @@
 # Exchange Configuration
 exchanges:                          # Changed to plural
   - name: binance                  # Now in list format
-    api_key: ${BINANCE_API_KEY}
-    api_secret: ${BINANCE_SECRET_KEY}
+    api_key: ${BINANCE_API_KEY}      # Changed from BINANCE_API_KEY
+    api_secret: ${BINANCE_SECRET_KEY} # Changed from BINANCE_SECRET_KEY
     test_mode: true
     options:
       timeout: 30

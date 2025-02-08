@@ -46,6 +46,8 @@ import socket
 import pandas as pd
 from aiohttp import TCPConnector, ClientSession
 
+from trading.retry_handler import RetryHandler
+
 logger = logging.getLogger(__name__)
 
 class BinanceClient(BaseExchangeClient):
@@ -134,9 +136,25 @@ class BinanceClient(BaseExchangeClient):
         """
         try:
             logger.debug("Initializing Binance client...")
+            
+            # Validate API credentials
+            if not self.api_key or len(self.api_key) < 10:
+                raise ValueError("Invalid Binance API key format")
+            if not self.api_secret or len(self.api_secret) < 10:
+                raise ValueError("Invalid Binance API secret format")
+                
+            logger.info(f"API credentials validated. Using {'testnet' if self.testnet else 'mainnet'}")
+            
             logger.debug(f"Base URL: {self.base_url}")
             logger.debug(f"WebSocket URL: {self.ws_url}")
             logger.debug(f"Test mode: {self.testnet}")
+            
+            # Initialize retry handler
+            self.retry_handler = RetryHandler(
+                max_retries=self.options.get('max_retries', 3),
+                delay=1.0,
+                backoff=2.0
+            )
             
             # Configure DNS resolution
             use_custom_dns = platform.system() == 'Windows'
@@ -435,18 +453,23 @@ class BinanceClient(BaseExchangeClient):
             raise
 
     async def create_buy_order(self, symbol: str, amount: float, order_type: str = 'MARKET') -> Dict:
-        """Create a buy order"""
-        try:
-            params = {
-                'symbol': symbol,
-                'side': 'BUY', 
-                'type': order_type,
-                'quantity': amount
-            }
-            return await self.place_order(params)
-        except Exception as e:
-            logger.error(f"Buy order failed for {symbol}: {e}")
-            raise
+        """Create a buy order with retry logic"""
+        return await self.retry_handler.retry(
+            self._create_buy_order,
+            symbol=symbol,
+            amount=amount,
+            order_type=order_type
+        )
+
+    async def _create_buy_order(self, symbol: str, amount: float, order_type: str = 'MARKET') -> Dict:
+        """Internal buy order implementation"""
+        params = {
+            'symbol': symbol,
+            'side': 'BUY',
+            'type': order_type,
+            'quantity': amount
+        }
+        return await self.place_order(params)
 
     async def create_sell_order(self, symbol: str, amount: float, order_type: str = 'MARKET') -> Dict:
         """Create a sell order"""

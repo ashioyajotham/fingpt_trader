@@ -123,8 +123,25 @@ class TradingSystem:
         shutdown(): Cleanup resources
     """
     def __init__(self, config_path: str):
-        # Load environment variables first
-        load_dotenv()
+        # Load and validate environment variables
+        load_dotenv(override=True)
+        
+        # Verify required environment variables
+        required_env = {
+            'BINANCE_API_KEY': 'Binance API key',
+            'BINANCE_SECRET_KEY': 'Binance secret key'
+        }
+        
+        missing = []
+        for var, name in required_env.items():
+            value = os.getenv(var)
+            if not value or len(value.strip()) < 10:  # Basic validation
+                missing.append(name)
+                
+        if missing:
+            raise ValueError(f"Missing or invalid {', '.join(missing)}")
+            
+        logger.info("Environment variables validated successfully")
         
         # Load and process config
         with open(config_path, 'r') as f:
