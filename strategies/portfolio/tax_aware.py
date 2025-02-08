@@ -3,7 +3,7 @@
 import logging
 from typing import Dict, Optional, List
 from datetime import datetime
-from .base_strategy import BaseStrategy
+from ..base_strategy import BaseStrategy
 
 logger = logging.getLogger(__name__)
 

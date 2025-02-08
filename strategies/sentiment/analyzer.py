@@ -3,6 +3,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 from textblob import TextBlob
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from ..base_strategy import BaseStrategy
 
 
 class SentimentAnalyzer:
@@ -76,3 +77,63 @@ class SentimentAnalyzer:
 
         confidence = (agreement_factor + subjectivity_factor) / 2.0
         return confidence
+
+
+class SentimentStrategy(BaseStrategy):
+    """
+    Sentiment-based trading strategy.
+    Combines news sentiment with market data analysis.
+    """
+    
+    def __init__(self, config: Optional[Dict] = None, profile: Optional[Dict] = None):
+        super().__init__(config, profile)
+        self.sentiment_threshold = config.get('sentiment_threshold', 0.5)
+        self.sentiment_window = config.get('sentiment_window', 24)  # hours
+        
+    async def _generate_base_signals(self, market_data: Dict) -> List[Dict]:
+        signals = []
+        
+        for pair in self.active_pairs:
+            if pair not in self.market_state['sentiment']:
+                continue
+                
+            sentiment_score = self._calculate_sentiment_score(pair)
+            market_impact = self._estimate_market_impact(pair, market_data)
+            
+            if abs(sentiment_score) > self.sentiment_threshold:
+                signals.append({
+                    'symbol': pair,
+                    'direction': np.sign(sentiment_score),
+                    'strength': min(abs(sentiment_score) * market_impact, 1.0),
+                    'sentiment': sentiment_score,
+                    'market_impact': market_impact
+                })
+                
+        return signals
+        
+    def _calculate_sentiment_score(self, pair: str) -> float:
+        """Calculate weighted sentiment score"""
+        sentiments = self.market_state['sentiment'].get(pair, [])
+        if not sentiments:
+            return 0.0
+            
+        # Weight recent sentiment more heavily
+        weights = np.exp(-np.arange(len(sentiments)) / self.sentiment_window)
+        weighted_score = np.average([s.get('score', 0) for s in sentiments], weights=weights)
+        
+        return weighted_score
+        
+    def _estimate_market_impact(self, pair: str, market_data: Dict) -> float:
+        """Estimate potential market impact of sentiment"""
+        if pair not in market_data.get('volume', {}):
+            return 0.5  # Default impact if no volume data
+            
+        # Calculate relative volume
+        volumes = market_data['volume'][pair]
+        current_vol = volumes[-1]
+        avg_vol = np.mean(volumes[-24:])  # 24-hour average
+        
+        # Normalize impact between 0 and 1
+        impact = min(current_vol / (avg_vol + 1e-10), 2.0) / 2.0
+        
+        return impact

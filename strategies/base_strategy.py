@@ -43,6 +43,22 @@ class BaseStrategy(ABC):
         self.max_position = config.get('max_position_size', 0.2)
         self.initial_balance = config.get('initial_balance', 10000.0)
 
+        # Add market data handling
+        self.market_state = {
+            'orderbooks': {},
+            'trades': {},
+            'candles': {},
+            'sentiment': {}
+        }
+        
+        # Trading parameters from config
+        self.risk_params = self.config.get('risk', {})
+        self.trade_params = self.config.get('trading', {})
+        
+        # Performance tracking
+        self.trades_history = []
+        self.performance_metrics = {}
+
     @abstractmethod
     async def process_market_data(self, market_data: Dict) -> Dict:
         """Process market data and return results"""
@@ -161,3 +177,67 @@ class BaseStrategy(ABC):
             self.initial_balance * signal.get('strength', 0.1)
         )
         return max(self.min_position * self.initial_balance, max_size * confidence)
+
+    async def process_market_data(self, market_data: Dict) -> Dict:
+        """Process and store market data"""
+        for data_type, data in market_data.items():
+            if data_type in self.market_state:
+                self.market_state[data_type].update(data)
+        
+        # Update market regime
+        current_regime = self.regime_detector.detect_regime(market_data)
+        self.market_state['regime'] = current_regime
+        
+        return await self._analyze_market_state()
+
+    async def _analyze_market_state(self) -> Dict:
+        """Analyze current market state"""
+        analysis = {
+            'regime': self.market_state['regime'],
+            'volatility': self._calculate_volatility(),
+            'liquidity': self._calculate_liquidity(),
+            'sentiment': self._aggregate_sentiment()
+        }
+        return analysis
+
+    def _calculate_volatility(self) -> float:
+        """Calculate current market volatility"""
+        if not self.market_state['candles']:
+            return 0.0
+            
+        returns = []
+        for pair in self.active_pairs:
+            if pair in self.market_state['candles']:
+                candles = self.market_state['candles'][pair]
+                closes = [float(c[4]) for c in candles[-20:]]  # Last 20 closes
+                if len(closes) > 1:
+                    returns.append(np.std(np.diff(np.log(closes))))
+                    
+        return np.mean(returns) if returns else 0.0
+
+    def _calculate_liquidity(self) -> float:
+        """Calculate market liquidity score"""
+        if not self.market_state['orderbooks']:
+            return 0.0
+            
+        liquidity_scores = []
+        for pair in self.active_pairs:
+            if pair in self.market_state['orderbooks']:
+                ob = self.market_state['orderbooks'][pair]
+                spread = (float(ob['asks'][0][0]) - float(ob['bids'][0][0])) / float(ob['bids'][0][0])
+                depth = sum(float(level[1]) for level in ob['bids'][:5] + ob['asks'][:5])
+                liquidity_scores.append(depth / (spread + 1e-10))
+                
+        return np.mean(liquidity_scores) if liquidity_scores else 0.0
+
+    def _aggregate_sentiment(self) -> float:
+        """Aggregate sentiment signals"""
+        if not self.market_state['sentiment']:
+            return 0.0
+            
+        sentiments = []
+        for pair in self.active_pairs:
+            if pair in self.market_state['sentiment']:
+                sentiments.append(self.market_state['sentiment'][pair])
+                
+        return np.mean(sentiments) if sentiments else 0.0
