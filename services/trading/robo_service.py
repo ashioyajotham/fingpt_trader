@@ -16,7 +16,7 @@ sys.path.insert(0, root_dir)
 from models.portfolio.rebalancing import Portfolio
 from services.base_service import BaseService
 from models.client.profile import MockClientProfile
-from strategies.tax_aware import TaxAwareStrategy
+from strategies.portfolio.tax_aware import TaxAwareStrategy
 
 logger = logging.getLogger(__name__)
 
