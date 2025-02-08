@@ -3,42 +3,37 @@
 # This is the main configuration file for the FinGPT trading system.
 # It controls both production and development environments.
 #
-# Environment Variables:
-#   BINANCE_API_KEY: Exchange API key
-#   BINANCE_SECRET_KEY: Exchange API secret
-#
 # Usage:
 #   Production: python main.py
 #   Development: python scripts/run_trader.py
 
 # Exchange Configuration
-exchanges:                          # Changed to plural
-  - name: binance                  # Now in list format
-    api_key: ${BINANCE_API_KEY}      # Changed from BINANCE_API_KEY
-    api_secret: ${BINANCE_SECRET_KEY} # Changed from BINANCE_SECRET_KEY
+exchanges:
+  - name: binance    # Changed to list format
     test_mode: true
     options:
       timeout: 30
       max_retries: 3
+      defaultType: "spot"
 
 # Trading Parameters
 trading:
-  initial_balance: 10000.0
-  confidence_threshold: 0.5        # Lowered from 0.7 to see more signals
-  min_trade_amount: 10.0          # Minimum trade size in USDT
-  max_position_size: 0.2          # Add this - maximum position size as 20% of portfolio
-  loop_interval: 30               # Reduced from 60 to 30 seconds
-  pairs:                          
-    - "BTCUSDT"                   # Changed format to match Binance
-    - "ETHUSDT"                   # Changed format to match Binance
-    - "BNBUSDT"                   # Added BNB pair
+  pairs:  # Single source of truth for trading pairs
+    - BTCUSDT
+    - ETHUSDT
+    - BNBUSDT
+  initial_balance: 1000.0  # Reduced for testnet testing
+  confidence_threshold: 0.7
+  min_trade_amount: 1.0    # Reduced minimum for testnet
+  max_position_size: 0.2
+  loop_interval: 60
 
 # Risk Management Settings
 risk:
-  max_drawdown: 0.15              # Increased from 0.10 to allow more trades
-  position_limit: 0.25            # Increased from 0.20
-  var_limit: 0.03                # Increased from 0.02
-  leverage_limit: 1.0            # Maximum leverage
+  max_drawdown: 0.1
+  position_limit: 0.2
+  var_limit: 0.02
+  leverage_limit: 1.0
   concentration_limit: 0.35      # Increased from 0.30
   min_position_size: 0.01        # 1% minimum position size
 
@@ -81,3 +76,5 @@ development:
 # Note: test_mode under exchanges is the single source of truth for
 # determining whether to use testnet or mainnet. This setting affects
 # the entire system regardless of other configurations.
+
+# Note: Using testnet for development and testing

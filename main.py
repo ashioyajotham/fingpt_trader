@@ -70,8 +70,10 @@ import os
 from dotenv import load_dotenv
 
 from utils.logging import LogManager
+from utils.config import ConfigManager
 from services.data_feeds.news_service import NewsService
 from services.data_feeds.market_data_service import MarketDataService
+
 
 # Replace existing logging config
 LogManager({
@@ -123,13 +125,26 @@ class TradingSystem:
         shutdown(): Cleanup resources
     """
     def __init__(self, config_path: str):
+        self.config_manager = ConfigManager()
+        self.config = self.config_manager.get_config('trading')
+        
+        if not self.config:
+            raise ValueError("Trading configuration not found")
+        
         # Load and validate environment variables
-        load_dotenv(override=True)
+        load_dotenv(override=True, verbose=True)  # Add verbose=True to debug env loading
+        
+        # Enhanced environment variable logging
+        api_key = os.environ.get('BINANCE_API_KEY')
+        api_secret = os.environ.get('BINANCE_API_SECRET')
+        
+        logger.info(f"API Key present: {bool(api_key)} (length: {len(api_key) if api_key else 0})")
+        logger.info(f"API Secret present: {bool(api_secret)} (length: {len(api_secret) if api_secret else 0})")
         
         # Verify required environment variables
         required_env = {
             'BINANCE_API_KEY': 'Binance API key',
-            'BINANCE_SECRET_KEY': 'Binance secret key'
+            'BINANCE_API_SECRET': 'Binance API secret'  # Changed from BINANCE_SECRET_KEY
         }
         
         missing = []
@@ -147,8 +162,8 @@ class TradingSystem:
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
             
-        # Replace environment variables in config
-        self._process_env_vars(self.config)
+        # Remove env var processing since we'll use direct environment access
+        # self._process_env_vars(self.config)  # Comment out or remove this line
         
         self.market_detector = MarketInefficencyDetector(self.config.get('market', {}))
         self.sentiment_analyzer = SentimentAnalyzer(self.config.get('sentiment', {}))
@@ -178,7 +193,11 @@ class TradingSystem:
                     self._process_env_vars(value)
                 elif isinstance(value, str) and value.startswith('${') and value.endswith('}'):
                     env_var = value[2:-1]
-                    config[key] = os.getenv(env_var)
+                    env_value = os.getenv(env_var)
+                    if env_value is None:
+                        raise ValueError(f"Environment variable {env_var} not found")
+                    logger.debug(f"Replacing {env_var} with value of length {len(env_value)}")
+                    config[key] = str(env_value)  # Ensure string type
         elif isinstance(config, list):
             for item in config:
                 if isinstance(item, (dict, list)):
@@ -264,19 +283,32 @@ class TradingSystem:
         try:
             exchange_type = exchange_config.get('name', '').lower()
             
-            # Validate required config
-            if not exchange_config.get('api_key') or not exchange_config.get('api_secret'):
-                raise ValueError(f"Missing API credentials for {exchange_type}")
-            
             if exchange_type == 'binance':
                 from services.exchanges.binance import BinanceClient
-                client = await BinanceClient.create(exchange_config)
-                # Verify connection
-                await client.ping()
-                logger.info(f"Successfully connected to {exchange_type} {'testnet' if exchange_config.get('test_mode') else 'mainnet'}")
+                
+                # Always get credentials from environment
+                api_key = os.getenv('BINANCE_API_KEY')
+                api_secret = os.getenv('BINANCE_API_SECRET')
+                
+                if not api_key or not api_secret:
+                    logger.error("Missing Binance credentials in environment")
+                    raise ValueError("Binance API credentials not set")
+
+                client_config = {
+                    'api_key': api_key,
+                    'api_secret': api_secret,
+                    'testnet': exchange_config.get('test_mode', True),
+                    'options': {
+                        'defaultType': 'spot',
+                        **exchange_config.get('options', {})
+                    }
+                }
+                
+                logger.info(f"Initializing {exchange_type} client...")
+                client = BinanceClient(client_config)
+                await client.initialize()
+                logger.info(f"Successfully connected to {exchange_type}")
                 return client
-            else:
-                raise ValueError(f"Unsupported exchange type: {exchange_type}")
                 
         except Exception as e:
             logger.error(f"Failed to setup {exchange_type} client: {str(e)}")

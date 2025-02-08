@@ -44,7 +44,12 @@ import asyncio
 import platform
 import socket
 import pandas as pd
+import aiohttp
 from aiohttp import TCPConnector, ClientSession
+import hmac
+import hashlib
+import time
+from urllib.parse import urlencode
 
 from trading.retry_handler import RetryHandler
 
@@ -84,125 +89,57 @@ class BinanceClient(BaseExchangeClient):
 
     URLS = {
         'test': {
-            'rest': 'https://testnet.binance.vision',
+            'rest': 'https://testnet.binance.vision/api',  # Added /api suffix
             'ws': 'wss://testnet.binance.vision/ws'
         },
         'prod': {
-            'rest': 'https://api.binance.com',
+            'rest': 'https://api.binance.com/api',  # Added /api suffix
             'ws': 'wss://stream.binance.com:9443/ws'
         }
     }
 
-    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, 
-                 testnet: bool = True, options: dict = None):
-        """Initialize Binance client"""
-        self.api_key = api_key
-        self.api_secret = api_secret
-        self.testnet = testnet
-        self.options = options or {}
-        
-        # Use testnet to determine URLs
-        urls = self.URLS['test'] if testnet else self.URLS['prod']
-        self.base_url = urls['rest']
-        self.ws_url = urls['ws']
-        
+    def __init__(self, config: Dict):
+        self.api_key = config['api_key']
+        self.api_secret = config['api_secret']
+        self.testnet = config.get('testnet', True)
+        self.options = config.get('options', {})
+        self.session = None
         self.client = None
-        self.bsm = None
-        self._ws_connections = {}
 
     @classmethod
     async def create(cls, config: Dict) -> 'BinanceClient':
         """Factory method for client creation"""
+        # Validate required credentials
+        api_key = config.get('api_key')
+        api_secret = config.get('api_secret')
+        
+        if not api_key or not api_secret:
+            logger.error("API credentials missing")
+            logger.error(f"API key present: {bool(api_key)}")
+            logger.error(f"API secret present: {bool(api_secret)}")
+            raise ValueError("Both API key and secret are required")
+            
         instance = cls(
-            api_key=config.get('api_key'),
-            api_secret=config.get('api_secret'),
+            api_key=api_key.strip(),
+            api_secret=api_secret.strip(),
             testnet=config.get('test_mode', True)
         )
         await instance.initialize()
         return instance
 
     async def initialize(self):
-        """
-        Initialize Binance client with optimized settings.
-        
-        Performs:
-        1. Session configuration with custom DNS settings
-        2. Connection pool setup
-        3. WebSocket manager initialization
-        4. Connection testing
-        
-        Raises:
-            Exception: On initialization failure with detailed error
-        """
+        """Initialize client connection"""
         try:
-            logger.debug("Initializing Binance client...")
-            
-            # Validate API credentials
-            if not self.api_key or len(self.api_key) < 10:
-                raise ValueError("Invalid Binance API key format")
-            if not self.api_secret or len(self.api_secret) < 10:
-                raise ValueError("Invalid Binance API secret format")
-                
-            logger.info(f"API credentials validated. Using {'testnet' if self.testnet else 'mainnet'}")
-            
-            logger.debug(f"Base URL: {self.base_url}")
-            logger.debug(f"WebSocket URL: {self.ws_url}")
-            logger.debug(f"Test mode: {self.testnet}")
-            
-            # Initialize retry handler
-            self.retry_handler = RetryHandler(
-                max_retries=self.options.get('max_retries', 3),
-                delay=1.0,
-                backoff=2.0
-            )
-            
-            # Configure DNS resolution
-            use_custom_dns = platform.system() == 'Windows'
-            logger.debug(f"Using custom DNS settings: {use_custom_dns}")
-            
-            # Configure connector with DNS settings
-            connector = TCPConnector(
-                ssl=True,
-                family=socket.AF_INET,  # Force IPv4
-                force_close=True,
-                enable_cleanup_closed=True,
-                verify_ssl=True,
-                use_dns_cache=not use_custom_dns,  # Disable DNS cache on Windows
-                ttl_dns_cache=300  # 5 minutes cache TTL when enabled
-            )
-
-            # Create custom session and store it
-            self.session = ClientSession(
-                connector=connector,
-                headers=self.DEFAULT_HEADERS,
-                skip_auto_headers=['Content-Type']
-            )
-
-            # Create async client with custom session and proper timeout
+            from binance import AsyncClient
             self.client = await AsyncClient.create(
                 api_key=self.api_key,
                 api_secret=self.api_secret,
-                testnet=self.testnet,
-                tld='vision' if self.testnet else 'com',
-                requests_params={'timeout': 30}  # Remove use_dns_cache from here
+                testnet=self.testnet
             )
-
-            # Replace client's session
-            if hasattr(self.client, 'session'):
-                await self.client.session.close()
-                self.client.session = self.session
-
-            # Initialize socket manager
-            self.bsm = BinanceSocketManager(self.client)
-            logger.info("Binance client initialized successfully")
-            logger.debug("Connection test successful")
-
+            await self.client.ping()  # Test connection
+            return self
         except Exception as e:
-            logger.error(f"Binance client initialization failed: {e}")
-            if hasattr(self, 'session'):
-                await self.session.close()
-            if hasattr(self, 'client') and self.client:
-                await self.client.close_connection()
+            logger.error(f"Failed to initialize Binance client: {e}")
             raise
 
     async def cleanup(self):
@@ -580,7 +517,7 @@ class BinanceClient(BaseExchangeClient):
             if not hasattr(self, 'session'):
                 raise Exception("Client session not initialized")
                 
-            endpoint = f"{self.base_url}/api/v3/ping"  # Fixed endpoint path
+            endpoint = f"{self.base_url}/v3/ping"  # Removed extra /api since it's in base_url
             async with self.session.get(endpoint) as response:
                 if response.status == 200:
                     logger.info("Successfully pinged Binance API")
@@ -598,3 +535,53 @@ class BinanceClient(BaseExchangeClient):
         except Exception as e:
             logger.error(f"Failed to get 24h volume for {symbol}: {e}")
             return 0.0
+
+    async def get_account(self) -> dict:
+        """Get current account information"""
+        try:
+            return await self._send_request(
+                method='GET',
+                endpoint='v3/account',
+                signed=True
+            )
+        except Exception as e:
+            logger.error(f"Failed to get account info: {str(e)}")
+            raise
+
+    async def _generate_signature(self, params: dict) -> str:
+        """Generate HMAC SHA256 signature for authenticated endpoints"""
+        query_string = urlencode(params)
+        return hmac.new(
+            self.api_secret.encode('utf-8'),
+            query_string.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+
+    async def _send_request(self, method: str, endpoint: str, 
+                          signed: bool = False, **kwargs) -> dict:
+        """Send API request with automatic signature for authenticated endpoints"""
+        url = f"{self.base_url}/{endpoint}"  # base_url already includes /api
+        
+        # Add testnet specific headers if needed
+        headers = {
+            'X-MBX-APIKEY': self.api_key,
+            'User-Agent': 'FinGPT-Trader-Testnet/1.0' if self.testnet else 'FinGPT-Trader/1.0'
+        }
+
+        if signed:
+            params = kwargs.get('params', {})
+            params['timestamp'] = int(time.time() * 1000)
+            params['signature'] = await self._generate_signature(params)
+            kwargs['params'] = params
+
+        if 'headers' in kwargs:
+            headers.update(kwargs['headers'])
+        kwargs['headers'] = headers
+
+        try:
+            async with self.session.request(method, url, **kwargs) as response:
+                response.raise_for_status()
+                return await response.json()
+        except aiohttp.ClientError as e:
+            logger.error(f"Request failed: {str(e)}")
+            raise
