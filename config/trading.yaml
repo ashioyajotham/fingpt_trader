@@ -9,8 +9,8 @@
 
 # Exchange Configuration
 exchanges:
-  - name: binance    # Changed to list format
-    test_mode: true
+  - name: binance
+    test_mode: true  # Set to false for production
     options:
       timeout: 30
       max_retries: 3
@@ -21,7 +21,6 @@ trading:
   pairs:  # Single source of truth for trading pairs
     - BTCUSDT
     - ETHUSDT
-    - BNBUSDT
   initial_balance: 1000.0  # Reduced for testnet testing
   confidence_threshold: 0.7
   min_trade_amount: 1.0    # Reduced minimum for testnet

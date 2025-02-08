@@ -2,13 +2,16 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Dict, List, Optional
 from models.portfolio.risk import MarketRegime, MarketRegimeDetector, CircuitBreaker
+import logging
 
 import numpy as np
 import pandas as pd
 
+logger = logging.getLogger(__name__)
 
 class BaseStrategy(ABC):
-    """Abstract base class for all trading strategies"""
+    """Enhanced base strategy with market data and position management.
+    All other strategies inherit from this."""
     
     def __init__(self, config: Optional[Dict] = None, profile: Optional[Dict] = None):
         """
@@ -33,6 +36,12 @@ class BaseStrategy(ABC):
             MarketRegime.CRISIS: 0.0,
             MarketRegime.LOW_LIQUIDITY: 0.3
         }
+        
+        self.market_data = {}
+        self.active_pairs = config.get('pairs', ['BTCUSDT', 'ETHUSDT'])
+        self.min_position = config.get('min_position_size', 0.01)
+        self.max_position = config.get('max_position_size', 0.2)
+        self.initial_balance = config.get('initial_balance', 10000.0)
 
     @abstractmethod
     async def process_market_data(self, market_data: Dict) -> Dict:
@@ -134,3 +143,21 @@ class BaseStrategy(ABC):
             bool: True if valid, False otherwise
         """
         pass
+
+    async def on_market_data(self, data: Dict) -> None:
+        """Handle incoming market data"""
+        self.market_data.update(data)
+        await self.analyze()
+
+    async def generate_signal(self) -> Optional[Dict]:
+        """Generate trading signal based on analysis"""
+        raise NotImplementedError("Subclasses must implement generate_signal()")
+
+    def calculate_position_size(self, signal: Dict) -> float:
+        """Calculate position size based on signal strength and account balance"""
+        confidence = signal.get('confidence', 0)
+        max_size = min(
+            self.max_position * self.initial_balance,
+            self.initial_balance * signal.get('strength', 0.1)
+        )
+        return max(self.min_position * self.initial_balance, max_size * confidence)
