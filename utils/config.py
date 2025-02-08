@@ -52,21 +52,23 @@ class ConfigManager:
 
     def _load_credentials(self) -> None:
         """Load and validate exchange credentials from environment"""
-        binance_creds = {
-            'api_key': os.getenv('BINANCE_API_KEY'),
-            'api_secret': os.getenv('BINANCE_API_SECRET')
+        # Get credentials
+        api_key = os.getenv('BINANCE_API_KEY')
+        api_secret = os.getenv('BINANCE_API_SECRET')
+        
+        if not api_key or not api_secret:
+            logger.error("Missing Binance credentials in environment")
+            raise ValueError("Binance API credentials not set")
+            
+        # Store validated credentials
+        self.credentials['binance'] = {
+            'api_key': api_key,
+            'api_secret': api_secret
         }
         
-        # Validate credentials exist and have correct format
-        if not all(binance_creds.values()):
-            raise ValueError("Missing Binance API credentials")
-        
-        # Validate credential lengths (Binance keys are 64 chars)
-        if not all(len(str(v)) >= 64 for v in binance_creds.values()):
-            raise ValueError("Invalid credential format")
-            
-        self.credentials['binance'] = binance_creds
         logger.info("Exchange credentials loaded and validated")
+        logger.info(f"API Key present: True (length: {len(api_key)})")
+        logger.info(f"API Secret present: True (length: {len(api_secret)})")
 
     def _validate_env(self) -> None:
         """Validate required environment variables"""

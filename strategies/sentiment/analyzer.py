@@ -6,13 +6,16 @@ from datetime import datetime, timedelta
 import pandas as pd
 from models.llm.fingpt import FinGPT
 from services.data_feeds.news_service import NewsDataFeed
+from services.data_feeds.market_data_service import MarketDataService 
+from services.base_service import BaseService
 from services.data_feeds.market_data_service import MarketDataFeed
 
 import logging
 logger = logging.getLogger(__name__)
 
-class SentimentAnalyzer:
+class SentimentAnalyzer(BaseService):
     def __init__(self, config: Optional[Dict] = None):
+        super().__init__(config or {})
         self.config = config or {}
         self.vader = SentimentIntensityAnalyzer()
 
@@ -91,6 +94,44 @@ class SentimentAnalyzer:
         # Last update timestamps
         self.last_news_update = datetime.now()
         self.last_market_update = datetime.now()
+
+    async def _setup(self) -> None:
+        """Required implementation of abstract method"""
+        try:
+            self.last_update = datetime.now()
+            self.sentiment_buffer = {}
+            
+            # Initialize market correlation tracking
+            self.price_history = {}
+            self.sentiment_scores = {}
+            
+            # Initialize data feeds
+            await self.market_feed.start()
+            await self.market_feed.subscribe(self.handlers['market'])
+            
+            await self.news_feed.start()
+            await self.news_feed.subscribe(self.handlers['news'])
+            
+            logger.info("Sentiment analyzer initialized with FinGPT and data feeds")
+        except Exception as e:
+            logger.error(f"Sentiment analyzer setup failed: {e}")
+            raise
+
+    async def _cleanup(self) -> None:
+        """Required implementation of abstract method"""
+        try:
+            await self.market_feed.stop()
+            await self.news_feed.stop()
+            
+            # Clear state
+            self.sentiment_buffer.clear()
+            self.price_history.clear()
+            self.sentiment_scores.clear()
+            
+            logger.info("Sentiment analyzer cleaned up")
+        except Exception as e:
+            logger.error(f"Sentiment analyzer cleanup failed: {e}")
+            raise
 
     async def initialize(self) -> None:
         """Initialize analyzer and data feeds"""

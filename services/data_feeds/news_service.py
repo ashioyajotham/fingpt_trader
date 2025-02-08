@@ -30,6 +30,7 @@ class NewsDataFeed(BaseService):
         self.update_interval = self.config.get('news_interval', 300)  # 5 minutes
         self.max_cache_size = self.config.get('max_cache_size', 1000)
         self.session = None
+        self.data_handlers = []  # Add handlers list
         
         # Add news filters and processors
         self.filters = {
@@ -84,6 +85,19 @@ class NewsDataFeed(BaseService):
     async def get_latest(self) -> List[Dict]:
         """Get latest news items"""
         return self.cache.copy()
+
+    async def subscribe(self, handler) -> None:
+        """Register a data handler for news updates"""
+        self.data_handlers.append(handler)
+        logger.info(f"News handler registered: {handler.__name__ if hasattr(handler, '__name__') else 'anonymous'}")
+
+    async def _notify_handlers(self, news_item: Dict) -> None:
+        """Notify all registered handlers of news updates"""
+        for handler in self.data_handlers:
+            try:
+                await handler(news_item)
+            except Exception as e:
+                logger.error(f"News handler error: {e}")
 
     async def process_news(self, news_item: Dict) -> None:
         """Enhanced news processing with filtering"""

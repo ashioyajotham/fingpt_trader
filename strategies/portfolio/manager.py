@@ -16,11 +16,20 @@ class PortfolioManager(BaseStrategy):
     def __init__(self, config: Optional[Dict] = None, profile: Optional[Dict] = None):
         super().__init__(config, profile)
         
+        # Initialize portfolio dict
+        self.portfolio = {
+            'balance': config.get('trading', {}).get('initial_balance', 1000.0),
+            'positions': {},
+            'pnl': 0.0,
+            'equity': 0.0
+        }
+        
         # Portfolio settings
         self.target_volatility = config.get('target_volatility', 0.15)
         self.rebalance_threshold = config.get('rebalance_threshold', 0.05)
         self.sentiment_weight = config.get('sentiment_weight', 0.3)
         self.min_sentiment_samples = config.get('min_sentiment_samples', 10)
+        self.initial_balance = config.get('trading', {}).get('initial_balance', 1000.0)
         
         # Add missing attributes
         self.max_allocation = config.get('max_position_size', 0.2)
@@ -30,6 +39,43 @@ class PortfolioManager(BaseStrategy):
         # Portfolio tracking
         self.positions = {}  # Current positions
         self.position_values = {}  # Position values in quote currency
+
+    async def _setup(self) -> None:
+        """Initialize portfolio state"""
+        try:
+            # Initialize positions
+            self.positions = {
+                'BTCUSDT': {'size': 0.1, 'entry_price': 0},
+                'ETHUSDT': {'size': 1.0, 'entry_price': 0},
+            }
+            # Update portfolio dict
+            self.portfolio['positions'] = self.positions
+            self.portfolio['balance'] = self.initial_balance
+            self.portfolio['equity'] = self.initial_balance
+            
+            logger.info(f"Portfolio initialized with balance: {self.initial_balance}")
+            
+        except Exception as e:
+            logger.error(f"Portfolio initialization failed: {e}")
+            raise
+
+    async def _cleanup(self) -> None:
+        """Cleanup portfolio resources"""
+        try:
+            self.positions.clear()
+            self.portfolio.clear()
+            logger.info("Portfolio cleaned up successfully")
+        except Exception as e:
+            logger.error(f"Portfolio cleanup failed: {e}")
+            raise
+
+    async def initialize(self) -> None:
+        """Public initialize method"""
+        await self._setup()
+
+    async def generate_signals(self, market_data: Dict) -> List[Dict]:
+        """Generate trading signals - public async wrapper"""
+        return await self._generate_base_signals(market_data)
 
     async def _generate_base_signals(self, market_data: Dict) -> List[Dict]:
         """Generate portfolio rebalancing signals"""

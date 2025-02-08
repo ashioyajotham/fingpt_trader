@@ -25,16 +25,39 @@ logger = logging.getLogger(__name__)
 class BinanceClient:
     """Async Binance exchange interface"""
     
-    ENDPOINTS = {
-        'test': {
-            'rest': 'https://testnet.binance.vision/api',
-            'ws': 'wss://testnet.binance.vision/ws'
-        },
-        'prod': {
-            'rest': 'https://api.binance.com/api',
-            'ws': 'wss://stream.binance.com:9443/ws'
-        }
-    }
+    # Add singleton instance
+    _instance = None
+    
+    @classmethod
+    async def get_instance(cls, config=None):
+        """Get singleton instance"""
+        if not cls._instance:
+            if not config:
+                raise ValueError("Config required for first initialization")
+            cls._instance = await cls.create(config)
+        return cls._instance
+
+    @classmethod
+    async def create(cls, config: Dict) -> 'BinanceClient':
+        """Factory method for client creation"""
+        if not all(k in config for k in ('api_key', 'api_secret')):
+            raise ValueError("Missing required credentials")
+            
+        # Use existing instance if available
+        if cls._instance:
+            return cls._instance
+            
+        instance = cls(
+            api_key=config['api_key'],
+            api_secret=config['api_secret']
+        )
+        
+        instance.testnet = config.get('test_mode', True)
+        await instance.initialize()
+        
+        # Set singleton instance
+        cls._instance = instance
+        return instance
 
     def __init__(self, api_key: str, api_secret: str):
         """Initialize with API credentials"""
@@ -54,21 +77,6 @@ class BinanceClient:
         self.orderbook_manager = {}
         self.trade_stream_handlers = {}
         self.kline_stream_handlers = {}
-
-    @classmethod
-    async def create(cls, config: Dict) -> 'BinanceClient':
-        """Factory method for client creation"""
-        if not all(k in config for k in ('api_key', 'api_secret')):
-            raise ValueError("Missing required credentials")
-            
-        instance = cls(
-            api_key=config['api_key'],
-            api_secret=config['api_secret']
-        )
-        
-        instance.testnet = config.get('test_mode', True)
-        await instance.initialize()
-        return instance
 
     async def initialize(self) -> None:
         """Initialize client connection"""
@@ -96,27 +104,24 @@ class BinanceClient:
             await self.cleanup()
             raise ValueError(f"Failed to initialize Binance client: {str(e)}")
 
-    async def cleanup(self) -> None:
-        """Clean up resources"""
-        # Close websocket connections
-        for symbol, streams in self._ws_connections.items():
-            for stream in streams.values():
-                try:
+    async def close(self) -> None:
+        """Close client connections"""
+        try:
+            if self.session:
+                await self.session.close()
+            if self.client:
+                await self.client.close_connection()
+            if self.bsm:
+                # Close any active websocket connections
+                for stream in self.streams.values():
                     await stream.close()
-                except:
-                    pass
-        self._ws_connections.clear()
-        
-        # Close session
-        if self.session:
-            await self.session.close()
-            
-        # Close main client
-        if self.client:
-            await self.client.close_connection()
-            
-        self._initialized = False
-        logger.info("Cleaned up Binance resources")
+            logger.info("Binance client connections closed")
+        except Exception as e:
+            logger.error(f"Error closing Binance client: {e}")
+
+    async def cleanup(self) -> None:
+        """Alias for close() for compatibility"""
+        await self.close()
 
     async def get_trading_pairs(self) -> List[str]:
         """Get active trading pairs"""

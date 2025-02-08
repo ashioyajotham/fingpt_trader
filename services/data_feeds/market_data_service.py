@@ -2,14 +2,14 @@ import asyncio
 import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Union
-import logging
 
 import aiohttp
-import ccxt.async_support as ccxt  # Use async version
+import ccxt.async_support as ccxt
 import pandas as pd
 
 from services.base_service import BaseService
-
+from ..exchanges.binance import BinanceClient
+import logging
 logger = logging.getLogger(__name__)
 
 class MarketDataService(BaseService):
@@ -27,25 +27,8 @@ class MarketDataService(BaseService):
     def __init__(self, config: Optional[Dict] = None):
         super().__init__(config or {})
         self.api_key = os.getenv("BINANCE_API_KEY")
-        self.api_secret = os.getenv("BINANCE_SECRET_KEY")
-        self.exchange = ccxt.binance(
-            {
-                "apiKey": self.api_key,
-                "secret": self.api_secret,
-                "enableRateLimit": True,
-                "options": {
-                    "defaultType": "spot",
-                    "adjustForTimeDifference": True,
-                    "testnet": True,  # Use testnet
-                },
-                "urls": {
-                    "api": {
-                        "public": "https://testnet.binance.vision/api/v3",
-                        "private": "https://testnet.binance.vision/api/v3",
-                    }
-                },
-            }
-        )
+        self.api_secret = os.getenv("BINANCE_API_SECRET")
+        self.exchange = None  # Will be set during _setup
         self.last_update = datetime.now()
         self.rate_limit = self.config.get("rate_limits", {}).get(
             "requests_per_minute", 1200
@@ -69,8 +52,13 @@ class MarketDataService(BaseService):
         if not self.api_key or not self.api_secret:
             raise ValueError("Binance API credentials not set")
         try:
-            await self.exchange.load_markets()
-            print("Connected to Binance API")
+            # Use singleton instance instead of creating new connection
+            self.exchange = await BinanceClient.get_instance({
+                'api_key': self.api_key,
+                'api_secret': self.api_secret,
+                'test_mode': True
+            })
+            logger.info("Using shared Binance client instance")
         except Exception as e:
             raise ConnectionError(f"Failed to connect: {str(e)}")
 
@@ -115,6 +103,7 @@ class MarketDataService(BaseService):
         self.last_update = current_time
 
 class MarketDataFeed(BaseService):
+    """Market data feed handler"""
     def __init__(self, config: Optional[Dict] = None):
         super().__init__(config or {})
         self.pairs = config.get('pairs', ['BTCUSDT', 'ETHUSDT'])
@@ -127,10 +116,13 @@ class MarketDataFeed(BaseService):
         self.callbacks = []
         self.running = False
         self.data_handlers = []
+        self.market_data_service = None
 
     async def _setup(self) -> None:
         """Required implementation of abstract method"""
         try:
+            self.market_data_service = MarketDataService(self.config)
+            await self.market_data_service.start()
             self.running = True
             logger.info("Market data feed setup complete")
         except Exception as e:
@@ -141,6 +133,8 @@ class MarketDataFeed(BaseService):
         """Required implementation of abstract method"""
         try:
             self.running = False
+            if self.market_data_service:
+                await self.market_data_service.stop()
             self.cache.clear()
             self.data_handlers.clear()
             logger.info("Market data feed cleanup complete")
@@ -148,53 +142,30 @@ class MarketDataFeed(BaseService):
             logger.error(f"Market data feed cleanup failed: {e}")
             raise
 
-    async def _validate_pair(self, pair: str) -> bool:
-        """Validate trading pair format"""
-        return pair in self.pairs
+    async def stop(self) -> None:
+        """Stop the data feed"""
+        await self._cleanup()
+        logger.info("Market data feed stopped")
 
-    async def _handle_orderbook(self, data: Dict) -> None:
-        """Process orderbook updates"""
-        pair = data.get('symbol')
-        if not await self._validate_pair(pair):
-            return
-            
-        self.cache['orderbook'][pair] = {
-            'data': data,
-            'timestamp': datetime.now()
-        }
-        await self._notify_handlers('orderbook', pair, data)
+    async def subscribe(self, handler) -> None:
+        """Subscribe to market data updates"""
+        if handler not in self.data_handlers:
+            self.data_handlers.append(handler)
+            logger.info(f"Handler {handler.__name__ if hasattr(handler, '__name__') else 'anonymous'} subscribed")
 
-    async def _handle_trades(self, data: Dict) -> None:
-        """Process trade updates"""
-        pair = data.get('symbol')
-        if not await self._validate_pair(pair):
-            return
-            
-        if pair not in self.cache['trades']:
-            self.cache['trades'][pair] = []
-            
-        self.cache['trades'][pair].append({
-            'data': data,
-            'timestamp': datetime.now()
-        })
-        await self._notify_handlers('trades', pair, data)
+    async def unsubscribe(self, handler) -> None:
+        """Unsubscribe from market data updates"""
+        if handler in self.data_handlers:
+            self.data_handlers.remove(handler)
+            logger.info(f"Handler {handler.__name__ if hasattr(handler, '__name__') else 'anonymous'} unsubscribed")
 
-    async def _notify_handlers(self, event_type: str, pair: str, data: Dict) -> None:
-        """Notify registered handlers of updates"""
+    async def _notify_handlers(self, event_type: str, data: Dict) -> None:
+        """Notify all subscribed handlers"""
         for handler in self.data_handlers:
             try:
-                await handler(event_type, pair, data)
+                await handler(event_type, data)
             except Exception as e:
                 logger.error(f"Handler error: {e}")
 
-    async def subscribe(self, handler) -> None:
-        """Register a data handler"""
-        self.data_handlers.append(handler)
-
-    def get_latest(self, pair: str) -> Dict:
-        """Get latest market data for pair"""
-        return {
-            'orderbook': self.cache['orderbook'].get(pair, {}),
-            'trades': self.cache['trades'].get(pair, [])[-10:],
-            'ticker': self.cache['ticker'].get(pair, {})
-        }
+# Export both classes
+__all__ = ['MarketDataService', 'MarketDataFeed']
