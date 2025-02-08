@@ -1,13 +1,6 @@
 """
 FinGPT Trading System - Main Entry Point
 
-System Architecture:
-    ConfigManager (configuration/credentials)
-    └── TradingSystem (orchestrator)
-        ├── Exchange Clients (market interface)
-        ├── Market Analysis (trading signals)
-        ├── Portfolio Management (position/risk)
-        └── Execution Engine (order management)
 """
 
 import asyncio

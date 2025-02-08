@@ -1,10 +1,9 @@
 from typing import Dict, List, Optional, Tuple
-
 import numpy as np
 from textblob import TextBlob
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from ..base_strategy import BaseStrategy
-
+from datetime import datetime, timedelta
+import pandas as pd
 
 class SentimentAnalyzer:
     def __init__(self, config: Optional[Dict] = None):
@@ -26,9 +25,29 @@ class SentimentAnalyzer:
         # Add financial terms to VADER lexicon
         self.vader.lexicon.update(self.term_scores)
 
+        # Add real-time sentiment tracking
+        self.sentiment_window = config.get('sentiment_window', 24)  # hours
+        self.sentiment_history = {}
+        self.market_correlation = {}
+        self.min_samples = config.get('min_samples', 10)
+        
+        # Real-time correlation tracking
+        self.correlation_window = config.get('correlation_window', 12)  # hours
+        self.min_correlation_samples = config.get('min_correlation_samples', 24)
+        self.price_impact_threshold = config.get('price_impact_threshold', 0.02)
+        
+        # Initialize state
+        self.price_impacts = {}
+        self.correlation_history = {}
+
     async def initialize(self) -> None:
         """Initialize the analyzer - required by system interface"""
-        pass  # Nothing to initialize for VADER/TextBlob
+        self.last_update = datetime.now()
+        self.sentiment_buffer = {}
+        
+        # Initialize market correlation tracking
+        self.price_history = {}
+        self.sentiment_scores = {}
 
     async def cleanup(self) -> None:
         """Cleanup resources - required by system interface"""
@@ -78,62 +97,140 @@ class SentimentAnalyzer:
         confidence = (agreement_factor + subjectivity_factor) / 2.0
         return confidence
 
-
-class SentimentStrategy(BaseStrategy):
-    """
-    Sentiment-based trading strategy.
-    Combines news sentiment with market data analysis.
-    """
-    
-    def __init__(self, config: Optional[Dict] = None, profile: Optional[Dict] = None):
-        super().__init__(config, profile)
-        self.sentiment_threshold = config.get('sentiment_threshold', 0.5)
-        self.sentiment_window = config.get('sentiment_window', 24)  # hours
-        
-    async def _generate_base_signals(self, market_data: Dict) -> List[Dict]:
-        signals = []
-        
-        for pair in self.active_pairs:
-            if pair not in self.market_state['sentiment']:
-                continue
-                
-            sentiment_score = self._calculate_sentiment_score(pair)
-            market_impact = self._estimate_market_impact(pair, market_data)
+    def add_market_data(self, symbol: str, price: float, timestamp: datetime) -> None:
+        """Add market data for sentiment correlation"""
+        if symbol not in self.price_history:
+            self.price_history[symbol] = []
             
-            if abs(sentiment_score) > self.sentiment_threshold:
-                signals.append({
-                    'symbol': pair,
-                    'direction': np.sign(sentiment_score),
-                    'strength': min(abs(sentiment_score) * market_impact, 1.0),
-                    'sentiment': sentiment_score,
-                    'market_impact': market_impact
-                })
-                
-        return signals
+        self.price_history[symbol].append({
+            'price': price,
+            'timestamp': timestamp
+        })
         
-    def _calculate_sentiment_score(self, pair: str) -> float:
-        """Calculate weighted sentiment score"""
-        sentiments = self.market_state['sentiment'].get(pair, [])
-        if not sentiments:
+        # Keep only recent history
+        cutoff = datetime.now() - timedelta(hours=self.sentiment_window)
+        self.price_history[symbol] = [
+            p for p in self.price_history[symbol] 
+            if p['timestamp'] > cutoff
+        ]
+
+    def add_sentiment_data(self, symbol: str, text: str, timestamp: datetime) -> None:
+        """Process and store new sentiment data"""
+        sentiment = self.analyze(text)
+        
+        if symbol not in self.sentiment_scores:
+            self.sentiment_scores[symbol] = []
+            
+        self.sentiment_scores[symbol].append({
+            'score': sentiment['compound'],
+            'timestamp': timestamp
+        })
+        
+        # Keep only recent scores
+        cutoff = datetime.now() - timedelta(hours=self.sentiment_window)
+        self.sentiment_scores[symbol] = [
+            s for s in self.sentiment_scores[symbol]
+            if s['timestamp'] > cutoff
+        ]
+        
+        # Update correlation if enough data
+        self._update_correlation(symbol)
+
+    def _update_correlation(self, symbol: str) -> None:
+        """Calculate sentiment-price correlation"""
+        if (symbol not in self.price_history or 
+            symbol not in self.sentiment_scores or
+            len(self.sentiment_scores[symbol]) < self.min_samples):
+            return
+            
+        # Create time-aligned series
+        df = pd.DataFrame(self.sentiment_scores[symbol])
+        df.set_index('timestamp', inplace=True)
+        
+        price_df = pd.DataFrame(self.price_history[symbol])
+        price_df.set_index('timestamp', inplace=True)
+        
+        # Resample to common timeframe
+        aligned = pd.merge_asof(
+            df, price_df,
+            left_index=True,
+            right_index=True,
+            tolerance=pd.Timedelta('5min')
+        )
+        
+        if len(aligned) >= self.min_samples:
+            self.market_correlation[symbol] = aligned['score'].corr(
+                aligned['price'].pct_change()
+            )
+
+    async def calculate_price_impact(self, sentiment_score: float, 
+                                   symbol: str, price_data: List[Dict]) -> float:
+        """Calculate estimated price impact of sentiment"""
+        if not price_data or symbol not in self.correlation_history:
             return 0.0
             
-        # Weight recent sentiment more heavily
-        weights = np.exp(-np.arange(len(sentiments)) / self.sentiment_window)
-        weighted_score = np.average([s.get('score', 0) for s in sentiments], weights=weights)
+        # Get historical correlation
+        correlation = self.correlation_history[symbol].get('value', 0.5)
         
-        return weighted_score
+        # Calculate expected impact
+        impact = sentiment_score * correlation * self.price_impact_threshold
         
-    def _estimate_market_impact(self, pair: str, market_data: Dict) -> float:
-        """Estimate potential market impact of sentiment"""
-        if pair not in market_data.get('volume', {}):
-            return 0.5  # Default impact if no volume data
-            
-        # Calculate relative volume
-        volumes = market_data['volume'][pair]
-        current_vol = volumes[-1]
-        avg_vol = np.mean(volumes[-24:])  # 24-hour average
-        
-        # Normalize impact between 0 and 1
-        impact = min(current_vol / (avg_vol + 1e-10), 2.0) / 2.0
+        # Store impact
+        self.price_impacts[symbol] = {
+            'score': sentiment_score,
+            'impact': impact,
+            'timestamp': datetime.now()
+        }
         
         return impact
+
+    async def update_correlation(self, symbol: str, sentiment_changes: pd.Series, 
+                               price_changes: pd.Series) -> None:
+        """Update price-sentiment correlation"""
+        if len(sentiment_changes) < self.min_correlation_samples:
+            return
+            
+        # Calculate rolling correlation
+        correlation = sentiment_changes.rolling(
+            window=self.min_correlation_samples
+        ).corr(price_changes)
+        
+        # Store correlation
+        self.correlation_history[symbol] = {
+            'value': correlation.iloc[-1],
+            'timestamp': datetime.now(),
+            'samples': len(sentiment_changes)
+        }
+
+    def get_sentiment_signal(self, symbol: str) -> Dict:
+        """Get trading signal from sentiment"""
+        impact = self.price_impacts.get(symbol, {}).get('impact', 0)
+        score = self.price_impacts.get(symbol, {}).get('score', 0)
+        
+        return {
+            'direction': np.sign(score),
+            'strength': abs(impact),
+            'confidence': self._calculate_confidence(
+                self.vader.polarity_scores(str(score)),
+                {'polarity': score, 'subjectivity': 0.5}
+            )
+        }
+
+    def get_sentiment_impact(self, symbol: str) -> float:
+        """Get sentiment impact score"""
+        if symbol not in self.sentiment_scores:
+            return 0.0
+            
+        recent_scores = [
+            s['score'] for s in self.sentiment_scores[symbol]
+            if s['timestamp'] > datetime.now() - timedelta(hours=1)
+        ]
+        
+        if not recent_scores:
+            return 0.0
+            
+        # Weight by correlation if available
+        base_sentiment = np.mean(recent_scores)
+        correlation = self.market_correlation.get(symbol, 0.5)
+        
+        return base_sentiment * correlation
