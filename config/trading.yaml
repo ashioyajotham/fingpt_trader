@@ -26,6 +26,7 @@ trading:
   initial_balance: 10000.0
   confidence_threshold: 0.5        # Lowered from 0.7 to see more signals
   min_trade_amount: 10.0          # Minimum trade size in USDT
+  max_position_size: 0.2          # Add this - maximum position size as 20% of portfolio
   loop_interval: 30               # Reduced from 60 to 30 seconds
   pairs:                          
     - "BTCUSDT"                   # Changed format to match Binance

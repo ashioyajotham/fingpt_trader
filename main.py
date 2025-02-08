@@ -330,49 +330,29 @@ class TradingSystem:
         return data
 
     async def detect_inefficiencies(self, market_data: Dict) -> Dict:
-        """
-        Analyze market data for trading opportunities.
-        
-        Uses multiple detection methods:
-        - Technical analysis patterns
-        - Order book imbalances
-        - Volume profile analysis
-        - Sentiment correlation
-        
-        Args:
-            market_data: Dict containing:
-                - orderbook: Current order book state
-                - trades: Recent trades
-                - candles: OHLCV data
-                
-        Returns:
-            Dict: Trading signals with:
-                - confidence: Signal strength (0-1)
-                - direction: Long/Short
-                - metadata: Supporting data
-                
-        Raises:
-            ValueError: If market data is invalid
-        """
+        """Analyze market data for trading opportunities."""
         signals = {}
         for exchange, exchange_data in market_data.items():
             for pair, pair_data in exchange_data.items():
                 # Process market data
                 processed_data = self._preprocess_market_data(pair_data)
                 
-                # Get sentiment analysis
+                # Get sentiment analysis and convert to time series
                 news_data = await self._fetch_relevant_news(pair)
-                # Combine all news texts
                 combined_text = " ".join(news_data)
-                # Use correct sentiment analyzer method
                 sentiment_result = self.sentiment_analyzer.analyze(combined_text)
-                sentiment_score = sentiment_result['compound']  # Get compound score
                 
-                # Detect inefficiencies
+                # Create sentiment Series with same index as price data
+                sentiment_series = pd.Series(
+                    [sentiment_result['compound']] * len(processed_data['prices']),
+                    index=processed_data['prices'].index
+                )
+                
+                # Detect inefficiencies with time-indexed sentiment
                 signal = self.market_detector.detect_inefficiencies(
                     prices=processed_data['prices'],
                     volume=processed_data['volume'],
-                    sentiment=sentiment_score
+                    sentiment=sentiment_series  # Now a pandas Series with time index
                 )
                 
                 signals[f"{exchange}_{pair}"] = signal
@@ -383,15 +363,24 @@ class TradingSystem:
         """Preprocess market data for analysis"""
         candles = np.array(pair_data['candles'])
         
-        # Convert to pandas DataFrame with proper column names
+        # Create DataFrame with all columns
         df = pd.DataFrame(candles, columns=[
-            'timestamp', 'open', 'high', 'low', 'close', 'volume'
+            'open_time', 'open', 'high', 'low', 'close', 'volume',
+            'close_time', 'quote_volume', 'trades', 'taker_base_vol',
+            'taker_quote_vol', 'ignore'
         ])
         
+        # Convert string values to float
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        # Create index using timestamp
+        df.set_index('open_time', inplace=True)
+        
         return {
-            'prices': df,  # Full DataFrame for inefficiency detection
-            'volume': df['volume'].values,  # Numpy array for other calculations
-            'timestamp': df['timestamp'].values
+            'prices': df,  # DataFrame with time index
+            'volume': pd.Series(df['volume'].values, index=df.index),  # Series for rolling calculations
+            'timestamp': df.index.values
         }
 
     async def _fetch_relevant_news(self, pair: str) -> List[str]:
@@ -411,9 +400,9 @@ class TradingSystem:
             # Extract relevant text from articles
             texts = []
             for article in news_articles:
-                if article.get('title'):
+                if (article.get('title')):
                     texts.append(article['title'])
-                if article.get('description'):
+                if (article.get('description')):
                     texts.append(article['description'])
             
             logger.info(f"Fetched {len(texts)} news items for {pair}")
@@ -447,39 +436,20 @@ class TradingSystem:
         return trades
 
     async def execute_trades(self, trades: List[Dict]):
-        """
-        Execute trades across connected exchanges.
-        
-        Features:
-        - Smart order routing
-        - Slippage protection
-        - Position sizing
-        - Risk checks
-        
-        Args:
-            trades: List of trade specifications:
-                - symbol: Trading pair
-                - size: Position size
-                - direction: Long/Short
-                - type: Order type
-                
-        Returns:
-            List[Dict]: Execution results with:
-                - order_id: Exchange order ID
-                - status: Execution status
-                - filled: Amount filled
-                - price: Average fill price
-                
-        Raises:
-            Exception: If execution fails
-        """
-        if trades is None:
-            raise Exception("Cannot execute None trades")
+        """Execute trades across connected exchanges"""
+        if not trades:
+            return []
 
         results = []
         for trade in trades:
             try:
                 client = self.exchange_clients[trade['exchange']]
+                
+                # Validate trade parameters
+                if not all(k in trade for k in ['symbol', 'size', 'direction', 'type']):
+                    logger.error(f"Invalid trade parameters: {trade}")
+                    continue
+                    
                 if trade['direction'] > 0:
                     result = await client.create_buy_order(
                         symbol=trade['symbol'],
@@ -492,9 +462,13 @@ class TradingSystem:
                         amount=trade['size'],
                         order_type=trade['type']
                     )
-                results.append(result)
+                
+                if result:
+                    results.append(result)
+                    logger.info(f"Trade executed: {trade['symbol']} {'BUY' if trade['direction'] > 0 else 'SELL'}")
+                    
             except Exception as e:
-                print(f"Trade execution error: {str(e)}")
+                logger.error(f"Trade execution error: {str(e)}")
                 continue
         
         return results
@@ -503,9 +477,9 @@ class TradingSystem:
         """Calculate position size using Kelly criterion with risk adjustment"""
         kelly_fraction = signal['confidence'] * signal['magnitude']
         
-        # Apply risk limits
+        # Get max position size with fallback value
         max_position = min(
-            self.config['trading']['max_position_size'],
+            self.config.get('trading', {}).get('max_position_size', 0.2),  # Default to 20%
             portfolio_values['total'] * self.config['risk']['position_limit']
         )
         
@@ -696,7 +670,7 @@ class TradingSystem:
                     market_data = await self.get_market_data()
                     logger.info(f"Received data for {len(market_data)} exchanges")
                     
-                    # 2. Detect trading opportunities
+                    #  2. Detect trading opportunities
                     logger.info("Analyzing market inefficiencies...")
                     signals = await self.detect_inefficiencies(market_data)
                     if signals:
@@ -739,10 +713,10 @@ class TradingSystem:
                     
                     # Log risk metrics
                     logger.info("\nRisk Metrics:")
-                    logger.info(f"Max Drawdown: {risk_metrics.get('max_drawdown', 0):.2%}")
-                    logger.info(f"VaR: {risk_metrics.get('var', 0):.2%}")
-                    logger.info(f"Exposure: {risk_metrics.get('exposure', 0)::.2%}")
-                    logger.info(f"Concentration: {risk_metrics.get('concentration', 0)::.2%}")
+                    logger.info(f"Max Drawdown: {risk_metrics.get('max_drawdown', 0.0):.2%}")
+                    logger.info(f"VaR: {risk_metrics.get('var', 0.0):.2%}")
+                    logger.info(f"Exposure: {float(risk_metrics.get('exposure', 0.0)):.2%}")  # Convert to float
+                    logger.info(f"Concentration: {risk_metrics.get('concentration', 0.0):.2%}")
                     
                     # Check risk limits with defaults
                     if (risk_metrics.get('max_drawdown', 0) > risk_config.get('max_drawdown', 0.10) or

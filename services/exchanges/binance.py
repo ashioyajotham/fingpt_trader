@@ -434,6 +434,34 @@ class BinanceClient(BaseExchangeClient):
             logger.error(f"Order placement failed: {e}")
             raise
 
+    async def create_buy_order(self, symbol: str, amount: float, order_type: str = 'MARKET') -> Dict:
+        """Create a buy order"""
+        try:
+            params = {
+                'symbol': symbol,
+                'side': 'BUY', 
+                'type': order_type,
+                'quantity': amount
+            }
+            return await self.place_order(params)
+        except Exception as e:
+            logger.error(f"Buy order failed for {symbol}: {e}")
+            raise
+
+    async def create_sell_order(self, symbol: str, amount: float, order_type: str = 'MARKET') -> Dict:
+        """Create a sell order"""
+        try:
+            params = {
+                'symbol': symbol,
+                'side': 'SELL',
+                'type': order_type,
+                'quantity': amount
+            }
+            return await self.place_order(params)
+        except Exception as e:
+            logger.error(f"Sell order failed for {symbol}: {e}")
+            raise
+
     async def _start_market_stream(self, symbol: str):
         """Start market data websocket stream"""
         try:

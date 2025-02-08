@@ -25,6 +25,8 @@ class InefficencySignal:
 
 
 class MarketInefficencyDetector:
+    """Market inefficiency detection using multiple indicators."""
+    
     def __init__(self, config: Dict):
         self.config = config
         self.pattern_detector = PatternDetector(config.get("pattern_config", {}))
@@ -56,39 +58,58 @@ class MarketInefficencyDetector:
         except Exception as e:
             logger.error(f"Detector cleanup failed: {str(e)}")
 
-    def detect_inefficiencies(
-        self,
-        prices: pd.DataFrame,
-        volume: pd.Series,
-        sentiment: Optional[pd.Series] = None,
-    ) -> List[InefficencySignal]:
-        """Detect market inefficiencies from multiple sources"""
+    def detect_inefficiencies(self, prices: pd.DataFrame, volume: pd.Series, 
+                            sentiment: pd.Series) -> Dict:
+        """
+        Detect market inefficiencies using multiple signals.
+        
+        Args:
+            prices: DataFrame with OHLCV data
+            volume: Series of volume data
+            sentiment: Series of sentiment scores
+            
+        Returns:
+            dict: Signal details with confidence and direction
+        """
         signals = []
-
-        # Technical pattern-based inefficiencies
-        pattern_signals = self._detect_pattern_inefficiencies(prices, volume)
-        signals.extend(pattern_signals)
-
-        # Behavioral inefficiencies
-        behavior_signals = self._detect_behavioral_inefficiencies(
-            prices, volume, sentiment
-        )
-        signals.extend(behavior_signals)
-
-        # Liquidity-based inefficiencies
-        liquidity_signals = self._detect_liquidity_inefficiencies(prices, volume)
-        signals.extend(liquidity_signals)
-
-        # Filter and sort signals by confidence
-        return sorted(
-            [
-                s
-                for s in signals
-                if s.confidence >= self.config.get("min_confidence", 0.6)
-            ],
-            key=lambda x: x.confidence,
-            reverse=True,
-        )
+        
+        # Get signals from each detector
+        tech_signals = self._detect_technical_signals(prices)
+        if tech_signals:
+            signals.extend(tech_signals)
+            
+        behavior_signals = self._detect_behavioral_inefficiencies(prices, volume, sentiment)
+        if behavior_signals:
+            signals.extend(behavior_signals)
+            
+        liquidity_signals = self._detect_liquidity_signals(prices, volume)
+        if liquidity_signals:  # Check for None before extending
+            signals.extend(liquidity_signals)
+            
+        # If no signals detected, return neutral signal
+        if not signals:
+            return {
+                'confidence': 0.0,
+                'direction': 0,
+                'magnitude': 0.0,
+                'metadata': {'source': 'no_signals'}
+            }
+            
+        # Combine signals
+        confidence = np.mean([s['confidence'] for s in signals])
+        direction = np.sign(np.mean([s['direction'] for s in signals]))
+        magnitude = np.mean([s['magnitude'] for s in signals])
+        
+        return {
+            'confidence': float(confidence),
+            'direction': int(direction),
+            'magnitude': float(magnitude),
+            'metadata': {
+                'source': 'combined',
+                'signals': len(signals),
+                'components': [s['metadata']['source'] for s in signals]
+            }
+        }
 
     def _detect_pattern_inefficiencies(
         self, prices: pd.DataFrame, volume: pd.Series
@@ -140,9 +161,106 @@ class MarketInefficencyDetector:
         # Other behavioral signals...
         return signals
 
-    def _detect_liquidity_inefficiencies(
-        self, prices: pd.DataFrame, volume: pd.Series
-    ) -> List[InefficencySignal]:
-        """Detect liquidity-based market inefficiencies"""
-        # Implementation for liquidity inefficiencies
-        pass
+    def _detect_liquidity_signals(self, prices: pd.DataFrame, 
+                                volume: pd.Series) -> List[Dict]:
+        """Detect liquidity-based inefficiencies."""
+        try:
+            # Calculate volume profile
+            vol_ma = volume.rolling(window=20).mean()
+            vol_ratio = volume / vol_ma
+            
+            # Look for volume spikes
+            signals = []
+            for i in range(len(vol_ratio)):
+                if vol_ratio.iloc[i] > 2.0:  # Volume spike threshold
+                    signals.append({
+                        'confidence': min(vol_ratio.iloc[i] / 4.0, 1.0),
+                        'direction': 1 if prices['close'].iloc[i] > prices['open'].iloc[i] else -1,
+                        'magnitude': vol_ratio.iloc[i] / 2.0,
+                        'metadata': {'source': 'liquidity'}
+                    })
+            return signals
+            
+        except Exception as e:
+            logger.error(f"Error in liquidity detection: {e}")
+            return []  # Return empty list instead of None
+
+    def _detect_technical_signals(self, prices: pd.DataFrame) -> List[Dict]:
+        """
+        Detect technical analysis based signals.
+        
+        Args:
+            prices: DataFrame with OHLCV data
+            
+        Returns:
+            List[Dict]: List of technical signals with:
+                - confidence: Signal strength [0-1]
+                - direction: 1 for long, -1 for short
+                - magnitude: Expected price movement
+                - metadata: Signal details
+        """
+        try:
+            signals = []
+            
+            # Get price series
+            close = prices['close']
+            
+            # 1. Moving Average Crossovers
+            short_ma = close.rolling(window=5).mean()
+            long_ma = close.rolling(window=20).mean()
+            
+            # Generate crossover signals
+            if len(close) > 20:  # Ensure enough data
+                # Bullish crossover
+                if short_ma.iloc[-2] < long_ma.iloc[-2] and short_ma.iloc[-1] > long_ma.iloc[-1]:
+                    signals.append({
+                        'confidence': 0.6,
+                        'direction': 1,  # Long
+                        'magnitude': 0.02,  # 2% expected move
+                        'metadata': {'source': 'ma_crossover_bullish'}
+                    })
+                    
+                # Bearish crossover    
+                elif short_ma.iloc[-2] > long_ma.iloc[-2] and short_ma.iloc[-1] < long_ma.iloc[-1]:
+                    signals.append({
+                        'confidence': 0.6,
+                        'direction': -1,  # Short
+                        'magnitude': 0.02,
+                        'metadata': {'source': 'ma_crossover_bearish'}
+                    })
+            
+            # 2. RSI Signals
+            rsi_period = 14
+            delta = close.diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=rsi_period).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=rsi_period).mean()
+            rs = gain / loss
+            rsi = 100 - (100 / (1 + rs))
+            
+            # Generate RSI signals
+            if len(rsi) > rsi_period:
+                current_rsi = rsi.iloc[-1]
+                
+                # Oversold signal
+                if current_rsi < 30:
+                    signals.append({
+                        'confidence': 0.7,
+                        'direction': 1,  # Long
+                        'magnitude': 0.03,
+                        'metadata': {'source': 'rsi_oversold', 'value': current_rsi}
+                    })
+                    
+                # Overbought signal
+                elif current_rsi > 70:
+                    signals.append({
+                        'confidence': 0.7,
+                        'direction': -1,  # Short
+                        'magnitude': 0.03,
+                        'metadata': {'source': 'rsi_overbought', 'value': current_rsi}
+                    })
+            
+            return signals
+            
+        except Exception as e:
+            logger.error(f"Error in technical signal detection: {e}")
+            return []  # Return empty list on error
