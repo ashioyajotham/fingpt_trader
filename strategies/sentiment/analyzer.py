@@ -4,6 +4,12 @@ from textblob import TextBlob
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from datetime import datetime, timedelta
 import pandas as pd
+from models.llm.fingpt import FinGPT
+from services.data_feeds.news_service import NewsDataFeed
+from services.data_feeds.market_data_service import MarketDataFeed
+
+import logging
+logger = logging.getLogger(__name__)
 
 class SentimentAnalyzer:
     def __init__(self, config: Optional[Dict] = None):
@@ -40,40 +46,117 @@ class SentimentAnalyzer:
         self.price_impacts = {}
         self.correlation_history = {}
 
+        # Get model instance from config
+        self.fingpt = config.get('model')
+        if not self.fingpt:
+            raise ValueError("FinGPT model instance required")
+            
+        # Get model config
+        self.model_config = config.get('model_config', {})
+        
+        # Initialize data feeds with proper config
+        market_feed_config = {
+            'pairs': config.get('pairs', ['BTCUSDT', 'ETHUSDT']),
+            'update_interval': config.get('market_interval', 60),
+            'cache_size': config.get('cache_size', 1000)
+        }
+        
+        news_feed_config = {
+            'update_interval': config.get('news_interval', 300),
+            'sources': config.get('news_sources', []),
+            'languages': ['en'],
+            'relevance_threshold': 0.5
+        }
+        
+        self.market_feed = MarketDataFeed(market_feed_config)
+        self.news_feed = NewsDataFeed(news_feed_config)
+        
+        # Data handlers
+        self.handlers = {
+            'market': self._handle_market_data,
+            'news': self._handle_news_data
+        }
+        
+        # Sentiment aggregation
+        self.sentiment_scores = {
+            'vader': 0.3,    # Traditional NLP weight
+            'textblob': 0.2, # Basic sentiment weight
+            'fingpt': 0.5    # FinGPT model weight
+        }
+        
+        # Configure data update frequencies
+        self.news_interval = config.get('news_interval', 300)  # 5 minutes
+        self.market_interval = config.get('market_interval', 60)  # 1 minute
+        
+        # Last update timestamps
+        self.last_news_update = datetime.now()
+        self.last_market_update = datetime.now()
+
     async def initialize(self) -> None:
-        """Initialize the analyzer - required by system interface"""
+        """Initialize analyzer and data feeds"""
         self.last_update = datetime.now()
         self.sentiment_buffer = {}
         
         # Initialize market correlation tracking
         self.price_history = {}
         self.sentiment_scores = {}
+        
+        # Initialize data feeds
+        await self.market_feed.start()
+        await self.market_feed.subscribe(self.handlers['market'])
+        
+        await self.news_feed.start()
+        await self.news_feed.subscribe(self.handlers['news'])
+        
+        logger.info("Sentiment analyzer initialized with FinGPT and data feeds")
 
     async def cleanup(self) -> None:
-        """Cleanup resources - required by system interface"""
-        pass  # Nothing to cleanup for VADER/TextBlob
+        """Cleanup resources"""
+        try:
+            await self.market_feed.stop()
+            await self.news_feed.stop()
+            logger.info("Data feeds stopped")
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
 
-    def analyze(self, text: str) -> Dict[str, float]:
-        """Analyze text sentiment using multiple models"""
-        # Get VADER sentiment
-        vader_scores = self.vader.polarity_scores(text)
-
-        # Get TextBlob sentiment
-        blob = TextBlob(text)
-        blob_scores = {
-            "polarity": blob.sentiment.polarity,
-            "subjectivity": blob.sentiment.subjectivity,
-        }
-
-        # Combine scores with weights
-        combined_score = self._combine_scores(vader_scores, blob_scores)
-
+    async def analyze(self, text: str) -> Dict[str, float]:
+        """Enhanced sentiment analysis with FinGPT"""
+        # Use existing FinGPT instance
+        sentiment = await self.fingpt.predict_sentiment(text)
+        
+        # Get traditional sentiment as backup
+        basic_sentiment = self._get_basic_sentiment(text)
+        
+        # Combine with proper weights
+        combined = (
+            self.sentiment_scores['fingpt'] * sentiment +
+            self.sentiment_scores['vader'] * basic_sentiment['vader']['compound'] +
+            self.sentiment_scores['textblob'] * basic_sentiment['textblob']['polarity']
+        )
+        
         return {
-            "compound": combined_score,
-            "vader": vader_scores,
-            "textblob": blob_scores,
-            "confidence": self._calculate_confidence(vader_scores, blob_scores),
+            'compound': combined,
+            'components': {
+                'fingpt': sentiment,
+                'basic': basic_sentiment
+            }
         }
+
+    async def update_market_data(self) -> None:
+        """Update market data from feed"""
+        if (datetime.now() - self.last_market_update).seconds > self.market_interval:
+            market_data = await self.market_feed.get_latest()
+            for symbol, data in market_data.items():
+                self.add_market_data(symbol, data['price'], data['timestamp'])
+            self.last_market_update = datetime.now()
+
+    async def update_news_data(self) -> None:
+        """Update news data from feed"""
+        if (datetime.now() - self.last_news_update).seconds > self.news_interval:
+            news_data = await self.news_feed.get_latest()
+            for item in news_data:
+                await self.process_news_item(item)
+            self.last_news_update = datetime.now()
 
     def _combine_scores(self, vader: Dict, blob: Dict) -> float:
         """Combine scores from different models"""
@@ -234,3 +317,28 @@ class SentimentAnalyzer:
         correlation = self.market_correlation.get(symbol, 0.5)
         
         return base_sentiment * correlation
+
+    async def _handle_market_data(self, event_type: str, pair: str, data: Dict) -> None:
+        """Process market data updates"""
+        if event_type == 'orderbook':
+            # Update market state for sentiment correlation
+            price = float(data['data']['asks'][0][0])  # Best ask price
+            await self.add_market_data(pair, price, datetime.now())
+            
+        elif event_type == 'trades':
+            # Process trade data for market impact analysis
+            await self._process_trade_impact(pair, data['data'])
+
+    async def _handle_news_data(self, news_item: Dict) -> None:
+        """Process news updates"""
+        # Extract relevant symbols
+        symbols = news_item.get('symbols', [])
+        
+        for symbol in symbols:
+            if symbol in self.active_pairs:
+                # Process sentiment for each relevant pair
+                await self.add_sentiment_data(
+                    symbol,
+                    f"{news_item['title']} {news_item['content']}",
+                    news_item['timestamp']
+                )

@@ -13,6 +13,105 @@ sys.path.insert(0, root_dir)
 
 from services.base_service import BaseService
 
+"""Real-time news and social media data feed service"""
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+class NewsDataFeed(BaseService):
+    """Real-time news data feed handler"""
+    
+    def __init__(self, config: Optional[Dict] = None):
+        super().__init__(config or {})
+        self.config = config or {}
+        self.cache = []
+        self.running = False
+        self.update_interval = self.config.get('news_interval', 300)  # 5 minutes
+        self.max_cache_size = self.config.get('max_cache_size', 1000)
+        self.session = None
+        
+        # Add news filters and processors
+        self.filters = {
+            'relevance': 0.5,  # Minimum relevance score
+            'languages': ['en'],
+            'sources': config.get('sources', [])
+        }
+        
+        # Add crypto-specific keywords
+        self.keywords = {
+            'BTCUSDT': ['bitcoin', 'btc', 'crypto'],
+            'ETHUSDT': ['ethereum', 'eth', 'defi'],
+            # Add more pairs as needed
+        }
+
+    async def start(self) -> None:
+        """Start the news feed"""
+        self.running = True
+        self.session = aiohttp.ClientSession()
+        logger.info("News data feed started")
+
+    async def stop(self) -> None:
+        """Stop the news feed"""
+        self.running = False
+        if self.session:
+            await self.session.close()
+        self.cache.clear()
+        logger.info("News data feed stopped")
+
+    async def get_latest(self) -> List[Dict]:
+        """Get latest news items"""
+        return self.cache.copy()
+
+    async def process_news(self, news_item: Dict) -> None:
+        """Enhanced news processing with filtering"""
+        # Check relevance
+        if not self._check_relevance(news_item):
+            return
+            
+        # Extract symbols
+        symbols = self._extract_symbols(news_item)
+        if not symbols:
+            return
+            
+        # Process and cache
+        processed_item = {
+            'title': news_item.get('title', ''),
+            'content': news_item.get('content', ''),
+            'source': news_item.get('source', ''),
+            'timestamp': datetime.now(),
+            'symbols': symbols,
+            'relevance': self._calculate_relevance(news_item)
+        }
+        
+        self.cache.append(processed_item)
+        await self._notify_handlers(processed_item)
+        
+        # Maintain cache size
+        if len(self.cache) > self.max_cache_size:
+            self.cache.pop(0)
+
+    def _check_relevance(self, news_item: Dict) -> bool:
+        """Check if news item is relevant"""
+        text = f"{news_item.get('title', '')} {news_item.get('content', '')}"
+        
+        # Check keywords
+        for pair, keywords in self.keywords.items():
+            if any(keyword.lower() in text.lower() for keyword in keywords):
+                return True
+                
+        return False
+
+    def _extract_symbols(self, news_item: Dict) -> List[str]:
+        """Extract trading pairs from news"""
+        text = f"{news_item.get('title', '')} {news_item.get('content', '')}"
+        symbols = []
+        
+        for pair, keywords in self.keywords.items():
+            if any(keyword.lower() in text.lower() for keyword in keywords):
+                symbols.append(pair)
+                
+        return symbols
 
 class NewsService(BaseService):
     def __init__(self, config: Optional[Dict] = None):

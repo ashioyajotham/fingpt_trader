@@ -1,11 +1,4 @@
-# FinGPT Trading System Configuration
-#
-# This is the main configuration file for the FinGPT trading system.
-# It controls both production and development environments.
-#
-# Usage:
-#   Production: python main.py
-#   Development: python scripts/run_trader.py
+# Trading System Core Configuration
 
 # Exchange Configuration
 exchanges:
@@ -21,59 +14,28 @@ trading:
   pairs:  # Single source of truth for trading pairs
     - BTCUSDT
     - ETHUSDT
-  initial_balance: 1000.0  # Reduced for testnet testing
+  initial_balance: 1000.0
   confidence_threshold: 0.7
-  min_trade_amount: 1.0    # Reduced minimum for testnet
+  min_trade_amount: 1.0
   max_position_size: 0.2
   loop_interval: 60
 
-# Risk Management Settings
+# Risk Management
 risk:
   max_drawdown: 0.1
   position_limit: 0.2
   var_limit: 0.02
   leverage_limit: 1.0
-  concentration_limit: 0.35      # Increased from 0.30
-  min_position_size: 0.01        # 1% minimum position size
+  concentration_limit: 0.35
+  min_position_size: 0.01
 
-# Robo-Advisory Settings
-robo:
-  strategy:
-    risk_profile: moderate          # Risk profile: conservative, moderate, aggressive
-    rebalance_threshold: 0.05       # 5% deviation triggers rebalancing
-    constraints:
-      min_position_size: 0.01       # Minimum position as decimal
-      max_position_size: 0.1        # Maximum position as decimal
-      max_leverage: 1.0             # Maximum allowed leverage
+# External Configurations
+configs:
+  model: "config/model.yaml"
+  services: "config/services.yaml"
 
-# Client Profile Settings
-client_profile:
-  risk_score: 5                     # Risk tolerance (1-10)
-  investment_horizon: 365           # Investment horizon in days
-  tax_rate: 0.25                   # Client's tax rate
-  constraints:
-    max_position_size: 0.1         # Maximum single position
-    min_position_size: 0.01        # Minimum single position
-    max_leverage: 1.0              # Maximum leverage
-
-# Trading Strategies
-strategies:
-  tax_aware:
-    enabled: true                  # Enable tax-aware trading
-    min_holding_period: 30         # Minimum days to hold
-    tax_loss_threshold: -0.05      # Trigger tax-loss harvesting at -5%
-
-# Development Settings
+# Development Mode
 development:
-  enabled: true                    # Enable development mode
-  test_pairs:                      # Override pairs in development
-    - BTCUSDT
-    - ETHUSDT
-    - BNBUSDT
-  max_pairs: 10                    # Limit number of pairs in development
-
-# Note: test_mode under exchanges is the single source of truth for
-# determining whether to use testnet or mainnet. This setting affects
-# the entire system regardless of other configurations.
-
-# Note: Using testnet for development and testing
+  enabled: true
+  test_pairs: ["BTCUSDT", "ETHUSDT", "BNBUSDT"]
+  max_pairs: 10

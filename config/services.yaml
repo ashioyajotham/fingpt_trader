@@ -1,11 +1,31 @@
 # External Services Configuration
-#
-# Contains API credentials and service endpoints for:
-# - News providers
-# - ML model services
-# - Fallback services
-# Do not include exchange settings (moved to trading.yaml)
 
+# Data Feed Settings
+data_feeds:
+  market:
+    update_interval: 60  # 1 minute
+    cache_size: 1000
+    indicators:
+      - price
+      - volume
+      - orderbook
+    fallback_sources:
+      - kucoin
+      - huobi
+
+  news:
+    update_interval: 300  # 5 minutes
+    cache_size: 1000
+    sources:
+      - cryptopanic
+      - newsapi
+    languages: ["en"]
+    relevance_threshold: 0.5
+    keywords:
+      BTCUSDT: ["bitcoin", "btc", "crypto"]
+      ETHUSDT: ["ethereum", "eth", "defi"]
+
+# API Credentials
 api:
   news:
     provider: "cryptopanic"
