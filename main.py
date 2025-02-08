@@ -10,12 +10,28 @@ from pathlib import Path
 from typing import Dict, Optional
 import yaml
 from datetime import datetime
+import argparse
 
 from utils.config import ConfigManager
 from utils.logging import LogManager
 from strategies.sentiment.analyzer import SentimentAnalyzer
 from strategies.portfolio.manager import PortfolioManager
 from services.trading.robo_service import RoboService
+
+def parse_args():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(description="FinGPT Trading System")
+    
+    # Verbosity options (mutually exclusive)
+    verbosity = parser.add_mutually_exclusive_group()
+    verbosity.add_argument("-v", "--verbose", action="store_true",
+                          help="Enable verbose logging (INFO level)")
+    verbosity.add_argument("-d", "--debug", action="store_true",
+                          help="Enable debug logging (DEBUG level)")
+    verbosity.add_argument("-q", "--quiet", action="store_true",
+                          help="Minimal logging (ERROR level)")
+    
+    return parser.parse_args()
 
 # Initialize logging
 LogManager({"log_dir": "logs", "level": "INFO"}).setup_basic_logging()
@@ -120,19 +136,20 @@ class TradingSystem:
                             # Get market data
                             orderbook = client.get_orderbook_snapshot(pair)
                             
-                            # Update sentiment
-                            if pair in self.market_data:
-                                await self.sentiment_analyzer.add_market_data(
-                                    pair,
-                                    float(orderbook['asks'][0][0]),  # Current best ask
-                                    datetime.now()
-                                )
+                            # Update sentiment - Remove await as method returns float
+                            sentiment_impact = self.sentiment_analyzer.get_sentiment_impact(pair)
                             
-                            # Update portfolio manager
-                            signals = await self.portfolio_manager.generate_signals({
+                            # Update portfolio manager with correct structure
+                            market_data = {
                                 'orderbook': orderbook,
-                                'sentiment': self.sentiment_analyzer.get_sentiment_impact(pair)
-                            })
+                                'sentiment': {pair: sentiment_impact},
+                                'market': {
+                                    'candles': self.market_data.get('candles', {}),
+                                    'trades': self.market_data.get('trades', {})
+                                }
+                            }
+                            
+                            signals = await self.portfolio_manager.generate_signals(market_data)
                             
                             # Execute trades via robo service
                             if signals:
@@ -180,6 +197,23 @@ class TradingSystem:
             logger.info("System shutdown complete")
 
 if __name__ == "__main__":
+    # Parse command line arguments
+    args = parse_args()
+    
+    # Determine logging level
+    if args.debug:
+        log_level = "DEBUG"
+    elif args.verbose:
+        log_level = "INFO"
+    elif args.quiet:
+        log_level = "ERROR"
+    else:
+        log_level = "WARNING"  # Default level
+    
+    # Initialize logging with verbosity
+    LogManager({"log_dir": "logs"}).setup_basic_logging(log_level)
+    logger = logging.getLogger(__name__)
+    
     # Windows-specific settings
     if sys.platform.startswith('win'):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())

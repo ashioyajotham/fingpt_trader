@@ -1,3 +1,39 @@
+"""
+Robo Advisory Service for Automated Trading
+
+This service provides automated portfolio management with:
+1. Client Profile Management
+   - Risk tolerance scoring
+   - Investment horizon tracking
+   - Tax-aware trading preferences
+   - ESG (Environmental, Social, Governance) preferences
+
+2. Portfolio Management
+   - Initial $10K allocation
+   - Position sizing and rebalancing
+   - Tax-loss harvesting
+   - Risk-adjusted returns optimization
+
+3. Trading Strategy Integration
+   - Tax-aware trading execution
+   - Portfolio rebalancing signals
+   - Risk limit enforcement
+   - Performance tracking
+
+Architecture:
+    RoboService
+    ├── Portfolio (position management)
+    ├── MockClientProfile (client preferences)
+    └── TaxAwareStrategy (tax optimization)
+
+Configuration:
+    - initial_balance: Starting portfolio value
+    - risk_score: Client risk tolerance (1-10)
+    - investment_horizon: Target investment period
+    - tax_rate: Client's tax bracket
+    - position_limits: Min/max position sizes
+"""
+
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -21,32 +57,68 @@ from strategies.portfolio.tax_aware import TaxAwareStrategy
 logger = logging.getLogger(__name__)
 
 class RoboService(BaseService):
+    """
+    Automated portfolio management and trading service.
+    
+    Responsibilities:
+        - Manage client profiles and preferences
+        - Execute tax-aware trading strategies
+        - Monitor portfolio performance
+        - Enforce risk limits
+        - Generate trading signals
+    """
+    
     def __init__(self, config: Dict):
+        """
+        Initialize RoboService with configuration.
+        
+        Args:
+            config: Dictionary containing:
+                - trading: Trading parameters
+                - client_profile: Client preferences
+                - strategies: Strategy configurations
+                - risk: Risk management limits
+        """
         super().__init__(config)
         
-        # Get initial balance from config, default to 10000.0
+        # Initialize portfolio with default $10K or configured balance
         initial_balance = self.config.get('trading', {}).get('initial_balance', 10000.0)
-        self.portfolio = Portfolio(initial_balance)  # Pass initial balance
+        self.portfolio = Portfolio(initial_balance)
         
-        # Initialize client profile with default values or from config
+        # Setup client profile with risk preferences
         profile_config = config.get('client_profile', {})
         self.client_profile = MockClientProfile(
-            risk_score=profile_config.get('risk_score', 5),  # Medium risk (1-10)
-            investment_horizon=profile_config.get('investment_horizon', 365),  # 1 year in days
-            constraints=profile_config.get('constraints', {}),  # Trading constraints
-            tax_rate=profile_config.get('tax_rate', 0.25),  # 25% default tax rate
-            esg_preferences=profile_config.get('esg_preferences', {})  # ESG preferences
+            risk_score=profile_config.get('risk_score', 5),       # Medium risk (1-10)
+            investment_horizon=profile_config.get('investment_horizon', 365),  # 1 year
+            constraints=profile_config.get('constraints', {}),     # Trading limits
+            tax_rate=profile_config.get('tax_rate', 0.25),        # 25% tax rate
+            esg_preferences=profile_config.get('esg_preferences', {})  # ESG settings
         )
         
-        # Initialize strategies with proper configuration
+        # Initialize tax-aware trading strategy
         strategy_config = config.get('strategies', {})
         self.tax_aware_strategy = TaxAwareStrategy(
-            config=config,  # Pass full config
-            profile=self.client_profile.__dict__  # Convert profile to dict
+            config=config,
+            profile=self.client_profile.__dict__
         )
 
     async def _setup(self):
-        """Required implementation of abstract _setup method"""
+        """
+        Initialize portfolio and risk management settings.
+        
+        Responsibilities:
+        - Set initial portfolio positions (BTC, ETH, BNB)
+        - Configure risk parameters
+            * Maximum drawdown limits
+            * Position size constraints
+            * VaR (Value at Risk) limits
+            * Leverage restrictions
+        - Initialize portfolio state
+        
+        Raises:
+            ValueError: If configuration is invalid
+            Exception: If initialization fails
+        """
         try:
             # Initialize with default portfolio positions
             initial_positions = {
@@ -90,7 +162,18 @@ class RoboService(BaseService):
         await self._cleanup()
 
     async def _cleanup(self):
-        """Required implementation of abstract _cleanup method"""
+        """
+        Clean shutdown of all RoboService components.
+        
+        Handles:
+        - Portfolio state cleanup
+        - Exchange connection closure
+        - Resource deallocation
+        - Graceful shutdown timing
+        
+        Raises:
+            Exception: Logs error but continues cleanup
+        """
         try:
             # Cleanup portfolio first
             if hasattr(self, 'portfolio'):
@@ -110,15 +193,37 @@ class RoboService(BaseService):
 
     async def analyze_position(self, pair: str, price: float, position: Dict = None) -> Optional[str]:
         """
-        Analyze position and generate trading signals based on strategies
+        Generate trading signals based on multiple strategy inputs.
+        
+        Strategy Layers:
+        1. Tax-Aware Trading
+            - Tax-loss harvesting opportunities
+            - Holding period optimization
+            - Wash sale prevention
+        
+        2. Portfolio Optimization
+            - Position size limits
+            - Risk exposure management
+            - Rebalancing triggers
+        
+        3. Risk Management
+            - Drawdown protection
+            - Leverage monitoring
+            - Exposure limits
         
         Args:
-            pair: Trading pair symbol (e.g. 'BTCUSDT') 
+            pair: Trading pair symbol (e.g., 'BTCUSDT')
             price: Current market price
-            position: Optional position info dictionary or float amount, will be fetched if not provided
-            
+            position: Optional position info with keys:
+                     - size: Current position size
+                     - entry_price: Entry price
+                     - holding_period: Days held
+        
         Returns:
             Optional[str]: Trading signal ('BUY', 'SELL', or None)
+        
+        Raises:
+            Exception: Logs error and returns None on failure
         """
         try:
             # Convert float position to dict format

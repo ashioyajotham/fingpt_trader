@@ -246,10 +246,16 @@ class PortfolioManager(BaseStrategy):
             volatility = self._calculate_volatility()
             liquidity = self._calculate_liquidity()
             
+            # Calculate total volume - fix for float iteration error
+            total_volume = 0
+            for symbol, trades in recent_trades.items():
+                if isinstance(trades, list):
+                    total_volume += sum(float(trade.get('volume', 0)) for trade in trades)
+            
             # Detect market regime
             regime_data = {
                 'volatility': volatility,
-                'volume': sum(float(trade.get('volume', 0)) for trade in recent_trades.values()),
+                'volume': total_volume,  # Now using properly calculated volume
                 'spread': self._calculate_average_spread(orderbooks),
                 'price_impact': self._estimate_price_impact(orderbooks)
             }

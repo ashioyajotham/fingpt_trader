@@ -5,16 +5,30 @@ from datetime import datetime
 from typing import Dict
 
 class LogManager:
-    """Simple rotating file logger with optional YAML config support"""
+    """Manages logging with different verbosity levels and file separation"""
     
     def __init__(self, config: Dict = None):
         self.config = config or {}
         self.log_dir = Path(self.config.get("log_dir", "logs"))
-        self.level = getattr(logging, self.config.get("level", "INFO"))
+        self.timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
-    def setup_basic_logging(self) -> None:
-        """Setup basic logging with console and file output"""
+    def setup_basic_logging(self, verbosity: str = "INFO") -> None:
+        """
+        Setup logging with configurable verbosity
+        
+        Args:
+            verbosity: Logging level ("DEBUG", "INFO", "WARNING", "ERROR")
+        """
         self.log_dir.mkdir(exist_ok=True)
+        
+        # Map verbosity to logging level
+        level_map = {
+            "DEBUG": logging.DEBUG,
+            "INFO": logging.INFO,
+            "WARNING": logging.WARNING,
+            "ERROR": logging.ERROR
+        }
+        level = level_map.get(verbosity.upper(), logging.WARNING)
         
         # Create formatters
         console_formatter = logging.Formatter(
@@ -28,20 +42,30 @@ class LogManager:
 
         # Setup console handler
         console = logging.StreamHandler(sys.stdout)
-        console.setLevel(self.level)
+        console.setLevel(level)
         console.setFormatter(console_formatter)
 
-        # Setup file handler
-        log_file = self.log_dir / f"trading_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(self.level)
+        # Setup main log file
+        main_log = self.log_dir / f"trading_{self.timestamp}.log"
+        file_handler = logging.FileHandler(main_log)
+        file_handler.setLevel(level)
         file_handler.setFormatter(file_formatter)
 
         # Configure root logger
         root_logger = logging.getLogger()
-        root_logger.setLevel(self.level)
+        root_logger.setLevel(level)
+        
+        # Remove any existing handlers
+        root_logger.handlers.clear()
+        
+        # Add handlers
         root_logger.addHandler(console)
         root_logger.addHandler(file_handler)
+        
+        # Set third-party loggers to WARNING unless in DEBUG mode
+        if verbosity.upper() != "DEBUG":
+            for logger_name in ["urllib3", "binance", "asyncio"]:
+                logging.getLogger(logger_name).setLevel(logging.WARNING)
         
     @staticmethod
     def setup_from_yaml(yaml_path: str = None):
