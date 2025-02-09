@@ -2,23 +2,30 @@ fingpt:
   model:
     base:
       name: "tiiuae/falcon-7b"
-      revision: "main"
+      format: "gguf"  # Changed from ggml to gguf
+      version: "v3"
       trust_remote_code: true
       dtype: "float16"
       low_cpu_mem_usage: true
     
-    peft:
-      name: "FinGPT/fingpt-mt_falcon-7b_lora"
-      adapter_type: "lora"
-      inference_mode: true
+    llama_cpp:  # Add llama.cpp specific settings
+      n_ctx: 2048
+      n_threads: 4
+      n_gpu_layers: 0
+      n_batch: 512
+      embedding: true
+      f16_kv: true
+      logits_all: false
+      vocab_only: false
+      use_mmap: true
+      use_mlock: false
     
     conversion:
-      format: "ggml"
+      output_format: "gguf"  # Update to GGUF format
       precision: "f16"
-      quantization:
-        type: "q4_0"
-        bits: 4
-    
+      quantization: "q4_0"
+      tensor_parallel: 1
+      
     inference:
       n_ctx: 2048
       n_threads: 4

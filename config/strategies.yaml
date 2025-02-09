@@ -31,7 +31,7 @@ sentiment:
     min_confidence: 0.6
     impact_weights:
       sentiment: 0.4
-      volume: 0.3
+      market_data: 0.3
       correlation: 0.3
 
   # Trading parameters
@@ -49,9 +49,15 @@ sentiment:
 
   # Model settings
   model:
-    weights:
-      vader: 0.7
-      textblob: 0.3
+    name: "fingpt"  # Specify single model instead of weights
+    version: "mt_falcon-7b"
+    format: "gguf"  # Add GGUF format specification
+    backend: "llama_cpp"  # Specify backend
+    settings:  
+      context_length: 2048
+      batch_size: 512
+      temperature: 0.1
+      repetition_penalty: 1.1
 
 inefficiency:
   window: 20

@@ -9,3 +9,25 @@ api:
     
   huggingface:
     token: ${HUGGINGFACE_TOKEN}
+
+data_feeds:
+  market:
+    update_interval: 60
+    cache_size: 1000
+    pairs: ["BTCUSDT", "ETHUSDT"]
+    cache_ttl: 300
+    max_retries: 3
+    retry_delay: 5
+    
+  news:
+    update_interval: 300
+    cache_ttl: 300
+    max_cache_size: 1000
+    sources: ["cryptopanic", "newsapi"]
+    languages: ["en"]
+    relevance_threshold: 0.5
+    batch_size: 10
+    max_articles: 100
+    filters:
+      min_relevance: 0.3
+      max_age_hours: 24
