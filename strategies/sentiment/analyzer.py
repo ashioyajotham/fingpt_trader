@@ -1,63 +1,25 @@
-from typing import Dict, List, Optional, Tuple
-import numpy as np
-from textblob import TextBlob
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from typing import Dict, List, Optional
+import logging
 from datetime import datetime, timedelta
 import pandas as pd
+import numpy as np
 from models.llm.fingpt import FinGPT
 from services.data_feeds.news_service import NewsDataFeed
-from services.data_feeds.market_data_service import MarketDataService 
-from services.base_service import BaseService
 from services.data_feeds.market_data_service import MarketDataFeed
+from services.base_service import BaseService
 
-import logging
 logger = logging.getLogger(__name__)
 
 class SentimentAnalyzer(BaseService):
     def __init__(self, config: Optional[Dict] = None):
         super().__init__(config or {})
-        self.config = config or {}
-        self.vader = SentimentIntensityAnalyzer()
-
-        # Financial term modifiers
-        self.term_scores = {
-            "buy": 0.5,
-            "sell": -0.5,
-            "bullish": 0.7,
-            "bearish": -0.7,
-            "long": 0.3,
-            "short": -0.3,
-            "upgrade": 0.4,
-            "downgrade": -0.4,
-        }
-
-        # Add financial terms to VADER lexicon
-        self.vader.lexicon.update(self.term_scores)
-
-        # Add real-time sentiment tracking
-        self.sentiment_window = config.get('sentiment_window', 24)  # hours
-        self.sentiment_history = {}
-        self.market_correlation = {}
-        self.min_samples = config.get('min_samples', 10)
         
-        # Real-time correlation tracking
-        self.correlation_window = config.get('correlation_window', 12)  # hours
-        self.min_correlation_samples = config.get('min_correlation_samples', 24)
-        self.price_impact_threshold = config.get('price_impact_threshold', 0.02)
-        
-        # Initialize state
-        self.price_impacts = {}
-        self.correlation_history = {}
-
         # Get model instance from config
         self.fingpt = config.get('model')
         if not self.fingpt:
             raise ValueError("FinGPT model instance required")
             
-        # Get model config
-        self.model_config = config.get('model_config', {})
-        
-        # Initialize data feeds with proper config
+        # Initialize data feeds
         market_feed_config = {
             'pairs': config.get('pairs', ['BTCUSDT', 'ETHUSDT']),
             'update_interval': config.get('market_interval', 60),
@@ -80,20 +42,10 @@ class SentimentAnalyzer(BaseService):
             'news': self._handle_news_data
         }
         
-        # Sentiment aggregation
-        self.sentiment_scores = {
-            'vader': 0.3,    # Traditional NLP weight
-            'textblob': 0.2, # Basic sentiment weight
-            'fingpt': 0.5    # FinGPT model weight
-        }
-        
-        # Configure data update frequencies
-        self.news_interval = config.get('news_interval', 300)  # 5 minutes
-        self.market_interval = config.get('market_interval', 60)  # 1 minute
-        
-        # Last update timestamps
-        self.last_news_update = datetime.now()
-        self.last_market_update = datetime.now()
+        # State management
+        self.last_update = datetime.now()
+        self.sentiment_history = {}
+        self.market_correlation = {}
 
     async def _setup(self) -> None:
         """Required implementation of abstract method"""
@@ -161,11 +113,9 @@ class SentimentAnalyzer(BaseService):
             logger.error(f"Error during cleanup: {e}")
 
     async def analyze(self, text: str) -> Dict[str, float]:
-        """Enhanced sentiment analysis with text chunking"""
-        # Split into smaller chunks
-        chunks = self._chunk_text(text, max_tokens=750)  # Reduced max tokens
+        """Analyze sentiment using FinGPT only"""
+        chunks = self._chunk_text(text, max_tokens=750)
         
-        # Process each chunk
         sentiments = []
         for chunk in chunks:
             try:
@@ -175,12 +125,11 @@ class SentimentAnalyzer(BaseService):
                 logger.error(f"Error processing chunk (length={len(chunk)}): {e}")
                 continue
         
-        # If no valid sentiments, return neutral
         if not sentiments:
             logger.warning("No valid sentiment chunks processed, returning neutral")
             return {'compound': 0.0, 'confidence': 0.0}
             
-        # Average the valid sentiments
+        # Average sentiments
         compound = sum(s['sentiment'] for s in sentiments) / len(sentiments)
         confidence = sum(s['confidence'] for s in sentiments) / len(sentiments)
         
@@ -189,20 +138,15 @@ class SentimentAnalyzer(BaseService):
             'confidence': confidence
         }
 
-    def _chunk_text(self, text: str, max_tokens: int = 750) -> List[str]:  # Reduced from 1500 to 750
-        """Split text into smaller chunks that fit context window"""
+    def _chunk_text(self, text: str, max_tokens: int = 750) -> List[str]:
+        """Split text into chunks for processing"""
         words = text.split()
         chunks = []
-        current_chunk = []
-        current_length = 0
-        
-        # Rough estimation: average word is 5 chars + space
-        # Plus extra room for prompt template
         words_per_chunk = max_tokens // 6  # Conservative estimate
         
         for i in range(0, len(words), words_per_chunk):
             chunk = ' '.join(words[i:i + words_per_chunk])
-            if len(chunk) > 10:  # Minimum meaningful chunk size
+            if len(chunk) > 10:
                 chunks.append(chunk)
         
         return chunks
@@ -222,28 +166,6 @@ class SentimentAnalyzer(BaseService):
             for item in news_data:
                 await self.process_news_item(item)
             self.last_news_update = datetime.now()
-
-    def _combine_scores(self, vader: Dict, blob: Dict) -> float:
-        """Combine scores from different models"""
-        # Weights for each model
-        vader_weight = 0.7
-        blob_weight = 0.3
-
-        combined = vader_weight * vader["compound"] + blob_weight * blob["polarity"]
-
-        return np.clip(combined, -1.0, 1.0)
-
-    def _calculate_confidence(self, vader: Dict, blob: Dict) -> float:
-        """Calculate confidence score for sentiment"""
-        # Check agreement between models
-        score_diff = abs(vader["compound"] - blob["polarity"])
-        agreement_factor = 1.0 - (score_diff / 2.0)
-
-        # Consider subjectivity
-        subjectivity_factor = 1.0 - blob["subjectivity"]
-
-        confidence = (agreement_factor + subjectivity_factor) / 2.0
-        return confidence
 
     def add_market_data(self, symbol: str, price: float, timestamp: datetime) -> None:
         """Add market data for sentiment correlation"""

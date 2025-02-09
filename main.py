@@ -1,59 +1,72 @@
 """
 FinGPT Trading System - Production Entry Point
 
-A comprehensive algorithmic trading system combining machine learning,
-sentiment analysis, and traditional trading strategies.
+A comprehensive algorithmic trading system leveraging FinGPT for sentiment analysis
+and market inefficiency detection.
 
-System Architecture:
+Architecture:
     1. Core Components:
-        - Market Analysis:
-            * Inefficiency detection
-            * Technical analysis
-            * Sentiment processing
+        - Market Analysis Module:
+            * Real-time market data processing
+            * Technical analysis indicators
+            * Market inefficiency detection
+            * Sentiment analysis using FinGPT
+            * Price prediction models
+            
         - Portfolio Management:
-            * Position sizing
-            * Risk management
+            * Dynamic position sizing
             * Portfolio optimization
-        - Trading Execution:
-            * Multi-exchange support
-            * Order management
-            * Execution algorithms
-        - Robo-Advisory:
-            * Client profiling
-            * Portfolio recommendations
-            * Tax-aware trading
-
-    2. Key Features:
-        - Real-time market data processing
-        - ML-based market inefficiency detection
-        - Natural language processing for news analysis
-        - Advanced portfolio optimization
-        - Risk management and monitoring
-        - Tax-loss harvesting
-        - Multi-client portfolio management
-
-Usage:
-    python main.py
+            * Risk-adjusted allocation
+            * Multi-asset rebalancing
+            
+        - Risk Management:
+            * Real-time risk monitoring
+            * Position exposure limits
+            * Value at Risk (VaR) calculations
+            * Dynamic stop-loss management
+            * Market regime detection
+            
+        - Execution Engine:
+            * Smart order routing
+            * Multiple exchange support
+            * Order book analysis
+            * Transaction cost analysis
+            * Execution algorithm selection
+            
+        - Data Pipeline:
+            * Real-time market data feeds
+            * News and social media integration
+            * Data normalization
+            * Feature engineering
+            * Historical data management
 
 Configuration:
-    The system requires proper setup of:
+    The system requires proper setup of configuration files and environment:
+    
     1. Environment Variables:
-        - BINANCE_API_KEY: Exchange API key
-        - BINANCE_API_SECRET: Exchange API secret
-        - HUGGINGFACE_TOKEN: For ML models
-        - NEWS_API_KEY: For news fetching
+        - BINANCE_API_KEY: Exchange API credentials
+        - BINANCE_API_SECRET: Exchange secret key
+        - HUGGINGFACE_TOKEN: For FinGPT model access
+        - CRYPTOPANIC_API_KEY: For crypto news feed
+        - NEWS_API_KEY: Backup news source
         
     2. Configuration Files:
-        - config/trading.yaml: Main configuration
-        - .env: Environment variables
-        
+        - config/
+            ├── trading.yaml: Main trading parameters
+            ├── model.yaml: ML model configurations
+            └── services.yaml: Service configurations
+            
     3. Model Files:
-        - models/: ML model weights and configurations
+        - models/
+            ├── sentiment/: Sentiment analysis models
+            └── market/: Market analysis models
 
-Development vs Production:
-    - For development/testing use: scripts/run_trader.py
-    - For production deployment use: main.py (this file)
-
+      
+    External:
+        - Binance API
+        - CryptoPanic API
+        - HuggingFace API
+        - NewsAPI
 """
 
 import asyncio
@@ -95,35 +108,64 @@ from services.trading.robo_service import RoboService
 
 class TradingSystem:
     """
-    Production Trading System Implementation
+    Production-grade algorithmic trading system with ML-powered analysis.
     
-    - Market inefficiency detection
-    - Sentiment analysis
-    - Portfolio optimization
-    - Risk management
-    - Robo-advisory services
+    This class orchestrates all components of the trading system including:
+    market analysis, portfolio management, risk management, and trade execution.
+    
+    Key Features:
+        - Real-time market data processing
+        - ML-based sentiment analysis
+        - Dynamic portfolio optimization
+        - Risk-aware trade execution
+        - Multi-exchange support
     
     Components:
         - MarketInefficiencyDetector: Identifies trading opportunities
-        - SentimentAnalyzer: Processes market sentiment
-        - PortfolioOptimizer: Manages portfolio allocations
-        - RiskManager: Handles risk monitoring
-        - RoboService: Provides robo-advisory functionality
-        
+        - SentimentAnalyzer: NLP-based market sentiment analysis
+        - PortfolioOptimizer: Portfolio allocation and rebalancing
+        - RiskManager: Risk monitoring and exposure management
+        - RoboService: Automated portfolio management
+    
     Attributes:
-        config (Dict): System configuration
-        market_detector (MarketInefficencyDetector): Market analysis component
-        sentiment_analyzer (SentimentAnalyzer): NLP component
+        config (Dict): System configuration parameters
+        market_detector (MarketInefficiencyDetector): Market analysis
+        sentiment_analyzer (SentimentAnalyzer): Sentiment analysis
         portfolio_optimizer (PortfolioOptimizer): Portfolio management
-        risk_manager (RiskManager): Risk monitoring and limits
-        robo_service (RoboService): Robo-advisory services
-        exchange_clients (Dict): Exchange connections
-        client_profiles (Dict): Client information
+        risk_manager (RiskManager): Risk monitoring
+        robo_service (RoboService): Automated trading
+        exchange_clients (Dict[str, ExchangeClient]): Exchange connections
+        client_profiles (Dict[str, Dict]): Client configurations
         
+    Configuration Parameters:
+        trading:
+            pairs (List[str]): Trading pairs to monitor
+            initial_balance (float): Starting portfolio balance
+            confidence_threshold (float): Min confidence for trades
+            min_trade_amount (float): Minimum trade size
+            max_position_size (float): Maximum position size
+            
+        risk:
+            max_drawdown (float): Maximum allowed drawdown
+            position_limit (float): Maximum position size
+            var_limit (float): Value at Risk limit
+            leverage_limit (float): Maximum leverage
+            
+        model:
+            fingpt_config (Dict): FinGPT model parameters
+            market_config (Dict): Market analysis parameters
+            
     Methods:
         initialize(): Setup system components
         run(): Main trading loop
         shutdown(): Cleanup resources
+        execute_trades(): Execute trading decisions
+        update_portfolio(): Update portfolio state
+        check_risk_metrics(): Monitor risk limits
+    
+    Example:
+        >>> system = TradingSystem("config/trading.yaml")
+        >>> asyncio.run(system.run())
     """
     def __init__(self, config_path: str):
         self.config_manager = ConfigManager()
@@ -546,25 +588,65 @@ class TradingSystem:
         return results
 
     def _calculate_position_size(self, signal: Dict, portfolio_values: Dict) -> float:
-        """Calculate position size using Kelly criterion with risk adjustment"""
+        """Calculate position size with minimum quantity enforcement"""
+        # Get minimum position value (e.g., $10)
+        min_position_value = self.config.get('trading', {}).get('min_trade_amount', 10.0)
+        
+        # Calculate Kelly fraction based on signal
         kelly_fraction = signal['confidence'] * signal['magnitude']
         
-        # Get max position size with fallback value
+        # Get portfolio limits
         max_position = min(
-            self.config.get('trading', {}).get('max_position_size', 0.2),  # Default to 20%
+            self.config.get('trading', {}).get('max_position_size', 0.2),
             portfolio_values['total'] * self.config['risk']['position_limit']
         )
         
-        return min(kelly_fraction * portfolio_values['total'], max_position)
+        # Calculate position size
+        position_value = min(kelly_fraction * portfolio_values['total'], max_position)
+        
+        # Enforce minimum position size
+        if position_value < min_position_value:
+            position_value = min_position_value if signal['confidence'] > 0.7 else 0.0
+            
+        # Ensure we don't exceed available balance
+        position_value = min(position_value, portfolio_values['total'])
+        
+        if position_value < min_position_value:
+            return 0.0  # Don't trade if below minimum
+            
+        logger.info(f"Calculated position value: ${position_value:.2f}")
+        return position_value
 
     def _get_portfolio_values(self) -> Dict:
-        """Get current portfolio values"""
+        """Get current portfolio values with type validation"""
         if not self.portfolio:
+            initial_balance = float(self.config.get('trading', {}).get('initial_balance', 1000.0))
+            self.portfolio = {
+                'total': initial_balance,
+                'positions': {},
+                'values': {'CASH': initial_balance}
+            }
+            
+        # Ensure all values are numeric
+        try:
+            values = {}
+            for k, v in self.portfolio.get('values', {}).items():
+                try:
+                    values[k] = float(v)
+                except (TypeError, ValueError):
+                    logger.warning(f"Invalid value for {k}: {v}")
+                    continue
+            
+            self.portfolio['values'] = values
+            
+            return {
+                'total': sum(values.values()),
+                'positions': {k: float(v) for k, v in self.portfolio.get('positions', {}).items()}
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting portfolio values: {e}")
             return {'total': 0.0, 'positions': {}}
-        return {
-            'total': sum(self.portfolio['values']),
-            'positions': dict(zip(self.portfolio['positions'], self.portfolio['values']))
-        }
 
     async def set_portfolio(self, portfolio: Dict):
         """Set current portfolio state"""
@@ -572,18 +654,38 @@ class TradingSystem:
         await self._update_portfolio_state()
 
     async def _update_portfolio_state(self):
-        """Update portfolio state with current market prices"""
+        """Update portfolio state with proper type handling"""
         if not self.portfolio:
             return
-        
-        for symbol, quantity in self.portfolio['positions'].items():
-            for client in self.exchange_clients.values():
+            
+        try:
+            updated_values = {}
+            for symbol, quantity in self.portfolio['positions'].items():
                 try:
-                    price = await client.get_price(symbol)
-                    self.portfolio['values'][symbol] = quantity * price
-                    break
-                except:
+                    quantity = float(quantity)
+                    for client in self.exchange_clients.values():
+                        try:
+                            price = await client.get_price(symbol)
+                            if price > 0:
+                                updated_values[symbol] = quantity * price
+                                break
+                        except:
+                            continue
+                except (TypeError, ValueError):
+                    logger.warning(f"Invalid quantity for {symbol}: {quantity}")
                     continue
+            
+            # Add cash position if exists
+            if 'CASH' in self.portfolio.get('values', {}):
+                try:
+                    updated_values['CASH'] = float(self.portfolio['values']['CASH'])
+                except (TypeError, ValueError):
+                    updated_values['CASH'] = 0.0
+            
+            self.portfolio['values'] = updated_values
+            
+        except Exception as e:
+            logger.error(f"Error updating portfolio state: {e}")
 
     def update_risk_metrics(self) -> Dict:
         """Calculate current risk metrics"""
@@ -601,17 +703,45 @@ class TradingSystem:
         return risk_metrics
 
     def _calculate_exposure(self) -> float:
-        """Calculate current market exposure"""
-        if not self.portfolio:
+        """Calculate current market exposure with zero handling"""
+        if not self.portfolio or not self.portfolio.get('values'):
             return 0.0
-        return sum(abs(v) for v in self.portfolio['values']) / sum(self.portfolio['values'])
+            
+        total_value = sum(self.portfolio['values'].values())
+        if total_value == 0:
+            return 0.0
+            
+        abs_positions = sum(abs(v) for v in self.portfolio['values'].values())
+        return abs_positions / total_value
 
     def _calculate_concentration(self) -> float:
-        """Calculate portfolio concentration (Herfindahl index)"""
-        if not self.portfolio:
+        """Calculate portfolio concentration with proper numeric handling"""
+        if not self.portfolio or 'values' not in self.portfolio:
             return 0.0
-        weights = np.array(self.portfolio['values']) / sum(self.portfolio['values'])
-        return np.sum(weights ** 2)
+            
+        # Convert all values to float and filter out non-numeric
+        try:
+            values = {}
+            for k, v in self.portfolio['values'].items():
+                try:
+                    values[k] = float(v)
+                except (TypeError, ValueError):
+                    logger.warning(f"Invalid portfolio value for {k}: {v}")
+                    continue
+            
+            if not values:
+                return 0.0
+                
+            total = sum(values.values())
+            if total == 0:
+                return 0.0
+                
+            weights = np.array([v/total for v in values.values()])
+            return float(np.sum(weights * weights))
+            
+        except Exception as e:
+            logger.error(f"Error calculating concentration: {e}")
+            return 0.0
 
     async def _is_valid_symbol(self, symbol: str) -> bool:
         """Validate trading symbol across exchanges"""
@@ -788,7 +918,7 @@ class TradingSystem:
                     logger.info(f"Max Drawdown: {risk_metrics.get('max_drawdown', 0.0):.2%}")
                     logger.info(f"VaR: {risk_metrics.get('var', 0.0):.2%}")
                     logger.info(f"Exposure: {float(risk_metrics.get('exposure', 0.0)):.2%}")  # Convert to float
-                    logger.info(f"Concentration: {risk_metrics.get('concentration', 0.0):.2%}")
+                    logger.info(f"Concentration: {risk_metrics.get('concentration', 0.0)::.2%}")
                     
                     # Check risk limits with defaults
                     if (risk_metrics.get('max_drawdown', 0) > risk_config.get('max_drawdown', 0.10) or

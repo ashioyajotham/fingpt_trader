@@ -81,6 +81,12 @@ class BinanceClient:
                 testnet=self.testnet
             )
             
+            # Get exchange info for quantity precision
+            self.exchange_info = await self.client.get_exchange_info()
+            self.symbol_info = {
+                s['symbol']: s for s in self.exchange_info['symbols']
+            }
+            
             # Create session for custom requests
             self.session = aiohttp.ClientSession()
             
@@ -320,3 +326,132 @@ class BinanceClient:
         except Exception as e:
             logger.error(f"Error fetching price for {symbol}: {e}")
             return 0.0
+
+    async def create_buy_order(self, symbol: str, amount: float, order_type: str = 'MARKET') -> Dict:
+        """Create a buy order with proper quantity formatting"""
+        try:
+            # Get symbol info for precision
+            symbol_info = self.symbol_info.get(symbol)
+            if not symbol_info:
+                raise ValueError(f"Invalid symbol: {symbol}")
+            
+            # Convert amount to quantity based on current price
+            current_price = (await self.get_ticker(symbol))['price']
+            quantity = amount / current_price
+            
+            # Format quantity with lot size rules
+            formatted_quantity = self._format_quantity(quantity, symbol_info)
+            
+            # Get min notional filter
+            min_notional_filter = next(
+                filter(lambda x: x['filterType'] == 'MIN_NOTIONAL', symbol_info['filters'])
+            )
+            min_notional = float(min_notional_filter['minNotional'])
+            
+            # Validate min notional
+            order_value = float(formatted_quantity) * current_price
+            if order_value < min_notional:
+                raise ValueError(f"Order value {order_value} below minimum {min_notional}")
+            
+            params = {
+                'symbol': symbol,
+                'side': 'BUY',
+                'type': order_type,
+                'quantity': formatted_quantity
+            }
+            
+            if order_type == 'LIMIT':
+                price = self._format_price(current_price, symbol_info)
+                params.update({
+                    'price': price,
+                    'timeInForce': 'GTC'
+                })
+            
+            logger.info(f"Creating buy order: {params}")
+            order = await self.client.create_order(**params)
+            logger.info(f"Buy order created: {order['orderId']} for {formatted_quantity} {symbol}")
+            return order
+            
+        except Exception as e:
+            logger.error(f"Buy order failed: {str(e)}")
+            raise
+
+    async def create_sell_order(self, symbol: str, amount: float, order_type: str = 'MARKET') -> Dict:
+        """Create a sell order"""
+        try:
+            params = {
+                'symbol': symbol,
+                'side': 'SELL',
+                'type': order_type,
+                'quantity': self._format_quantity(amount)
+            }
+            
+            if order_type == 'LIMIT':
+                ticker = await self.get_ticker(symbol)
+                params['price'] = self._format_price(ticker['price'])
+                params['timeInForce'] = 'GTC'
+            
+            order = await self.client.create_order(**params)
+            logger.info(f"Sell order created: {order['orderId']}")
+            return order
+            
+        except Exception as e:
+            logger.error(f"Sell order failed: {str(e)}")
+            raise
+
+    def _format_quantity(self, quantity: float, symbol_info: Dict) -> str:
+        """Format quantity according to lot size rules"""
+        try:
+            # Get the lot size filter
+            lot_size_filter = next(
+                filter(lambda x: x['filterType'] == 'LOT_SIZE', symbol_info['filters'])
+            )
+            step_size = float(lot_size_filter['stepSize'])
+            min_qty = float(lot_size_filter['minQty'])
+            
+            # Validate minimum quantity
+            if quantity < min_qty:
+                raise ValueError(f"Quantity {quantity} below minimum {min_qty}")
+            
+            # Calculate precision from step size
+            precision = len(str(step_size).rstrip('0').split('.')[-1])
+            
+            # Round down to nearest step size multiple
+            quantity = float(int(quantity / step_size) * step_size)
+            
+            # Format to correct precision
+            return f"{quantity:.{precision}f}"
+            
+        except (KeyError, StopIteration) as e:
+            logger.error(f"Error getting step size: {e}")
+            raise ValueError("Step size not found in symbol info")
+        except Exception as e:
+            logger.error(f"Error formatting quantity: {e}")
+            raise
+
+    def _format_price(self, price: float, symbol_info: Dict) -> str:
+        """Format price according to tick size rules"""
+        tick_size = float(symbol_info['filters'][0]['tickSize'])
+        precision = len(str(tick_size).rstrip('0').split('.')[-1])
+        
+        # Round to valid tick size
+        price = round(price - (price % tick_size), precision)
+        
+        # Convert to string with correct precision
+        return f"{price:.{precision}f}"
+
+    async def get_order(self, symbol: str, order_id: int) -> Dict:
+        """Get order status"""
+        try:
+            return await self.client.get_order(symbol=symbol, orderId=order_id)
+        except Exception as e:
+            logger.error(f"Failed to get order status: {str(e)}")
+            raise
+
+    async def cancel_order(self, symbol: str, order_id: int) -> Dict:
+        """Cancel an open order"""
+        try:
+            return await self.client.cancel_order(symbol=symbol, orderId=order_id)
+        except Exception as e:
+            logger.error(f"Failed to cancel order: {str(e)}")
+            raise
