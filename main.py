@@ -81,6 +81,7 @@ import sys
 from pathlib import Path
 import os
 from dotenv import load_dotenv
+import signal
 
 from utils.logging import LogManager
 from utils.config import ConfigManager
@@ -320,6 +321,7 @@ class TradingSystem:
 
     async def shutdown(self):
         """Cleanup system resources"""
+        logger.info("\nShutting down trading system...")
         try:
             # First stop all active services
             self.is_running = False
@@ -345,7 +347,10 @@ class TradingSystem:
             logger.info("Trading system shutdown complete")
             
         except Exception as e:
-            logger.error(f"Shutdown error: {str(e)}")
+            logger.error(f"Error during shutdown: {str(e)}")
+        finally:
+            # Force exit after cleanup
+            sys.exit(0)
 
     async def _setup_exchange_client(self, exchange_config: Dict):
         """Setup exchange client connection"""
@@ -589,33 +594,33 @@ class TradingSystem:
 
     def _calculate_position_size(self, signal: Dict, portfolio_values: Dict) -> float:
         """Calculate position size with minimum quantity enforcement"""
-        # Get minimum position value (e.g., $10)
-        min_position_value = self.config.get('trading', {}).get('min_trade_amount', 10.0)
-        
-        # Calculate Kelly fraction based on signal
-        kelly_fraction = signal['confidence'] * signal['magnitude']
-        
-        # Get portfolio limits
-        max_position = min(
-            self.config.get('trading', {}).get('max_position_size', 0.2),
-            portfolio_values['total'] * self.config['risk']['position_limit']
-        )
-        
-        # Calculate position size
-        position_value = min(kelly_fraction * portfolio_values['total'], max_position)
-        
-        # Enforce minimum position size
-        if position_value < min_position_value:
-            position_value = min_position_value if signal['confidence'] > 0.7 else 0.0
+        try:
+            # Get minimum position value with safety margin
+            min_position_value = self.config.get('trading', {}).get('min_trade_amount', 15.0)
             
-        # Ensure we don't exceed available balance
-        position_value = min(position_value, portfolio_values['total'])
-        
-        if position_value < min_position_value:
-            return 0.0  # Don't trade if below minimum
+            # Calculate Kelly fraction based on signal
+            kelly_fraction = signal['confidence'] * signal['magnitude']
             
-        logger.info(f"Calculated position value: ${position_value:.2f}")
-        return position_value
+            # Get portfolio limits
+            max_position = min(
+                self.config.get('trading', {}).get('max_position_size', 0.2),
+                portfolio_values['total'] * self.config['risk']['position_limit']
+            )
+            
+            # Calculate base position size
+            position_value = min(kelly_fraction * portfolio_values['total'], max_position)
+            position_value = max(position_value, min_position_value)  # Enforce minimum
+            
+            # Additional safety check
+            if position_value > portfolio_values['total']:
+                position_value = 0.0  # Don't trade if insufficient funds
+                
+            logger.info(f"Calculated position value: ${position_value:.2f}")
+            return position_value
+            
+        except Exception as e:
+            logger.error(f"Error calculating position size: {e}")
+            return 0.0
 
     def _get_portfolio_values(self) -> Dict:
         """Get current portfolio values with type validation"""
@@ -917,8 +922,8 @@ class TradingSystem:
                     logger.info("\nRisk Metrics:")
                     logger.info(f"Max Drawdown: {risk_metrics.get('max_drawdown', 0.0):.2%}")
                     logger.info(f"VaR: {risk_metrics.get('var', 0.0):.2%}")
-                    logger.info(f"Exposure: {float(risk_metrics.get('exposure', 0.0)):.2%}")  # Convert to float
-                    logger.info(f"Concentration: {risk_metrics.get('concentration', 0.0)::.2%}")
+                    logger.info(f"Exposure: {float(risk_metrics.get('exposure', 0.0)):.2%}")
+                    logger.info(f"Concentration: {risk_metrics.get('concentration', 0.0):.2%}")
                     
                     # Check risk limits with defaults
                     if (risk_metrics.get('max_drawdown', 0) > risk_config.get('max_drawdown', 0.10) or
@@ -976,21 +981,34 @@ if __name__ == "__main__":
     if sys.platform.startswith('win'):
         import asyncio
         import nest_asyncio
-        
-        # Apply nest_asyncio to allow nested event loops
         nest_asyncio.apply()
-        
-        # Use WindowsSelectorEventLoopPolicy
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     
-    # Load config
+    # Load config 
     config_path = "config/trading.yaml"
-    
-    # Create and run trading system
-    system = TradingSystem(config_path)
+    system = None
+    loop = None
     
     try:
-        asyncio.run(system.run())
+        # Set up clean shutdown handler
+        def handle_shutdown(signum, frame):
+            logger.info("\nShutdown signal received...")
+            if loop and system:
+                loop.run_until_complete(system.shutdown())
+            else:
+                sys.exit(0)
+                
+        # Register signal handlers
+        signal.signal(signal.SIGINT, handle_shutdown)
+        signal.signal(signal.SIGTERM, handle_shutdown)
+        
+        # Create and run system
+        system = TradingSystem(config_path)
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(system.run())
+        
     except Exception as e:
-        print(f"Fatal error: {str(e)}")
+        logger.error(f"Fatal error: {str(e)}")
+        if system and loop:
+            loop.run_until_complete(system.shutdown())
         sys.exit(1)

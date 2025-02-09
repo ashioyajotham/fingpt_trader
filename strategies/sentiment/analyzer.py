@@ -1,5 +1,6 @@
 from typing import Dict, List, Optional
 import logging
+import asyncio
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
@@ -113,30 +114,52 @@ class SentimentAnalyzer(BaseService):
             logger.error(f"Error during cleanup: {e}")
 
     async def analyze(self, text: str) -> Dict[str, float]:
-        """Analyze sentiment using FinGPT only"""
+        """Analyze sentiment using FinGPT with timeout handling"""
+        if not text or len(text.strip()) < 10:
+            logger.warning("Empty or too short text for sentiment analysis")
+            return {'compound': 0.0, 'confidence': 0.0}
+            
         chunks = self._chunk_text(text, max_tokens=750)
+        logger.info(f"Processing {len(chunks)} text chunks for sentiment analysis")
         
         sentiments = []
-        for chunk in chunks:
+        async with asyncio.timeout(30):  # Add 30 second timeout
             try:
-                sentiment = await self.fingpt.predict_sentiment(chunk)
-                sentiments.append(sentiment)
+                for i, chunk in enumerate(chunks):
+                    try:
+                        sentiment = await self.fingpt.predict_sentiment(chunk)
+                        sentiments.append(sentiment)
+                        logger.debug(f"Processed chunk {i+1}/{len(chunks)}")
+                    except Exception as e:
+                        logger.error(f"Error processing chunk {i+1}: {str(e)}")
+                        continue
+                    
+            except asyncio.TimeoutError:
+                logger.error("Sentiment analysis timed out after 30 seconds")
+                return {'compound': 0.0, 'confidence': 0.0}
+                
             except Exception as e:
-                logger.error(f"Error processing chunk (length={len(chunk)}): {e}")
-                continue
+                logger.error(f"Sentiment analysis error: {str(e)}")
+                return {'compound': 0.0, 'confidence': 0.0}
         
         if not sentiments:
             logger.warning("No valid sentiment chunks processed, returning neutral")
             return {'compound': 0.0, 'confidence': 0.0}
             
-        # Average sentiments
-        compound = sum(s['sentiment'] for s in sentiments) / len(sentiments)
-        confidence = sum(s['confidence'] for s in sentiments) / len(sentiments)
-        
-        return {
-            'compound': compound,
-            'confidence': confidence
-        }
+        # Average sentiments with error handling
+        try:
+            compound = sum(s['sentiment'] for s in sentiments) / len(sentiments)
+            confidence = sum(s['confidence'] for s in sentiments) / len(sentiments)
+            
+            logger.info(f"Sentiment analysis complete: score={compound:.2f}, confidence={confidence:.2f}")
+            return {
+                'compound': compound,
+                'confidence': confidence
+            }
+            
+        except Exception as e:
+            logger.error(f"Error calculating final sentiment: {str(e)}")
+            return {'compound': 0.0, 'confidence': 0.0}
 
     def _chunk_text(self, text: str, max_tokens: int = 750) -> List[str]:
         """Split text into chunks for processing"""
@@ -329,3 +352,42 @@ class SentimentAnalyzer(BaseService):
                     f"{news_item['title']} {news_item['content']}",
                     news_item['timestamp']
                 )
+
+    async def _fetch_relevant_news(self, pair: str) -> List[str]:
+        """Fetch relevant news for the trading pair"""
+        try:
+            base_asset = pair.replace('USDT', '').replace('USD', '')
+            
+            # Broader search terms
+            search_terms = {
+                'BTC': ['Bitcoin', 'BTC', 'crypto market', 'cryptocurrency'],
+                'ETH': ['Ethereum', 'ETH', 'DeFi', 'smart contracts'],
+                'BNB': ['Binance', 'BNB', 'exchange token']
+            }
+            
+            # Use multiple search terms for better coverage
+            news_data = []
+            terms = search_terms.get(base_asset, [f"{base_asset} crypto"])
+            
+            for term in terms:
+                articles = await self.news_service.get_news(term)
+                news_data.extend(articles)
+            
+            # Deduplicate articles
+            seen = set()
+            unique_texts = []
+            
+            for article in news_data:
+                title = article.get('title', '')
+                if title and title not in seen:
+                    seen.add(title)
+                    unique_texts.append(title)
+                    if article.get('description'):
+                        unique_texts.append(article['description'])
+            
+            logger.info(f"Fetched {len(unique_texts)} unique news items for {pair}")
+            return unique_texts
+            
+        except Exception as e:
+            logger.error(f"Failed to fetch news for {pair}: {e}")
+            return []

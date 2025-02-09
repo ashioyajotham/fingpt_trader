@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class MarketDataService(BaseService):
     """
-    Real-time market data service.
+    Real-time market data service with news integration
     
     Provides market data feeds from multiple exchanges with configurable
     update intervals and caching.
@@ -38,6 +38,21 @@ class MarketDataService(BaseService):
         self.max_retries = 3
         self.retry_delay = 5
         self.fallback_exchanges = ["kucoin", "huobi"]
+        
+        # Add news correlation tracking
+        self.news_impacts = {}
+        self.price_events = {}
+        self.correlation_window = timedelta(hours=24)
+        self.min_correlation_samples = 10
+        
+        # Event detection thresholds
+        self.volatility_threshold = 0.02  # 2% price move
+        self.volume_threshold = 2.0  # 2x average volume
+        
+        # Cache settings
+        self.cache_ttl = timedelta(minutes=5)
+        self.price_history = {}
+        self.volume_history = {}
 
     async def start(self) -> None:
         """Start market data service"""
@@ -59,6 +74,14 @@ class MarketDataService(BaseService):
                 'test_mode': True
             })
             logger.info("Using shared Binance client instance")
+            
+            # Initialize event tracking
+            for pair in self.config.get('pairs', []):
+                self.price_events[pair] = []
+                self.price_history[pair] = []
+                self.volume_history[pair] = []
+            
+            logger.info("Market data service initialized with event tracking")
         except Exception as e:
             raise ConnectionError(f"Failed to connect: {str(e)}")
 
@@ -101,6 +124,95 @@ class MarketDataService(BaseService):
         if (current_time - self.last_update).total_seconds() < self.update_interval:
             await asyncio.sleep(self.update_interval)
         self.last_update = current_time
+
+    async def process_market_update(self, symbol: str, data: Dict) -> None:
+        """Process market data update with news correlation"""
+        try:
+            # Store price and volume history
+            self.price_history[symbol].append({
+                'price': float(data['price']),
+                'timestamp': datetime.now()
+            })
+            
+            self.volume_history[symbol].append({
+                'volume': float(data['volume']),
+                'timestamp': datetime.now()
+            })
+            
+            # Detect significant events
+            await self._detect_market_events(symbol, data)
+            
+            # Cleanup old data
+            self._cleanup_history(symbol)
+            
+        except Exception as e:
+            logger.error(f"Error processing market update: {e}")
+
+    async def _detect_market_events(self, symbol: str, data: Dict) -> None:
+        """Detect significant market events for news correlation"""
+        try:
+            prices = [p['price'] for p in self.price_history[symbol][-20:]]
+            volumes = [v['volume'] for v in self.volume_history[symbol][-20:]]
+            
+            if len(prices) < 2:
+                return
+                
+            # Calculate metrics
+            price_change = (prices[-1] - prices[-2]) / prices[-2]
+            avg_volume = sum(volumes[:-1]) / len(volumes[:-1])
+            current_volume = volumes[-1]
+            
+            # Detect events
+            if abs(price_change) > self.volatility_threshold:
+                event = {
+                    'type': 'price_move',
+                    'change': price_change,
+                    'timestamp': datetime.now()
+                }
+                self.price_events[symbol].append(event)
+                logger.info(f"Significant price move detected for {symbol}: {price_change:.2%}")
+                
+            if current_volume > avg_volume * self.volume_threshold:
+                event = {
+                    'type': 'volume_spike',
+                    'ratio': current_volume / avg_volume,
+                    'timestamp': datetime.now()
+                }
+                self.price_events[symbol].append(event)
+                logger.info(f"Volume spike detected for {symbol}: {current_volume/avg_volume:.2f}x average")
+                
+        except Exception as e:
+            logger.error(f"Error detecting market events: {e}")
+
+    def _cleanup_history(self, symbol: str) -> None:
+        """Clean up old historical data"""
+        cutoff = datetime.now() - self.correlation_window
+        
+        self.price_history[symbol] = [
+            p for p in self.price_history[symbol]
+            if p['timestamp'] > cutoff
+        ]
+        
+        self.volume_history[symbol] = [
+            v for v in self.volume_history[symbol]
+            if v['timestamp'] > cutoff
+        ]
+        
+        self.price_events[symbol] = [
+            e for e in self.price_events[symbol]
+            if e['timestamp'] > cutoff
+        ]
+
+    async def get_correlated_events(self, symbol: str, 
+                                  start_time: datetime) -> List[Dict]:
+        """Get market events that may correlate with news"""
+        events = []
+        
+        for event in self.price_events[symbol]:
+            if event['timestamp'] >= start_time:
+                events.append(event)
+                
+        return events
 
 class MarketDataFeed(BaseService):
     """Market data feed handler"""

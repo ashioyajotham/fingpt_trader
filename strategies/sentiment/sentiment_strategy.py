@@ -1,9 +1,13 @@
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional
+import yaml
+import logging
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 # Add project root to path
 root_dir = str(Path(__file__).parent.parent)
@@ -15,8 +19,27 @@ from strategies.base_strategy import BaseStrategy
 
 
 class SentimentStrategy(BaseStrategy):
-    def __init__(self, config: Optional[Dict] = None):
-        super().__init__(config or {})
+    def __init__(self, config_path: Optional[str] = None):
+        super().__init__()
+        if not config_path:
+            config_path = Path(__file__).parent.parent.parent / 'config' / 'strategies.yaml'
+            
+        # Load strategy config
+        with open(config_path) as f:
+            strategies_config = yaml.safe_load(f)
+            self.config = strategies_config.get('sentiment', {})
+            
+        # Initialize strategy parameters
+        self.processing = self.config.get('processing', {})
+        self.metrics = self.config.get('metrics', {})
+        self.signals = self.config.get('signals', {})
+        self.trading = self.config.get('trading', {})
+        self.risk = self.config.get('risk', {})
+        
+        # Validate configuration
+        self._validate_config()
+        logger.info("Sentiment strategy initialized with configuration")
+
         self.preprocessor = TextPreprocessor()
         self.analyzer = SentimentAnalyzer(self.config.get("model_config", {}))
         self.sentiment_scores = {}
@@ -28,6 +51,19 @@ class SentimentStrategy(BaseStrategy):
         self.lookback = self.config.get("lookback", 24)
         self.min_confidence = self.config.get("min_confidence", 0.6)
         self.fingpt = FinGPT(self.config.get("fingpt_config", {}))
+
+    def _validate_config(self) -> None:
+        """Validate strategy configuration"""
+        required_sections = ['processing', 'metrics', 'signals', 'trading', 'risk']
+        missing = [s for s in required_sections if not getattr(self, s)]
+        if missing:
+            raise ValueError(f"Missing required config sections: {', '.join(missing)}")
+            
+        # Validate signal parameters
+        signals = self.signals
+        assert 0 < signals.get('threshold', 0) <= 1.0, "Invalid signal threshold"
+        assert signals.get('min_samples', 0) > 0, "Invalid min_samples"
+        assert sum(signals.get('impact_weights', {}).values()) == 1.0, "Impact weights must sum to 1.0"
 
     async def process_market_data(self, data: Dict) -> None:
         """Process market data and news"""
@@ -140,3 +176,80 @@ class SentimentStrategy(BaseStrategy):
             if score["confidence"] >= self.min_confidence:
                 scores.append(score["sentiment"])
         return np.mean(scores) if scores else 0.0
+
+    def generate_signal(self, sentiment_score: float, market_data: Dict) -> Dict:
+        """Generate trading signal from sentiment and market data"""
+        if not self._validate_signal_inputs(sentiment_score, market_data):
+            return self._neutral_signal()
+            
+        # Calculate signal strength
+        signal_strength = self._calculate_signal_strength(
+            sentiment=sentiment_score,
+            volume=market_data.get('volume', 0),
+            correlation=market_data.get('correlation', 0)
+        )
+        
+        # Apply confidence threshold
+        if abs(signal_strength) < self.signals['threshold']:
+            return self._neutral_signal()
+            
+        return {
+            'direction': 1 if signal_strength > 0 else -1,
+            'strength': abs(signal_strength),
+            'confidence': min(abs(signal_strength) * 2, 1.0)
+        }
+
+    def _calculate_signal_strength(self, sentiment: float, 
+                                 volume: float, correlation: float) -> float:
+        """Calculate combined signal strength"""
+        weights = self.signals['impact_weights']
+        
+        # Weighted combination of factors
+        signal = (
+            weights['sentiment'] * sentiment +
+            weights['volume'] * (volume - 1.0) +  # Normalize around 1.0
+            weights['correlation'] * correlation
+        )
+        
+        return signal
+
+    def _validate_signal_inputs(self, sentiment: float, market_data: Dict) -> bool:
+        """Validate signal generation inputs"""
+        if abs(sentiment) > 1.0:
+            logger.warning(f"Invalid sentiment score: {sentiment}")
+            return False
+            
+        if not market_data:
+            logger.warning("Missing market data")
+            return False
+            
+        return True
+
+    def _neutral_signal(self) -> Dict:
+        """Return neutral trading signal"""
+        return {
+            'direction': 0,
+            'strength': 0.0,
+            'confidence': 0.0
+        }
+
+    def calculate_position_size(self, signal: Dict, portfolio_value: float) -> float:
+        """Calculate position size based on signal and risk parameters"""
+        if signal['strength'] < self.signals['threshold']:
+            return 0.0
+            
+        # Base position size
+        position_size = self.trading['position_size'] * signal['confidence']
+        
+        # Apply risk limits
+        position_size = min(
+            position_size,
+            portfolio_value * self.risk['max_concentration'],
+            self.trading['max_position']
+        )
+        
+        # Enforce minimum size
+        if position_size < self.trading['position_size'] * 0.1:  # 10% of base size
+            return 0.0
+            
+        return position_size

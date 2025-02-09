@@ -8,20 +8,58 @@ strategies:
       technical: 0.6
 
 sentiment:
-  lookback_window: 24
-  signal_threshold: 0.5
-  min_confidence: 0.6
-  position_sizing:
-    base_size: 1000
-    max_size: 10000
-    
+  # Processing parameters
+  processing:
+    chunk_size: 750
+    min_chunk_length: 10
+    timeout: 30
+    batch_size: 5
+    retries: 3
+
+  # Performance metrics
+  metrics:
+    accuracy_threshold: 0.7
+    confidence_threshold: 0.6
+    impact_threshold: 0.02
+    correlation_window: 24
+
+  # Signal generation
+  signals:
+    min_samples: 5
+    threshold: 0.3
+    time_decay: 0.95
+    min_confidence: 0.6
+    impact_weights:
+      sentiment: 0.4
+      volume: 0.3
+      correlation: 0.3
+
+  # Trading parameters
+  trading:
+    position_size: 1000.0
+    max_position: 10000.0
+    stop_loss: 0.02
+    take_profit: 0.05
+
+  # Risk management
+  risk:
+    max_positions: 5
+    max_concentration: 0.2
+    daily_drawdown_limit: 0.03
+
+  # Model settings
+  model:
+    weights:
+      vader: 0.7
+      textblob: 0.3
+
 inefficiency:
   window: 20
   z_threshold: 2.0
   pairs:
     - ["BTC/USDT", "ETH/USDT"]
     - ["ETH/USDT", "BNB/USDT"]
-    
+
 robo:
   rebalance_threshold: 0.05
   tax_harvest_threshold: -0.05

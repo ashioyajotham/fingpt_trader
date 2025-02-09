@@ -157,11 +157,19 @@ class NewsService(BaseService):
         self.base_url = "https://cryptopanic.com/api/v1"
         self.fallback_url = "https://newsapi.org/v2"
         
-        self.max_retries = 3
-        self.retry_delay = 5
+        self.max_retries = 5  # Increased from 3
+        self.retry_delay = 2  # Reduced from 5 seconds for faster retries
+        self.request_timeout = 30  # Add explicit timeout
+        
+        # Add caching duration and size limits
+        self.cache_ttl = timedelta(minutes=5)  # More frequent updates
+        self.max_cache_size = 1000
+        
+        # Add debug logging for API responses
+        self.debug_mode = True  # Enable verbose logging
+
         self.session = None
         self.cache = {}
-        self.cache_ttl = timedelta(minutes=15)
         self.last_call = datetime.now()
         self.calls_today = 0
         self.rate_limit = self.config.get("rate_limits", {}).get("daily_limit", 100)
@@ -184,45 +192,93 @@ class NewsService(BaseService):
     async def get_news(self, query: str) -> List[Dict]:
         """Get latest news prioritizing CryptoPanic"""
         await self._check_rate_limit()
+        
+        # Map query to currency code
+        currency_map = {
+            'bitcoin cryptocurrency': 'BTC',
+            'ethereum cryptocurrency': 'ETH',
+            'binance coin': 'BNB'
+        }
+        currency = currency_map.get(query.lower()) or query.split()[0].upper()
+        
+        logger.info(f"Fetching news for currency: {currency}")
 
         # Try CryptoPanic first
         for attempt in range(self.max_retries):
             try:
+                # Fix params format for CryptoPanic
                 params = {
                     "auth_token": self.cryptopanic_key,
-                    "filter": "important",
-                    "currencies": query.lower(),
+                    "currencies": currency,  # Use currency code instead of query
+                    "kind": "news",  # Required parameter
+                    "filter": "hot",
+                    "regions": "en",  # English news only
                     "public": "true"
                 }
 
+                url = f"{self.base_url}/posts/"
+                logger.debug(f"CryptoPanic request: {url} with params: {params}")
+
                 async with self.session.get(
-                    f"{self.base_url}/posts/", params=params, timeout=10
+                    url,
+                    params=params,
+                    timeout=self.request_timeout,
+                    headers={"Accept": "application/json"}
                 ) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return self._process_cryptopanic_response(data)
+                        
+                        # Debug response
+                        if self.debug_mode:
+                            logger.info(f"CryptoPanic success - Results: {len(data.get('results', []))}")
+                            
+                        articles = self._process_cryptopanic_response(data)
+                        if articles:
+                            return articles
+                            
+                    else:
+                        response_text = await response.text()
+                        logger.warning(f"CryptoPanic error: Status {response.status}, Response: {response_text}")
                         
             except Exception as e:
-                logger.error(f"CryptoPanic error: {e}")
-                if attempt == self.max_retries - 1:
-                    logger.info("Falling back to NewsAPI")
-                    return await self._get_newsapi_fallback(query)
+                logger.error(f"CryptoPanic attempt {attempt+1} failed: {str(e)}")
                 await asyncio.sleep(self.retry_delay)
+                
+            if attempt == self.max_retries - 1:
+                logger.info(f"Falling back to NewsAPI for {currency}")
+                return await self._get_newsapi_fallback(query)
         
         return []
 
     def _process_cryptopanic_response(self, data: Dict) -> List[Dict]:
         """Process CryptoPanic response format"""
         articles = []
-        for item in data.get('results', []):
-            articles.append({
-                'title': item['title'],
-                'content': item.get('text', ''),
-                'source': item['source']['domain'],
-                'published_at': item['published_at'],
-                'url': item['url'],
-                'currencies': [c['code'] for c in item.get('currencies', [])]
-            })
+        results = data.get('results', [])
+        
+        if not results:
+            logger.warning("No results in CryptoPanic response")
+            return articles
+            
+        for item in results:
+            try:
+                article = {
+                    'title': item.get('title', ''),
+                    'description': item.get('text', ''),
+                    'url': item.get('url', ''),
+                    'source': item.get('source', {}).get('title', 'Unknown'),
+                    'published_at': item.get('published_at'),
+                    'currencies': [c.get('code', '') for c in item.get('currencies', [])]
+                }
+                
+                # Only add if we have at least title or description
+                if article['title'] or article['description']:
+                    articles.append(article)
+                    
+            except Exception as e:
+                logger.error(f"Error processing article: {e}")
+                continue
+                
+        logger.info(f"Processed {len(articles)} valid articles from CryptoPanic")
         return articles
 
     async def _get_newsapi_fallback(self, query: str) -> List[Dict]:

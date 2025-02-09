@@ -1,11 +1,71 @@
 """
 Binance Exchange Client
 
-Provides a robust interface to Binance API with:
-- Automatic connection management
-- Request retry logic
-- Rate limit handling
-- Resource cleanup
+A comprehensive async implementation of Binance exchange connectivity with robust
+error handling, rate limiting, and connection management.
+
+Key Features:
+    - Singleton connection pattern
+    - Automatic request retry logic
+    - Rate limit compliance
+    - WebSocket data streaming
+    - Order management with smart routing
+    - Market data normalization
+    - Resource cleanup
+
+Market Data:
+    - Real-time orderbook management
+    - Trade stream processing
+    - Candlestick aggregation
+    - Ticker data handling
+
+Order Types:
+    - Market orders
+    - Limit orders
+    - Stop orders
+    - OCO orders
+
+Risk Management:
+    - Order validation
+    - Position checks
+    - Balance verification
+    - Lot size enforcement
+    - Minimum notional checks
+
+Technical Details:
+    - Async/await implementation
+    - WebSocket connection pooling
+    - Smart reconnection logic
+    - Error recovery mechanisms
+    - Memory-efficient data structures
+
+Usage:
+    ```python
+    # Get singleton instance
+    client = await BinanceClient.get_instance({
+        'api_key': 'your_api_key',
+        'api_secret': 'your_api_secret',
+        'test_mode': True
+    })
+
+    # Market data
+    ticker = await client.get_ticker('BTCUSDT')
+    trades = await client.get_recent_trades('BTCUSDT')
+    candles = await client.get_candles('BTCUSDT', '1m')
+
+    # Trading
+    order = await client.create_buy_order(
+        symbol='BTCUSDT',
+        amount=0.01,
+        order_type='MARKET'
+    )
+    ```
+
+Dependencies:
+    - python-binance
+    - aiohttp
+    - pandas
+    - numpy
 """
 
 import logging
@@ -23,7 +83,58 @@ from decimal import Decimal
 logger = logging.getLogger(__name__)
 
 class BinanceClient:
-    """Async Binance exchange interface"""
+    """
+    Asynchronous Binance exchange client implementing a singleton pattern.
+    
+    This class provides a robust interface to the Binance API with:
+    - Connection management
+    - Request retries
+    - Rate limiting
+    - WebSocket streams
+    - Order management
+    
+    Features:
+        - Real-time market data streaming
+        - Order execution with validation
+        - Position management
+        - Risk checks and limits
+        - Resource cleanup
+        
+    Attributes:
+        api_key (str): Binance API key
+        api_secret (str): Binance API secret
+        testnet (bool): Whether to use testnet
+        client (AsyncClient): Binance async client instance
+        session (aiohttp.ClientSession): HTTP session
+        bsm (BinanceSocketManager): WebSocket manager
+        symbol_info (Dict): Trading pair information
+        streams (Dict): Active data streams
+        orderbook_manager (Dict): Order book state
+        
+    Connection Management:
+        - Singleton pattern ensures single connection
+        - Automatic reconnection
+        - Resource cleanup
+        - Connection pooling
+        
+    Market Data:
+        - Order book management
+        - Trade stream processing
+        - Candlestick aggregation
+        - Ticker data
+        
+    Order Management:
+        - Smart order routing
+        - Position validation
+        - Risk checks
+        - Fill monitoring
+        
+    Error Handling:
+        - Request retries
+        - Rate limit management
+        - Connection recovery
+        - Error logging
+    """
     
     # Add singleton instance
     _instance = None
@@ -335,23 +446,35 @@ class BinanceClient:
             if not symbol_info:
                 raise ValueError(f"Invalid symbol: {symbol}")
             
-            # Convert amount to quantity based on current price
-            current_price = (await self.get_ticker(symbol))['price']
+            # Get current price first
+            ticker = await self.get_ticker(symbol)
+            if not ticker or 'price' not in ticker:
+                raise ValueError(f"Could not get current price for {symbol}")
+                
+            current_price = ticker['price']
+            
+            # Find MIN_NOTIONAL filter
+            min_notional = 10.0  # Default minimum 10 USDT
+            for f in symbol_info['filters']:
+                if f['filterType'] == 'MIN_NOTIONAL':
+                    min_notional = float(f['minNotional'])
+                    break
+            
+            # Pre-validate order value
+            order_value = amount * current_price
+            if order_value < min_notional:
+                raise ValueError(f"Order value {order_value:.2f} USDT below minimum {min_notional} USDT")
+            
+            # Calculate quantity from amount
             quantity = amount / current_price
             
             # Format quantity with lot size rules
             formatted_quantity = self._format_quantity(quantity, symbol_info)
             
-            # Get min notional filter
-            min_notional_filter = next(
-                filter(lambda x: x['filterType'] == 'MIN_NOTIONAL', symbol_info['filters'])
-            )
-            min_notional = float(min_notional_filter['minNotional'])
-            
-            # Validate min notional
-            order_value = float(formatted_quantity) * current_price
-            if order_value < min_notional:
-                raise ValueError(f"Order value {order_value} below minimum {min_notional}")
+            # Final value validation
+            final_value = float(formatted_quantity) * current_price
+            if final_value < min_notional:
+                raise ValueError(f"Final order value {final_value:.2f} USDT below minimum {min_notional} USDT")
             
             params = {
                 'symbol': symbol,
@@ -372,35 +495,89 @@ class BinanceClient:
             logger.info(f"Buy order created: {order['orderId']} for {formatted_quantity} {symbol}")
             return order
             
+        except ValueError as e:
+            logger.error(f"Buy order failed: {str(e)}")
+            raise
         except Exception as e:
             logger.error(f"Buy order failed: {str(e)}")
             raise
 
     async def create_sell_order(self, symbol: str, amount: float, order_type: str = 'MARKET') -> Dict:
-        """Create a sell order"""
+        """Create a sell order with validation and risk checks"""
         try:
+            # Get symbol info for precision
+            symbol_info = self.symbol_info.get(symbol)
+            if not symbol_info:
+                raise ValueError(f"Invalid symbol: {symbol}")
+            
+            # Format quantity with lot size rules
+            formatted_quantity = self._format_quantity(amount, symbol_info)
+            
+            # Get current price for validation
+            ticker = await self.get_ticker(symbol)
+            if not ticker or 'price' not in ticker:
+                raise ValueError(f"Could not get current price for {symbol}")
+                
+            current_price = ticker['price']
+            
+            # Find MIN_NOTIONAL filter
+            min_notional = 10.0  # Default minimum 10 USDT
+            for f in symbol_info['filters']:
+                if f['filterType'] == 'MIN_NOTIONAL':
+                    min_notional = float(f['minNotional'])
+                    break
+                    
+            # Final value validation
+            order_value = float(formatted_quantity) * current_price
+            if order_value < min_notional:
+                raise ValueError(f"Order value {order_value:.2f} USDT below minimum {min_notional} USDT")
+            
             params = {
                 'symbol': symbol,
                 'side': 'SELL',
                 'type': order_type,
-                'quantity': self._format_quantity(amount)
+                'quantity': formatted_quantity
             }
             
             if order_type == 'LIMIT':
-                ticker = await self.get_ticker(symbol)
-                params['price'] = self._format_price(ticker['price'])
-                params['timeInForce'] = 'GTC'
+                price = self._format_price(current_price, symbol_info)
+                params.update({
+                    'price': price,
+                    'timeInForce': 'GTC'
+                })
             
+            logger.info(f"Creating sell order: {params}")
             order = await self.client.create_order(**params)
-            logger.info(f"Sell order created: {order['orderId']}")
+            logger.info(f"Sell order created: {order['orderId']} for {formatted_quantity} {symbol}")
             return order
             
+        except ValueError as e:
+            logger.error(f"Sell order failed: {str(e)}")
+            raise
         except Exception as e:
             logger.error(f"Sell order failed: {str(e)}")
             raise
 
     def _format_quantity(self, quantity: float, symbol_info: Dict) -> str:
-        """Format quantity according to lot size rules"""
+        """
+        Format order quantity according to exchange rules.
+        
+        Applies:
+            - Step size rules
+            - Minimum quantity
+            - Precision requirements
+            - Lot size filters
+            
+        Args:
+            quantity (float): Raw order quantity
+            symbol_info (Dict): Symbol trading rules
+            
+        Returns:
+            str: Formatted quantity string
+            
+        Raises:
+            ValueError: If quantity invalid
+        """
         try:
             # Get the lot size filter
             lot_size_filter = next(
