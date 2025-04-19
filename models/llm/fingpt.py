@@ -344,24 +344,150 @@ class FinGPT(BaseLLM):
                 'confidence': Confidence score between 0 and 1
             }
         """
-        prompt = f"Analyze the sentiment of this financial news: {text}\nAnswer:"
+        prompt = (
+            f"Analyze the sentiment of this financial news text and provide a score from -1.0 (very negative) "
+            f"to 1.0 (very positive), where 0.0 is neutral:\n\n"
+            f"Text: \"{text}\"\n\n"
+            f"First, explain your reasoning in a few sentences. Then provide your final sentiment score."
+            f"Format your score as 'Sentiment score: X.X'"
+        )
+        
         response = await self.generate(prompt)
+        
+        # Print raw response for debugging
+        print(f"Raw model response: {response}")
+        
         sentiment_score = self._process_sentiment(response)
+        
+        # Calculate confidence based on certainty markers in the text
+        confidence_words = {
+            "confident": 0.9, "certain": 0.9, "strong": 0.8, "clear": 0.8, 
+            "likely": 0.7, "probably": 0.6, "possible": 0.5, "mixed": 0.4,
+            "uncertain": 0.3, "unclear": 0.2
+        }
+        
+        confidence = 0.5  # Default confidence
+        for word, value in confidence_words.items():
+            if word in response.lower():
+                confidence = value
+                break
+        
+        # If sentiment is strong (close to -1 or 1), increase confidence
+        sentiment_strength = abs(sentiment_score)
+        if sentiment_strength > 0.7:
+            confidence = max(confidence, 0.8)
+        
         return {
             "text": text,
             "sentiment": sentiment_score,
-            "confidence": abs(sentiment_score),
+            "raw_response": response,  # Include raw response for debugging
+            "confidence": max(0.1, min(1.0, confidence * sentiment_strength)),  # Scale by sentiment strength
         }
 
     def _process_sentiment(self, text: str) -> float:
-        # Simple sentiment scoring
-        positive_words = {"bullish", "positive", "increase", "growth"}
-        negative_words = {"bearish", "negative", "decrease", "decline"}
+        """
+        Process model output to extract sentiment score.
+        
+        Args:
+            text (str): Model output text
+            
+        Returns:
+            float: Sentiment score between -1.0 (negative) and 1.0 (positive)
+        """
+        # Try to extract numerical score first (if model produced one)
+        import re
+        
+        # Look for patterns like "score: 0.75" or "sentiment: -0.4"
+        score_patterns = [
+            r'(?:sentiment|score)(?:\s+is)?(?:\s*[:=]\s*)([-+]?\d+\.\d+|\d+)',
+            r'([-+]?\d+\.\d+|\d+)(?:\s+(?:out of|\/)\s+10)',  # "7 out of 10" or "7/10"
+            r'([-+]?\d+\.\d+|\d+)(?:\s+(?:out of|\/)\s+5)',   # "3.5 out of 5" or "3.5/5"
+        ]
+        
+        for pattern in score_patterns:
+            match = re.search(pattern, text.lower())
+            if match:
+                try:
+                    score = float(match.group(1))
+                    # Normalize to -1 to 1 range if needed
+                    if "out of 10" in text.lower() or "/10" in text.lower():
+                        score = (score / 10) * 2 - 1  # Convert 0-10 to -1 to 1
+                    elif "out of 5" in text.lower() or "/5" in text.lower():
+                        score = (score / 5) * 2 - 1   # Convert 0-5 to -1 to 1
+                    elif score > 1.0 or score < -1.0:
+                        score = max(-1.0, min(1.0, score / 5.0))  # Scale and clamp larger values
+                    return score
+                except ValueError:
+                    pass
 
-        words = text.lower().split()
-        score = sum(1 for w in words if w in positive_words)
-        score -= sum(1 for w in words if w in negative_words)
-        return score / max(len(words), 1)  # Normalize
+        # Enhanced lexicon-based approach as fallback
+        text = text.lower()
+        
+        # Financial sentiment lexicon
+        very_positive = {
+            "extremely bullish", "highly positive", "outstanding", "exceptional growth", 
+            "remarkable performance", "surged", "skyrocketed", "exceeded expectations",
+            "breakthrough", "record-breaking", "soared"
+        }
+        
+        positive = {
+            "bullish", "positive", "increase", "growth", "profit", "gain", "uptrend",
+            "outperform", "beat expectations", "strong", "rally", "recovery",
+            "improved", "promising", "optimistic", "upward", "rise", "growing"
+        }
+        
+        slightly_positive = {
+            "slightly positive", "modest growth", "minor gains", "cautiously optimistic",
+            "potential upside", "stable growth", "gradual improvement"
+        }
+        
+        neutral = {
+            "neutral", "stable", "steady", "unchanged", "flat", "balanced",
+            "mixed", "sideways", "holding steady", "maintained"
+        }
+        
+        slightly_negative = {
+            "slightly negative", "modest decline", "minor losses", "cautiously pessimistic",
+            "potential downside", "slight decrease", "gradual decline"
+        }
+        
+        negative = {
+            "bearish", "negative", "decrease", "decline", "loss", "downtrend",
+            "underperform", "missed expectations", "weak", "correction", "downturn",
+            "deteriorated", "concerning", "pessimistic", "downward", "fall", "shrinking"
+        }
+        
+        very_negative = {
+            "extremely bearish", "highly negative", "disastrous", "severe decline", 
+            "plummeted", "crashed", "plunged", "significant losses", "collapsed",
+            "catastrophic", "critical"
+        }
+        
+        # Look for explicit sentiment statements
+        if any(phrase in text for phrase in very_positive):
+            return 0.9
+        elif any(phrase in text for phrase in positive):
+            return 0.6
+        elif any(phrase in text for phrase in slightly_positive):
+            return 0.3
+        elif any(phrase in text for phrase in neutral):
+            return 0.0
+        elif any(phrase in text for phrase in slightly_negative):
+            return -0.3
+        elif any(phrase in text for phrase in negative):
+            return -0.6
+        elif any(phrase in text for phrase in very_negative):
+            return -0.9
+        
+        # If no explicit sentiment found, do word counting
+        words = text.split()
+        positive_count = sum(1 for w in words if w in positive or w in very_positive or w in slightly_positive)
+        negative_count = sum(1 for w in words if w in negative or w in very_negative or w in slightly_negative)
+        
+        total = positive_count + negative_count
+        if total == 0:
+            return 0.0
+        return (positive_count - negative_count) / max(total, 1)  # Normalize to [-1, 1]
 
     def _verify_base_model_files(self, model_path: Path) -> bool:
         """Verify base model files are present"""
