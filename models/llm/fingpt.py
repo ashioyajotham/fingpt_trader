@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from llama_cpp import Llama
@@ -309,14 +310,40 @@ class FinGPT(BaseLLM):
 
     async def generate(self, prompt: str, **kwargs) -> str:
         """Generate text using llama.cpp"""
+        # Use a simpler prompt format
+        simple_prompt = f"""
+Financial Analysis Task:
+{prompt}
+
+Analysis:
+"""
+        
+        print(f"\nAnalyzing financial statement...")
+        
+        # Adjust parameters for better generation
         response = self.model(
-            prompt,
-            max_tokens=100,
-            temperature=0.1,
-            top_p=0.95,
-            echo=False
+            simple_prompt,
+            max_tokens=512,
+            temperature=0.7,       # Higher temperature for more creative outputs
+            top_p=0.9,             # Standard top_p
+            repeat_penalty=1.1,
+            echo=False,
+            stop=["\n\n", "Financial Analysis Task:"]
         )
-        return response['choices'][0]['text']
+        
+        # Get result text and handle empty responses
+        result = response['choices'][0]['text'].strip() if response.get('choices') and response['choices'] else ""
+        
+        # Print condensed generation stats
+        duration = response.get('time_us', 0)/1000000
+        print(f"Generation completed in {duration:.2f}s")
+        
+        if not result:
+            print("Warning: Model generated empty response")
+        else:
+            print(f"Generated {len(result.split())} words")
+        
+        return result
 
     def preprocess(self, texts: List[str]) -> List[str]:
         """Format inputs for sentiment analysis"""
@@ -338,50 +365,33 @@ class FinGPT(BaseLLM):
             text (str): Financial text to analyze
             
         Returns:
-            Dict[str, float]: {
-                'text': Original text,
-                'sentiment': Score between -1 (bearish) and 1 (bullish),
-                'confidence': Confidence score between 0 and 1
-            }
+            Dict[str, float]: Sentiment analysis results
         """
-        prompt = (
-            f"Analyze the sentiment of this financial news text and provide a score from -1.0 (very negative) "
-            f"to 1.0 (very positive), where 0.0 is neutral:\n\n"
-            f"Text: \"{text}\"\n\n"
-            f"First, explain your reasoning in a few sentences. Then provide your final sentiment score."
-            f"Format your score as 'Sentiment score: X.X'"
-        )
+        # Simple, direct prompt
+        prompt = f"""Rate the financial sentiment of this news: "{text}"
+
+On a scale from -1.0 (very negative) to +1.0 (very positive), this news has a sentiment of:"""
         
         response = await self.generate(prompt)
+        print(f"Raw response: '{response}'")
         
-        # Print raw response for debugging
-        print(f"Raw model response: {response}")
-        
+        # Extract sentiment score with improved regex
         sentiment_score = self._process_sentiment(response)
         
-        # Calculate confidence based on certainty markers in the text
-        confidence_words = {
-            "confident": 0.9, "certain": 0.9, "strong": 0.8, "clear": 0.8, 
-            "likely": 0.7, "probably": 0.6, "possible": 0.5, "mixed": 0.4,
-            "uncertain": 0.3, "unclear": 0.2
-        }
-        
-        confidence = 0.5  # Default confidence
-        for word, value in confidence_words.items():
-            if word in response.lower():
-                confidence = value
-                break
-        
-        # If sentiment is strong (close to -1 or 1), increase confidence
-        sentiment_strength = abs(sentiment_score)
-        if sentiment_strength > 0.7:
-            confidence = max(confidence, 0.8)
+        # Calculate a more reliable confidence score
+        if not response:
+            confidence = 0.1  # Very low confidence for empty response
+        else:
+            # Base confidence on response length and presence of numbers
+            has_number = bool(re.search(r'-?\d+\.?\d*', response))
+            response_length = len(response.split())
+            confidence = min(0.9, max(0.1, (0.4 if has_number else 0.2) + response_length / 100))
         
         return {
             "text": text,
             "sentiment": sentiment_score,
-            "raw_response": response,  # Include raw response for debugging
-            "confidence": max(0.1, min(1.0, confidence * sentiment_strength)),  # Scale by sentiment strength
+            "confidence": confidence,
+            "raw_response": response[:50] + "..." if len(response) > 50 else response
         }
 
     def _process_sentiment(self, text: str) -> float:
@@ -397,97 +407,39 @@ class FinGPT(BaseLLM):
         # Try to extract numerical score first (if model produced one)
         import re
         
-        # Look for patterns like "score: 0.75" or "sentiment: -0.4"
-        score_patterns = [
-            r'(?:sentiment|score)(?:\s+is)?(?:\s*[:=]\s*)([-+]?\d+\.\d+|\d+)',
-            r'([-+]?\d+\.\d+|\d+)(?:\s+(?:out of|\/)\s+10)',  # "7 out of 10" or "7/10"
-            r'([-+]?\d+\.\d+|\d+)(?:\s+(?:out of|\/)\s+5)',   # "3.5 out of 5" or "3.5/5"
-        ]
+        # Look for any number between -1 and 1 with optional decimal places
+        num_pattern = r'(-?\d+\.?\d*)'
+        matches = re.findall(num_pattern, text)
         
-        for pattern in score_patterns:
-            match = re.search(pattern, text.lower())
-            if match:
-                try:
-                    score = float(match.group(1))
-                    # Normalize to -1 to 1 range if needed
-                    if "out of 10" in text.lower() or "/10" in text.lower():
-                        score = (score / 10) * 2 - 1  # Convert 0-10 to -1 to 1
-                    elif "out of 5" in text.lower() or "/5" in text.lower():
-                        score = (score / 5) * 2 - 1   # Convert 0-5 to -1 to 1
-                    elif score > 1.0 or score < -1.0:
-                        score = max(-1.0, min(1.0, score / 5.0))  # Scale and clamp larger values
-                    return score
-                except ValueError:
-                    pass
-
-        # Enhanced lexicon-based approach as fallback
+        for match in matches:
+            try:
+                value = float(match)
+                # Only accept values in the valid sentiment range
+                if -1.0 <= value <= 1.0:
+                    return value
+            except ValueError:
+                continue
+        
+        # If no valid number found, use lexical analysis
         text = text.lower()
         
-        # Financial sentiment lexicon
-        very_positive = {
-            "extremely bullish", "highly positive", "outstanding", "exceptional growth", 
-            "remarkable performance", "surged", "skyrocketed", "exceeded expectations",
-            "breakthrough", "record-breaking", "soared"
-        }
+        # Calculate sentiment from lexical cues
+        pos_terms = ["positive", "bullish", "upbeat", "strong", "growth", "gain", "increase", 
+                    "improve", "beat", "record", "exceeds", "profit"]
+                    
+        neg_terms = ["negative", "bearish", "downbeat", "weak", "decline", "loss", "decrease", 
+                    "worsen", "miss", "below", "disappoints", "risk"]
         
-        positive = {
-            "bullish", "positive", "increase", "growth", "profit", "gain", "uptrend",
-            "outperform", "beat expectations", "strong", "rally", "recovery",
-            "improved", "promising", "optimistic", "upward", "rise", "growing"
-        }
+        # Count term occurrences
+        pos_score = sum(1 for term in pos_terms if term in text)
+        neg_score = sum(1 for term in neg_terms if term in text)
         
-        slightly_positive = {
-            "slightly positive", "modest growth", "minor gains", "cautiously optimistic",
-            "potential upside", "stable growth", "gradual improvement"
-        }
-        
-        neutral = {
-            "neutral", "stable", "steady", "unchanged", "flat", "balanced",
-            "mixed", "sideways", "holding steady", "maintained"
-        }
-        
-        slightly_negative = {
-            "slightly negative", "modest decline", "minor losses", "cautiously pessimistic",
-            "potential downside", "slight decrease", "gradual decline"
-        }
-        
-        negative = {
-            "bearish", "negative", "decrease", "decline", "loss", "downtrend",
-            "underperform", "missed expectations", "weak", "correction", "downturn",
-            "deteriorated", "concerning", "pessimistic", "downward", "fall", "shrinking"
-        }
-        
-        very_negative = {
-            "extremely bearish", "highly negative", "disastrous", "severe decline", 
-            "plummeted", "crashed", "plunged", "significant losses", "collapsed",
-            "catastrophic", "critical"
-        }
-        
-        # Look for explicit sentiment statements
-        if any(phrase in text for phrase in very_positive):
-            return 0.9
-        elif any(phrase in text for phrase in positive):
-            return 0.6
-        elif any(phrase in text for phrase in slightly_positive):
-            return 0.3
-        elif any(phrase in text for phrase in neutral):
-            return 0.0
-        elif any(phrase in text for phrase in slightly_negative):
-            return -0.3
-        elif any(phrase in text for phrase in negative):
-            return -0.6
-        elif any(phrase in text for phrase in very_negative):
-            return -0.9
-        
-        # If no explicit sentiment found, do word counting
-        words = text.split()
-        positive_count = sum(1 for w in words if w in positive or w in very_positive or w in slightly_positive)
-        negative_count = sum(1 for w in words if w in negative or w in very_negative or w in slightly_negative)
-        
-        total = positive_count + negative_count
+        # Calculate sentiment score based on term frequency (-1 to 1 range)
+        total = pos_score + neg_score
         if total == 0:
-            return 0.0
-        return (positive_count - negative_count) / max(total, 1)  # Normalize to [-1, 1]
+            return 0.0  # Truly neutral if no sentiment terms
+            
+        return (pos_score - neg_score) / total
 
     def _verify_base_model_files(self, model_path: Path) -> bool:
         """Verify base model files are present"""
