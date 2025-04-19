@@ -77,7 +77,7 @@ class FinGPT(BaseLLM):
             inference_config = model_config.get('inference', {})
             cache_config = model_config.get('cache', {})
             
-            self.base_model = base_config.get('model', "tiiuae/falcon-7b")
+            self.base_model = base_config.get('model', "tiiuae/falcon-7b-instruct")
             self.peft_model = peft_config.get('model', "FinGPT/fingpt-mt_falcon-7b_lora")
             
             # Cache directories
@@ -125,9 +125,22 @@ class FinGPT(BaseLLM):
             logger.info(f"Model cache dir: {self.model_cache_dir}")
             logger.info(f"Checkpoint dir: {self.checkpoint_dir}")
             
-            gguf_path = self.model_cache_dir / "model-f16.gguf"
+            model_name = self.base_model.split("/")[-1]  # Extract "falcon-7b-instruct" from full path
+            gguf_path = self.model_cache_dir / f"{model_name}-f16.gguf"
+            model_info_path = self.model_cache_dir / f"{model_name}-info.txt"
             
+            # Check if we need to regenerate the model
+            regenerate = False
             if not gguf_path.exists():
+                regenerate = True
+            elif model_info_path.exists():
+                with open(model_info_path, 'r') as f:
+                    stored_model = f.read().strip()
+                    if stored_model != self.base_model:
+                        regenerate = True
+                        logger.info(f"Model changed from {stored_model} to {self.base_model}, regenerating")
+            
+            if regenerate:
                 # Step 1: Download and verify base model
                 base_path = self._ensure_base_model_downloaded()
                 logger.info(f"Base model downloaded to: {base_path}")
@@ -161,8 +174,13 @@ class FinGPT(BaseLLM):
                 
                 if not success or not gguf_path.exists():
                     raise RuntimeError("Model conversion failed")
+                
+                # Save model info
+                with open(model_info_path, 'w') as f:
+                    f.write(self.base_model)
             
             # Step 5: Load GGUF model
+            logger.info(f"Loading model: {self.base_model}")
             logger.info(f"Loading GGUF model from: {gguf_path}")
             self.model = Llama(
                 model_path=str(gguf_path),
@@ -309,39 +327,24 @@ class FinGPT(BaseLLM):
         )
 
     async def generate(self, prompt: str, **kwargs) -> str:
-        """Generate text using llama.cpp"""
-        # Use a simpler prompt format
-        simple_prompt = f"""
-Financial Analysis Task:
-{prompt}
-
-Analysis:
-"""
+        """Generate text using llama.cpp with instruction-tuned format"""
+        instruction_prompt = f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
         
-        print(f"\nAnalyzing financial statement...")
-        
-        # Adjust parameters for better generation
         response = self.model(
-            simple_prompt,
+            instruction_prompt,
             max_tokens=512,
-            temperature=0.7,       # Higher temperature for more creative outputs
-            top_p=0.9,             # Standard top_p
-            repeat_penalty=1.1,
+            temperature=0.3,       # Lower temperature for more focused outputs
+            top_p=0.9,
+            repeat_penalty=1.2,    # Increased to prevent repetition
             echo=False,
-            stop=["\n\n", "Financial Analysis Task:"]
+            stop=["<|im_end|>", "<|im_start|>"]
         )
         
-        # Get result text and handle empty responses
         result = response['choices'][0]['text'].strip() if response.get('choices') and response['choices'] else ""
         
-        # Print condensed generation stats
+        # Print generation stats
         duration = response.get('time_us', 0)/1000000
         print(f"Generation completed in {duration:.2f}s")
-        
-        if not result:
-            print("Warning: Model generated empty response")
-        else:
-            print(f"Generated {len(result.split())} words")
         
         return result
 
@@ -358,40 +361,27 @@ Analysis:
         return [output.split("Answer: ")[1].strip() for output in outputs]
 
     async def predict_sentiment(self, text: str) -> Dict[str, float]:
-        """
-        Analyze sentiment of financial text.
-        
-        Args:
-            text (str): Financial text to analyze
-            
-        Returns:
-            Dict[str, float]: Sentiment analysis results
-        """
-        # Simple, direct prompt
-        prompt = f"""Rate the financial sentiment of this news: "{text}"
-
-On a scale from -1.0 (very negative) to +1.0 (very positive), this news has a sentiment of:"""
+        """Analyze financial sentiment using instruction format prompt"""
+        prompt = (
+            f"You are a financial sentiment analyzer. Rate the sentiment of this financial news on a scale "
+            f"from -1.0 (very negative) to +1.0 (very positive).\n\n"
+            f"News: \"{text}\"\n\n"
+            f"First explain your reasoning in 1-2 sentences. Then provide only a numerical score between -1.0 and 1.0."
+        )
         
         response = await self.generate(prompt)
-        print(f"Raw response: '{response}'")
         
-        # Extract sentiment score with improved regex
+        # Extract sentiment score
         sentiment_score = self._process_sentiment(response)
         
-        # Calculate a more reliable confidence score
-        if not response:
-            confidence = 0.1  # Very low confidence for empty response
-        else:
-            # Base confidence on response length and presence of numbers
-            has_number = bool(re.search(r'-?\d+\.?\d*', response))
-            response_length = len(response.split())
-            confidence = min(0.9, max(0.1, (0.4 if has_number else 0.2) + response_length / 100))
+        # Better confidence calculation
+        confidence = self._calculate_confidence(response, sentiment_score)
         
         return {
             "text": text,
             "sentiment": sentiment_score,
             "confidence": confidence,
-            "raw_response": response[:50] + "..." if len(response) > 50 else response
+            "raw_response": response
         }
 
     def _process_sentiment(self, text: str) -> float:
@@ -501,3 +491,31 @@ On a scale from -1.0 (very negative) to +1.0 (very positive), this news has a se
         except Exception as e:
             logger.error(f"PEFT verification error: {str(e)}")
             return False
+
+    def _calculate_confidence(self, response: str, sentiment: float) -> float:
+        """Calculate confidence score based on response quality"""
+        if not response:
+            return 0.1
+            
+        # Check for numerical responses
+        has_number = bool(re.search(r'-?\d+\.?\d*', response))
+        
+        # Look for reasoning indicators
+        reasoning_terms = ["because", "since", "as", "given that", "due to", "indicates", "suggests"]
+        has_reasoning = any(term in response.lower() for term in reasoning_terms)
+        
+        # Check for sentiment terms
+        sentiment_terms = ["positive", "negative", "bullish", "bearish", "neutral"]
+        has_sentiment_terms = any(term in response.lower() for term in sentiment_terms)
+        
+        # Calculate base confidence
+        base_confidence = 0.1
+        if has_number: base_confidence += 0.4
+        if has_reasoning: base_confidence += 0.3
+        if has_sentiment_terms: base_confidence += 0.2
+        
+        # Adjust by response length (longer generally means more thoughtful)
+        words = len(response.split())
+        length_factor = min(0.2, words / 100)
+        
+        return min(0.95, base_confidence + length_factor)

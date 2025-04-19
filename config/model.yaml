@@ -1,7 +1,7 @@
 fingpt:
   model:
     base:
-      name: "tiiuae/falcon-7b"
+      name: "tiiuae/falcon-7b-instruct"  # Updated to an instruction-tuned model
       format: "gguf"  # Changed from ggml to gguf
       version: "v3"
       trust_remote_code: true
