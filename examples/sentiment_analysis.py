@@ -45,7 +45,7 @@ async def analyze_news():
     # Display model information
     console.print(Panel(
         "[bold blue]FinGPT Sentiment Analysis[/bold blue]\n"
-        "Model: [yellow]tiiuae/falcon-7b[/yellow]\n"
+        "Model: [yellow]tiiuae/falcon-7b-instruct[/yellow]\n"
         "PEFT Adapter: [yellow]FinGPT/fingpt-mt_falcon-7b_lora[/yellow]"
     ))
     
@@ -59,12 +59,14 @@ async def analyze_news():
         model_task = progress.add_task("Loading FinGPT model...", total=None)
         
         # Initialize the model
-        fingpt = FinGPT(
-            {
-                "model_name": "tiiuae/falcon-7b",
-                "peft_model": "FinGPT/fingpt-mt_falcon-7b_lora",
+        fingpt = FinGPT({
+            "base": {
+                "model": "tiiuae/falcon-7b-instruct"
+            },
+            "peft": {
+                "model": "FinGPT/fingpt-mt_falcon-7b_lora"
             }
-        )
+        })
         
         progress.update(model_task, description="Model loaded successfully!")
     

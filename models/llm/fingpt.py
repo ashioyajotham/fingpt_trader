@@ -142,10 +142,13 @@ class FinGPT(BaseLLM):
             
             if regenerate:
                 # Step 1: Download and verify base model
+                logger.info(f"Downloading and verifying {self.base_model}...")
                 base_path = self._ensure_base_model_downloaded()
                 logger.info(f"Base model downloaded to: {base_path}")
+                
+                # Use the comprehensive verification function
                 if not self._verify_base_model_files(base_path):
-                    raise RuntimeError("Base model files incomplete")
+                    raise RuntimeError(f"Model files incomplete for {self.base_model}")
                 
                 # Step 2: Download and verify LoRA adapter
                 peft_path = self._ensure_peft_model_downloaded()
@@ -234,21 +237,8 @@ class FinGPT(BaseLLM):
             raise
 
     def _verify_model_files(self, model_path: Path) -> bool:
-        """Verify all required model files are present"""
-        required_files = [
-            "pytorch_model-00001-of-00002.bin",
-            "pytorch_model-00002-of-00002.bin",
-            "config.json",
-            "tokenizer.json",
-            "tokenizer_config.json"
-        ]
-        
-        missing = [f for f in required_files if not (model_path / f).exists()]
-        if missing:
-            logger.error(f"Missing model files: {', '.join(missing)}")
-            return False
-            
-        return True
+        """Verify all required model files are present - delegates to comprehensive check"""
+        return self._verify_base_model_files(model_path)
 
     def _convert_to_ggml(self, model_path: Path) -> Path:
         """Convert model to GGML format"""
@@ -327,25 +317,22 @@ class FinGPT(BaseLLM):
         )
 
     async def generate(self, prompt: str, **kwargs) -> str:
-        """Generate text using llama.cpp with instruction-tuned format"""
-        instruction_prompt = f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+        """Generate text using llama.cpp with Falcon instruction format"""
+        # Falcon-7B-Instruct uses a simpler formatting than some other models
+        instruction_prompt = f"User: {prompt}\n\nAssistant:"
         
         response = self.model(
             instruction_prompt,
             max_tokens=512,
-            temperature=0.3,       # Lower temperature for more focused outputs
+            temperature=0.3,
             top_p=0.9,
-            repeat_penalty=1.2,    # Increased to prevent repetition
+            repeat_penalty=1.2,
             echo=False,
-            stop=["<|im_end|>", "<|im_start|>"]
+            # Falcon-specific stop tokens
+            stop=["User:", "\n\nUser", "\n\n\nUser"]
         )
         
         result = response['choices'][0]['text'].strip() if response.get('choices') and response['choices'] else ""
-        
-        # Print generation stats
-        duration = response.get('time_us', 0)/1000000
-        print(f"Generation completed in {duration:.2f}s")
-        
         return result
 
     def preprocess(self, texts: List[str]) -> List[str]:
@@ -361,20 +348,18 @@ class FinGPT(BaseLLM):
         return [output.split("Answer: ")[1].strip() for output in outputs]
 
     async def predict_sentiment(self, text: str) -> Dict[str, float]:
-        """Analyze financial sentiment using instruction format prompt"""
+        """Analyze financial sentiment using Falcon-specific instruction format"""
         prompt = (
-            f"You are a financial sentiment analyzer. Rate the sentiment of this financial news on a scale "
-            f"from -1.0 (very negative) to +1.0 (very positive).\n\n"
+            f"Please analyze the sentiment of this financial news article. "
+            f"Rate it on a scale from -1.0 (very negative) to +1.0 (very positive).\n\n"
             f"News: \"{text}\"\n\n"
-            f"First explain your reasoning in 1-2 sentences. Then provide only a numerical score between -1.0 and 1.0."
+            f"Provide your reasoning and then give the numerical score in this format: 'Sentiment score: X.X'"
         )
         
         response = await self.generate(prompt)
+        print(f"Raw response: '{response}'")
         
-        # Extract sentiment score
         sentiment_score = self._process_sentiment(response)
-        
-        # Better confidence calculation
         confidence = self._calculate_confidence(response, sentiment_score)
         
         return {
@@ -432,7 +417,7 @@ class FinGPT(BaseLLM):
         return (pos_score - neg_score) / total
 
     def _verify_base_model_files(self, model_path: Path) -> bool:
-        """Verify base model files are present"""
+        """Verify base model files are present for Falcon-7B-Instruct"""
         # Check for either PyTorch or SafeTensors format
         tensor_formats = {
             'pytorch': [
@@ -447,6 +432,7 @@ class FinGPT(BaseLLM):
             ]
         }
         
+        # Required config files for Falcon models
         config_files = [
             "config.json",
             "tokenizer.json",
@@ -461,13 +447,21 @@ class FinGPT(BaseLLM):
             for files in tensor_formats.values()
         )
         
+        # Log which format was found
+        if has_weights:
+            if all((model_path / f).exists() for f in tensor_formats['safetensors']):
+                logger.info("Found SafeTensors format weights")
+            else:
+                logger.info("Found PyTorch format weights")
+        
         # Check config files
         has_configs = all((model_path / f).exists() for f in config_files)
         
         if not has_weights:
             logger.error("Missing model weight files")
         if not has_configs:
-            logger.error("Missing configuration files")
+            missing = [f for f in config_files if not (model_path / f).exists()]
+            logger.error(f"Missing configuration files: {', '.join(missing)}")
             
         return has_weights and has_configs
 
@@ -519,3 +513,20 @@ class FinGPT(BaseLLM):
         length_factor = min(0.2, words / 100)
         
         return min(0.95, base_confidence + length_factor)
+
+    def _get_model_info(self) -> Dict[str, Any]:
+        """Get information about the loaded model"""
+        if not hasattr(self, 'model') or not self.model:
+            return {"status": "Model not loaded"}
+            
+        # Extract metadata from the model
+        metadata = getattr(self.model, 'metadata', {})
+        model_path = getattr(self.model, 'model_path', 'Unknown')
+        
+        return {
+            "model_path": str(model_path),
+            "base_model": self.base_model,
+            "metadata": metadata,
+            "n_ctx": self.n_ctx,
+            "n_gpu_layers": self.n_gpu_layers
+        }
