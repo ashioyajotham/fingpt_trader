@@ -77,7 +77,7 @@ class FinGPT(BaseLLM):
             inference_config = model_config.get('inference', {})
             cache_config = model_config.get('cache', {})
             
-            self.base_model = base_config.get('model', "tiiuae/falcon-7b-instruct")
+            self.base_model = base_config.get('model', "tiiuae/falcon-7b")
             self.peft_model = peft_config.get('model', "FinGPT/fingpt-mt_falcon-7b_lora")
             
             # Cache directories

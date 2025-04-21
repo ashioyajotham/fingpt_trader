@@ -126,7 +126,11 @@ def main():
     
     args = parser.parse_args()
     
-    success = convert_model(args.model_dir, args.outfile, args.outtype)
+    success = convert_model(
+        model_dir=str(base_path),
+        output_path=str(gguf_path),
+        model_type="q4_k_m"  # Instead of "f16"
+    )
     if not success:
         sys.exit(1)
 
