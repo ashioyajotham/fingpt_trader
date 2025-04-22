@@ -125,8 +125,9 @@ class FinGPT(BaseLLM):
             logger.info(f"Model cache dir: {self.model_cache_dir}")
             logger.info(f"Checkpoint dir: {self.checkpoint_dir}")
             
-            model_name = self.base_model.split("/")[-1]  # Extract "falcon-7b-instruct" from full path
-            gguf_path = self.model_cache_dir / f"{model_name}-f16.gguf"
+            model_name = self.base_model.split("/")[-1]  
+            quant_type = "q4_k_m"  # Define quantization type once
+            gguf_path = self.model_cache_dir / f"{model_name}-{quant_type}.gguf"
             model_info_path = self.model_cache_dir / f"{model_name}-info.txt"
             
             # Check if we need to regenerate the model
@@ -170,9 +171,9 @@ class FinGPT(BaseLLM):
                 logger.info("Converting to GGUF format...")
                 from .convert import convert_model
                 success = convert_model(
-                    model_dir=str(base_path),  # Changed from model=merged_model
+                    model_dir=str(base_path),
                     output_path=str(gguf_path),
-                    model_type="f16"
+                    model_type="q4_k_m"
                 )
                 
                 if not success or not gguf_path.exists():

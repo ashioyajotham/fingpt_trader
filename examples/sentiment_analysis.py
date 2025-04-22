@@ -61,7 +61,7 @@ async def analyze_news():
         # Initialize the model
         fingpt = FinGPT({
             "base": {
-                "model": "tiiuae/falcon-7b-instruct"
+                "model": "tiiuae/falcon-7b"
             },
             "peft": {
                 "model": "FinGPT/fingpt-mt_falcon-7b_lora"
