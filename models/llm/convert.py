@@ -119,9 +119,9 @@ def main():
     parser.add_argument("--outfile", required=True, help="Output GGML file path")
     parser.add_argument(
         "--outtype",
-        choices=["f16", "f32", "q8_0"],
-        default="f16",
-        help="Output model type (default: f16)"
+        choices=["f32", "f16", "bf16", "q8_0", "tq1_0", "tq2_0", "auto"],
+        default="q8_0",  # Match your default
+        help="Output model type (default: q8_0)"
     )
     
     args = parser.parse_args()
@@ -129,7 +129,7 @@ def main():
     success = convert_model(
         model_dir=args.model_dir,
         output_path=args.outfile,
-        model_type="q8_0"
+        model_type=args.outtype 
     )
     if not success:
         sys.exit(1)
