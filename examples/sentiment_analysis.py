@@ -45,7 +45,7 @@ async def analyze_news():
     # Display model information
     console.print(Panel(
         "[bold blue]FinGPT Sentiment Analysis[/bold blue]\n"
-        "Model: [yellow]tiiuae/falcon-7b-instruct[/yellow]\n"
+        "Model: [yellow]tiiuae/falcon-7b[/yellow]\n"
         "PEFT Adapter: [yellow]FinGPT/fingpt-mt_falcon-7b_lora[/yellow]"
     ))
     

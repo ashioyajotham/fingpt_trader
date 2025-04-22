@@ -173,7 +173,7 @@ class FinGPT(BaseLLM):
                 success = convert_model(
                     model_dir=str(base_path),
                     output_path=str(gguf_path),
-                    model_type="q4_k_m"
+                    model_type="q8_0"  # Change from "q4_k_m" to a supported type
                 )
                 
                 if not success or not gguf_path.exists():

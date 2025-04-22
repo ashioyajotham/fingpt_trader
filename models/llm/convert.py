@@ -93,7 +93,7 @@ def convert_model(model_dir: str, output_path: str, model_type: str = "f16") -> 
             str(convert_script),
             str(model_dir),
             "--outfile", str(output_path),
-            "--outtype", model_type
+            "--outtype", model_type  # This should be one from the list: f16, f32, q8_0, etc.
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -119,17 +119,17 @@ def main():
     parser.add_argument("--outfile", required=True, help="Output GGML file path")
     parser.add_argument(
         "--outtype",
-        choices=["f16", "f32"],
+        choices=["f16", "f32", "q8_0"],
         default="f16",
-        help="Output precision (default: f16)"
+        help="Output model type (default: f16)"
     )
     
     args = parser.parse_args()
     
     success = convert_model(
-        model_dir=str(base_path),
-        output_path=str(gguf_path),
-        model_type="q4_k_m"  # Instead of "f16"
+        model_dir=args.model_dir,
+        output_path=args.outfile,
+        model_type="q8_0"
     )
     if not success:
         sys.exit(1)
