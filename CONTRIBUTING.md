@@ -32,7 +32,7 @@ We are committed to providing a welcoming and inspiring community for all. Pleas
 ### 1. Branching Strategy
 
 - `main`: Production-ready code
-- `develop`: Development branch
+- `build`: Development branch
 - Feature branches: `feature/your-feature`
 - Bugfix branches: `fix/issue-description`
 

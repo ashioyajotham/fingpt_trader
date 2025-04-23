@@ -1,9 +1,15 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
+from pathlib import Path
+import logging
+import time
 
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
+from llama_cpp import Llama
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -13,6 +19,21 @@ class InferenceConfig:
     num_beams: int = 1
     temperature: float = 1.0
     top_p: float = 0.9
+
+
+@dataclass
+class LlamaCppConfig:
+    """Configuration for llama.cpp inference"""
+    n_ctx: int = 2048
+    n_batch: int = 512
+    n_threads: int = 4
+    n_gpu_layers: int = 0
+    f16_kv: bool = True
+    verbose: bool = False
+    temp: float = 0.7
+    top_p: float = 0.9
+    top_k: int = 40
+    max_tokens: int = 256
 
 
 class TextDataset(Dataset):
@@ -64,3 +85,72 @@ class InferenceEngine:
                 progress_callback(i, len(dataloader))
 
         return all_outputs
+
+
+class LlamaCppInference:
+    """Inference engine for llama.cpp models"""
+    
+    def __init__(self, model_path: Union[str, Path], config: LlamaCppConfig):
+        """Initialize inference engine with llama.cpp model"""
+        self.config = config
+        self.model_path = str(model_path) if isinstance(model_path, Path) else model_path
+        
+        logger.info(f"Initializing llama.cpp model from {self.model_path}")
+        self.model = self._load_model()
+        logger.info(f"Model loaded successfully with context window {self.config.n_ctx}")
+
+    def _load_model(self) -> Llama:
+        """Load the llama.cpp model with specified configuration"""
+        try:
+            return Llama(
+                model_path=self.model_path,
+                n_ctx=self.config.n_ctx,
+                n_batch=self.config.n_batch,
+                n_threads=self.config.n_threads, 
+                n_gpu_layers=self.config.n_gpu_layers,
+                f16_kv=self.config.f16_kv,
+                verbose=self.config.verbose
+            )
+        except Exception as e:
+            logger.error(f"Error loading model: {str(e)}")
+            raise
+
+    def generate(self, prompt: str, **kwargs) -> Tuple[str, float]:
+        """Generate completion for a single prompt"""
+        start_time = time.time()
+        
+        generation_kwargs = {
+            "temperature": kwargs.get("temp", self.config.temp),
+            "top_p": kwargs.get("top_p", self.config.top_p),
+            "top_k": kwargs.get("top_k", self.config.top_k),
+            "max_tokens": kwargs.get("max_tokens", self.config.max_tokens),
+        }
+        
+        response = self.model(prompt, **generation_kwargs)
+        elapsed = time.time() - start_time
+        
+        return response["choices"][0]["text"], elapsed
+        
+    def generate_batch(
+        self, prompts: List[str], progress_callback: Optional[callable] = None
+    ) -> List[Tuple[str, float]]:
+        """Generate completions for a batch of prompts (sequentially)"""
+        results = []
+        
+        for i, prompt in enumerate(prompts):
+            result, elapsed = self.generate(prompt)
+            results.append((result, elapsed))
+            
+            if progress_callback:
+                progress_callback(i, len(prompts))
+                
+        return results
+
+    def get_model_info(self) -> Dict[str, Any]:
+        """Get model metadata"""
+        return {
+            "model_path": self.model_path,
+            "n_ctx": self.config.n_ctx,
+            "n_threads": self.config.n_threads,
+            "n_gpu_layers": self.config.n_gpu_layers
+        }
