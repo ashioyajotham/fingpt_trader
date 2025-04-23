@@ -360,62 +360,45 @@ class FinGPT(BaseLLM):
         response = await self.generate(prompt)
         print(f"Raw response: '{response}'")
         
-        sentiment_score = self._process_sentiment(response)
-        confidence = self._calculate_confidence(response, sentiment_score)
+        sentiment_result = self._process_sentiment(response)
         
         return {
             "text": text,
-            "sentiment": sentiment_score,
-            "confidence": confidence,
-            "raw_response": response
+            **sentiment_result
         }
 
-    def _process_sentiment(self, text: str) -> float:
-        """
-        Process model output to extract sentiment score.
+    def _process_sentiment(self, response: str) -> Dict[str, Any]:
+        """Process raw LLM response into a structured sentiment result"""
+        # Extract sentiment score using different possible patterns
+        patterns = [
+            r'sentiment score:\s*(-?\d+\.?\d*)', # Standard format
+            r'score:\s*(-?\d+\.?\d*)',           # Abbreviated format
+            r'sentiment:\s*(-?\d+\.?\d*)',       # Alternative format
+            r'(-?\d+\.?\d*)/1\.0',               # Ratio format
+            r'(-?\d+\.?\d*)'                      # Just a number as fallback
+        ]
         
-        Args:
-            text (str): Model output text
-            
-        Returns:
-            float: Sentiment score between -1.0 (negative) and 1.0 (positive)
-        """
-        # Try to extract numerical score first (if model produced one)
-        import re
+        sentiment_value = 0.0
+        for pattern in patterns:
+            match = re.search(pattern, response.lower())
+            if match:
+                try:
+                    value = float(match.group(1))
+                    # Validate the value is in proper range
+                    if -1.0 <= value <= 1.0:
+                        sentiment_value = value
+                        break
+                except (ValueError, IndexError):
+                    continue
         
-        # Look for any number between -1 and 1 with optional decimal places
-        num_pattern = r'(-?\d+\.?\d*)'
-        matches = re.findall(num_pattern, text)
+        # Calculate confidence based on response quality
+        confidence = self._calculate_confidence(response, sentiment_value)
         
-        for match in matches:
-            try:
-                value = float(match)
-                # Only accept values in the valid sentiment range
-                if -1.0 <= value <= 1.0:
-                    return value
-            except ValueError:
-                continue
-        
-        # If no valid number found, use lexical analysis
-        text = text.lower()
-        
-        # Calculate sentiment from lexical cues
-        pos_terms = ["positive", "bullish", "upbeat", "strong", "growth", "gain", "increase", 
-                    "improve", "beat", "record", "exceeds", "profit"]
-                    
-        neg_terms = ["negative", "bearish", "downbeat", "weak", "decline", "loss", "decrease", 
-                    "worsen", "miss", "below", "disappoints", "risk"]
-        
-        # Count term occurrences
-        pos_score = sum(1 for term in pos_terms if term in text)
-        neg_score = sum(1 for term in neg_terms if term in text)
-        
-        # Calculate sentiment score based on term frequency (-1 to 1 range)
-        total = pos_score + neg_score
-        if total == 0:
-            return 0.0  # Truly neutral if no sentiment terms
-            
-        return (pos_score - neg_score) / total
+        return {
+            "sentiment": sentiment_value,
+            "confidence": confidence,
+            "raw_response": response.strip()
+        }
 
     def _verify_base_model_files(self, model_path: Path) -> bool:
         """Verify base model files are present for Falcon-7B-Instruct"""
@@ -488,31 +471,34 @@ class FinGPT(BaseLLM):
             return False
 
     def _calculate_confidence(self, response: str, sentiment: float) -> float:
-        """Calculate confidence score based on response quality"""
-        if not response:
-            return 0.1
-            
-        # Check for numerical responses
-        has_number = bool(re.search(r'-?\d+\.?\d*', response))
+        """Calculate confidence score based on response quality indicators"""
+        # Check for presence of reasoning and numerical patterns
+        has_reasoning = len(response.split()) > 15  # More than 15 words suggests some reasoning
+        has_number = bool(re.search(r'-?\d+\.?\d*', response))  # Contains a number
+        has_sentiment_terms = any(term in response.lower() for term in [
+            "bullish", "bearish", "positive", "negative", "neutral", "optimistic", 
+            "pessimistic", "market", "investor", "stock", "price", "growth", "decline"
+        ])
         
-        # Look for reasoning indicators
-        reasoning_terms = ["because", "since", "as", "given that", "due to", "indicates", "suggests"]
-        has_reasoning = any(term in response.lower() for term in reasoning_terms)
-        
-        # Check for sentiment terms
-        sentiment_terms = ["positive", "negative", "bullish", "bearish", "neutral"]
-        has_sentiment_terms = any(term in response.lower() for term in sentiment_terms)
+        # Check if response follows requested format
+        has_correct_format = bool(re.search(r'sentiment score:\s*-?\d+\.?\d*', response.lower()))
         
         # Calculate base confidence
         base_confidence = 0.1
-        if has_number: base_confidence += 0.4
-        if has_reasoning: base_confidence += 0.3
+        if has_number: base_confidence += 0.2
         if has_sentiment_terms: base_confidence += 0.2
+        if has_reasoning: base_confidence += 0.3
+        if has_correct_format: base_confidence += 0.2
         
+        # Penalize extreme values without strong justification
+        if abs(sentiment) > 0.8 and not has_reasoning:
+            base_confidence -= 0.2
+            
         # Adjust by response length (longer generally means more thoughtful)
         words = len(response.split())
-        length_factor = min(0.2, words / 100)
+        length_factor = min(0.15, words / 150)
         
+        # Calculate final confidence, capped at 95%
         return min(0.95, base_confidence + length_factor)
 
     def _get_model_info(self) -> Dict[str, Any]:
@@ -531,3 +517,21 @@ class FinGPT(BaseLLM):
             "n_ctx": self.n_ctx,
             "n_gpu_layers": self.n_gpu_layers
         }
+
+    def _create_sentiment_prompt(self, text: str) -> str:
+        """Create a well-structured prompt for financial sentiment analysis"""
+        return f"""### Instruction:
+You are a financial sentiment analysis expert. Analyze the following financial news and determine its market sentiment.
+
+### Input:
+{text}
+
+### Context:
+- Assign a sentiment score between -1.0 (extremely negative) and +1.0 (extremely positive)
+- 0.0 represents neutral sentiment
+- Consider market implications, not general sentiment
+- Briefly explain your reasoning before giving the score
+- Format your response as "Analysis: [your reasoning] Sentiment score: [score]"
+
+### Response:
+"""
