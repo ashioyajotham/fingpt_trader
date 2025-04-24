@@ -163,7 +163,17 @@ class SentimentAnalyzer(BaseService):
 
     def _chunk_text(self, text: str, max_tokens: int = 750) -> List[str]:
         """Split text into chunks for processing"""
-        words = text.split()
+        # First clean the text to remove model output patterns
+        cleaned_text = ""
+        for line in text.split('\n'):
+            if not any(pattern in line.lower() for pattern in [
+                'sentiment score:', 'you:', 'assistant:', 
+                'analysis:', 'raw response'
+            ]):
+                cleaned_text += line + " "
+        
+        # Now continue with the chunking as before
+        words = cleaned_text.split()
         chunks = []
         words_per_chunk = max_tokens // 6  # Conservative estimate
         

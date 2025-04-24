@@ -349,23 +349,70 @@ class FinGPT(BaseLLM):
         return [output.split("Answer: ")[1].strip() for output in outputs]
 
     async def predict_sentiment(self, text: str) -> Dict[str, float]:
-        """Analyze financial sentiment using Falcon-specific instruction format"""
+        """Analyze financial sentiment using a structured format that prevents echo issues"""
         prompt = (
-            f"Please analyze the sentiment of this financial news article. "
-            f"Rate it on a scale from -1.0 (very negative) to +1.0 (very positive).\n\n"
-            f"News: \"{text}\"\n\n"
-            f"Provide your reasoning and then give the numerical score in this format: 'Sentiment score: X.X'"
+            "<system>\n"
+            "You are a financial sentiment analysis expert. Analyze text and return ONLY a sentiment score "
+            "between -1.0 (extremely negative) and 1.0 (extremely positive). 0.0 is neutral.\n"
+            "Respond with ONLY a decimal number between -1.0 and 1.0 and nothing else.\n"
+            "</system>\n\n"
+            "<user>\n"
+            f"Analyze this financial news sentiment: {text}\n"
+            "</user>\n\n"
+            "<assistant>"
         )
         
         response = await self.generate(prompt)
-        print(f"Raw response: '{response}'")
         
-        sentiment_result = self._process_sentiment(response)
+        # Capture only numeric results
+        sentiment_value = self._extract_sentiment_score(response)
+        
+        # Calculate confidence based on how "clean" the response is
+        confidence = 0.8 if response.strip().replace('-', '').replace('.', '').isdigit() else 0.5
         
         return {
-            "text": text,
-            **sentiment_result
+            "sentiment": sentiment_value,
+            "confidence": confidence
         }
+
+    def _extract_sentiment_score(self, response: str) -> float:
+        """Extract clean numeric sentiment score"""
+        # First try to get just a clean number
+        response = response.strip()
+        try:
+            # If it's just a clean number
+            if response.replace('-', '').replace('.', '').isdigit():
+                value = float(response)
+                if -1.0 <= value <= 1.0:
+                    return value
+        except ValueError:
+            pass
+        
+        # Try to find a number in the text
+        import re
+        patterns = [
+            r'(-?\d+\.\d+)', # Match decimal numbers
+            r'(-?\d+)',      # Match integers
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, response)
+            if matches:
+                try:
+                    value = float(matches[0])
+                    # Ensure it's in the valid range
+                    if -1.0 <= value <= 1.0:
+                        return value
+                    # Scale down if it's outside the range but still reasonable
+                    elif 1.0 < value <= 10.0:
+                        return value/10.0
+                    elif -10.0 <= value < -1.0:
+                        return value/10.0
+                except ValueError:
+                    continue
+        
+        # Default to neutral if no valid score found
+        return 0.0
 
     def _process_sentiment(self, response: str) -> Dict[str, Any]:
         """Process raw LLM response into a structured sentiment result"""

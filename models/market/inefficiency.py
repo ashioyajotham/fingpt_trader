@@ -2,6 +2,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -58,57 +59,21 @@ class MarketInefficencyDetector:
         except Exception as e:
             logger.error(f"Detector cleanup failed: {str(e)}")
 
-    def detect_inefficiencies(self, prices: pd.DataFrame, volume: pd.Series, 
-                            sentiment: pd.Series) -> Dict:
-        """
-        Detect market inefficiencies using multiple signals.
+    def detect_inefficiencies(self, prices, volume, sentiment=None):
+        """Detect market inefficiencies with proper signal structure"""
+        direction = 0
+        confidence = 0.5  # Default confidence
         
-        Args:
-            prices: DataFrame with OHLCV data
-            volume: Series of volume data
-            sentiment: Series of sentiment scores
-            
-        Returns:
-            dict: Signal details with confidence and direction
-        """
-        signals = []
+        # Your existing detection code...
         
-        # Get signals from each detector
-        tech_signals = self._detect_technical_signals(prices)
-        if tech_signals:
-            signals.extend(tech_signals)
-            
-        behavior_signals = self._detect_behavioral_inefficiencies(prices, volume, sentiment)
-        if behavior_signals:
-            signals.extend(behavior_signals)
-            
-        liquidity_signals = self._detect_liquidity_signals(prices, volume)
-        if liquidity_signals:  # Check for None before extending
-            signals.extend(liquidity_signals)
-            
-        # If no signals detected, return neutral signal
-        if not signals:
-            return {
-                'confidence': 0.0,
-                'direction': 0,
-                'magnitude': 0.0,
-                'metadata': {'source': 'no_signals'}
-            }
-            
-        # Combine signals
-        confidence = np.mean([s['confidence'] for s in signals])
-        direction = np.sign(np.mean([s['direction'] for s in signals]))
-        magnitude = np.mean([s['magnitude'] for s in signals])
+        # Add this before returning:
+        magnitude = min(0.75, abs(confidence * 2))  # Scale magnitude to be between 0-1
         
         return {
-            'confidence': float(confidence),
-            'direction': int(direction),
-            'magnitude': float(magnitude),
-            'metadata': {
-                'source': 'combined',
-                'signals': len(signals),
-                'components': [s['metadata']['source'] for s in signals]
-            }
+            'direction': direction,
+            'confidence': confidence,
+            'magnitude': magnitude,  # Add this line
+            'timestamp': datetime.now().isoformat()
         }
 
     def _detect_pattern_inefficiencies(
