@@ -319,7 +319,6 @@ class FinGPT(BaseLLM):
 
     async def generate(self, prompt: str, **kwargs) -> str:
         """Generate text using llama.cpp with Falcon instruction format"""
-        # Falcon-7B-Instruct uses a simpler formatting than some other models
         instruction_prompt = f"User: {prompt}\n\nAssistant:"
         
         response = self.model(
@@ -348,70 +347,120 @@ class FinGPT(BaseLLM):
         """Extract sentiment labels from outputs"""
         return [output.split("Answer: ")[1].strip() for output in outputs]
 
-    async def predict_sentiment(self, text: str) -> Dict[str, float]:
-        """Analyze financial sentiment using a structured format that prevents echo issues"""
-        prompt = (
-            "<system>\n"
-            "You are a financial sentiment analysis expert. Analyze text and return ONLY a sentiment score "
-            "between -1.0 (extremely negative) and 1.0 (extremely positive). 0.0 is neutral.\n"
-            "Respond with ONLY a decimal number between -1.0 and 1.0 and nothing else.\n"
-            "</system>\n\n"
-            "<user>\n"
-            f"Analyze this financial news sentiment: {text}\n"
-            "</user>\n\n"
-            "<assistant>"
-        )
-        
-        response = await self.generate(prompt)
-        
-        # Capture only numeric results
-        sentiment_value = self._extract_sentiment_score(response)
-        
-        # Calculate confidence based on how "clean" the response is
-        confidence = 0.8 if response.strip().replace('-', '').replace('.', '').isdigit() else 0.5
-        
-        return {
-            "sentiment": sentiment_value,
-            "confidence": confidence
-        }
+    def _create_sentiment_prompt(self, text: str) -> str:
+        """
+        Create a structured prompt for sentiment analysis with clear instructions.
+        Uses markdown formatting which typically produces more reliable responses.
+        """
+        return f"""### System: Financial Sentiment Analysis
+You are performing sentiment analysis on financial text. Follow these instructions exactly:
 
-    def _extract_sentiment_score(self, response: str) -> float:
-        """Extract clean numeric sentiment score"""
-        # First try to get just a clean number
-        response = response.strip()
+### Instructions:
+1. Analyze the financial sentiment of the text below
+2. Determine if it is positive, negative, or neutral for investors
+3. Assign a score between -1.0 (extremely bearish) and 1.0 (extremely bullish)
+4. Return ONLY the sentiment score as a decimal number
+5. Do not include any explanations or additional text
+
+### Text to analyze:
+{text}
+
+### Response (ONLY a number between -1.0 and 1.0):
+Sentiment score:"""
+
+    async def predict_sentiment(self, text: str) -> Dict[str, float]:
+        """Analyze financial sentiment using a structured prompt format"""
         try:
-            # If it's just a clean number
-            if response.replace('-', '').replace('.', '').isdigit():
-                value = float(response)
+            # Clean the text before analysis to remove any potential model outputs
+            text = self._clean_input_text(text)
+            
+            # Use the structured prompt creator
+            prompt = self._create_sentiment_prompt(text)
+            
+            # Generate response
+            response = self.model(
+                prompt,
+                max_tokens=32,  # Limit to prevent rambling
+                temperature=0.1,  # Lower temperature for more consistent results
+                top_p=0.9,
+                repeat_penalty=1.2,
+                echo=False,
+                stop=["###", "\n\n"]  # Stop at section markers or blank lines
+            )
+            
+            result = response['choices'][0]['text'].strip() if response.get('choices') else ""
+            
+            # Extract sentiment score
+            sentiment_value = self._extract_sentiment_score(result)
+            
+            # Calculate confidence based on response quality
+            confidence = 0.8 if re.match(r'^-?\d+\.?\d*$', result.strip()) else 0.5
+            
+            return {
+                "sentiment": sentiment_value,
+                "confidence": confidence
+            }
+        except Exception as e:
+            logger.error(f"Sentiment analysis error: {str(e)}")
+            return {
+                "sentiment": 0.0,
+                "confidence": 0.1
+            }
+
+    def _clean_input_text(self, text: str) -> str:
+        """Remove potential model outputs and conversation patterns from input text"""
+        if not text:
+            return ""
+            
+        # Remove lines containing model output patterns
+        clean_lines = []
+        for line in text.split('\n'):
+            line = line.strip()
+            if any(pattern in line.lower() for pattern in [
+                'sentiment score:', 'you:', 'assistant:', 
+                'raw response:', 'analysis:'
+            ]):
+                continue
+            clean_lines.append(line)
+        
+        return " ".join(clean_lines)
+
+    def _extract_sentiment_score(self, text: str) -> float:
+        """Extract numeric sentiment score with improved pattern matching"""
+        text = text.lower().strip()
+        
+        # First try exact format (just a number)
+        if re.match(r'^-?\d+\.?\d*$', text):
+            try:
+                value = float(text)
                 if -1.0 <= value <= 1.0:
                     return value
-        except ValueError:
-            pass
+            except ValueError:
+                pass
         
-        # Try to find a number in the text
-        import re
+        # Try common patterns with clear extraction
         patterns = [
-            r'(-?\d+\.\d+)', # Match decimal numbers
-            r'(-?\d+)',      # Match integers
+            r'sentiment score:?\s*(-?\d+\.?\d*)',
+            r'score:?\s*(-?\d+\.?\d*)',
+            r'[-:]?\s*(-?\d+\.?\d*)\s*[/]?',
         ]
         
         for pattern in patterns:
-            matches = re.findall(pattern, response)
-            if matches:
+            match = re.search(pattern, text)
+            if match:
                 try:
-                    value = float(matches[0])
-                    # Ensure it's in the valid range
+                    value = float(match.group(1))
+                    # Ensure value is in valid range
                     if -1.0 <= value <= 1.0:
                         return value
-                    # Scale down if it's outside the range but still reasonable
-                    elif 1.0 < value <= 10.0:
-                        return value/10.0
+                    elif 1.0 < value <= 10.0:  # Scale down if needed
+                        return min(1.0, value / 10.0)
                     elif -10.0 <= value < -1.0:
-                        return value/10.0
-                except ValueError:
+                        return max(-1.0, value / 10.0)
+                except (ValueError, IndexError):
                     continue
         
-        # Default to neutral if no valid score found
+        # Return neutral if no valid score found
         return 0.0
 
     def _process_sentiment(self, response: str) -> Dict[str, Any]:
@@ -564,21 +613,3 @@ class FinGPT(BaseLLM):
             "n_ctx": self.n_ctx,
             "n_gpu_layers": self.n_gpu_layers
         }
-
-    def _create_sentiment_prompt(self, text: str) -> str:
-        """Create a well-structured prompt for financial sentiment analysis"""
-        return f"""### Instruction:
-You are a financial sentiment analysis expert. Analyze the following financial news and determine its market sentiment.
-
-### Input:
-{text}
-
-### Context:
-- Assign a sentiment score between -1.0 (extremely negative) and +1.0 (extremely positive)
-- 0.0 represents neutral sentiment
-- Consider market implications, not general sentiment
-- Briefly explain your reasoning before giving the score
-- Format your response as "Analysis: [your reasoning] Sentiment score: [score]"
-
-### Response:
-"""

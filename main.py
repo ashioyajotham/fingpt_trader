@@ -218,6 +218,38 @@ class TradingSystem:
         self.robo_service = RoboService(self.config.get('robo', {}))
         self.client_profiles = {}
 
+    async def initialize(self):
+        """Initialize the trading system components"""
+        logger.info("Starting trading system initialization...")
+        
+        try:
+            # Set up exchange connections
+            from services.exchanges.binance import BinanceClient
+            
+            # Initialize exchange clients
+            for exchange_config in self.config.get('exchanges', []):
+                exchange_name = exchange_config.get('name', '').lower()
+                if exchange_name == 'binance':
+                    # Use the create factory method instead of direct constructor
+                    self.exchange_clients[exchange_name] = await BinanceClient.create({
+                        'api_key': os.getenv('BINANCE_API_KEY'),
+                        'api_secret': os.getenv('BINANCE_API_SECRET'),
+                        'test_mode': exchange_config.get('test_mode', True),
+                        'options': exchange_config.get('options', {})
+                    })
+                    
+            # Initialize robo service
+            await self.robo_service.setup(
+                exchange_clients=self.exchange_clients,
+                trading_pairs=self.config.get('trading', {}).get('pairs', ['BTCUSDT']),
+                initial_balance=self.config.get('trading', {}).get('initial_balance', 10000.0)
+            )
+            
+            logger.info("Trading system initialized")
+        except Exception as e:
+            logger.error(f"Initialization failed: {str(e)}")
+            raise
+
     # Add this method to convert order size properly
     def _format_order_size(self, trade: Dict) -> float:
         """Format order size correctly for the exchange"""
@@ -261,7 +293,8 @@ class TradingSystem:
                 'sentiment score:', 'sentiment:', 'score:', 
                 'you:', 'assistant:', 'user:',
                 'analysis:', 'raw response', 'thank you for your time',
-                'i don\'t understand'
+                'i don\'t understand', 'prediction:', 'confidence:',
+                'rating:', 'bullish:', 'bearish:'  # Additional financial markers
             ]):
                 continue
             clean_lines.append(line)
@@ -274,4 +307,144 @@ class TradingSystem:
             r'sentiment score:[\s\-\.x0-9]+',
             r'sentiment:[\s\-\.x0-9]+', 
             r'you:.*?assistant:',
-            r'
+            r'analysis:.*?raw response',
+            r'thank you for your time',
+            r'i don\'t understand',
+            r'prediction:[\s\-\.x0-9]+',
+            r'confidence:[\s\-\.x0-9]+',
+            r'[<\[].*?[>\]]'  # Remove angle/square bracket tags
+        ]
+        for pattern in patterns_to_remove:
+            cleaned_text = re.sub(pattern, '', cleaned_text, flags=re.IGNORECASE)
+
+        # Clean up extra whitespace
+        cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip()
+        return cleaned_text
+
+    async def shutdown(self):
+        """Clean up all system resources"""
+        # Prevent multiple shutdown calls
+        if hasattr(self, '_shutting_down') and self._shutting_down:
+            logger.info("Shutdown already in progress, skipping")
+            return
+            
+        self._shutting_down = True
+        logger.info("\nShutting down trading system...")
+        
+        try:
+            # Close exchange connections
+            if hasattr(self, 'exchange_clients'):
+                for client in self.exchange_clients.values():
+                    await client.close_connections()
+                
+            # Stop all services in sequence
+            if hasattr(self, 'market_data_service'):
+                await self.market_data_service.stop()
+                
+            if hasattr(self, 'news_service'):
+                await self.news_service.stop()
+                
+            if hasattr(self, 'sentiment_analyzer'):
+                await self.sentiment_analyzer.cleanup()
+                
+            if hasattr(self, 'market_detector'):
+                await self.market_detector.cleanup()
+                
+            if hasattr(self, 'portfolio_optimizer'):
+                if hasattr(self.portfolio_optimizer, 'cleanup'):
+                    await self.portfolio_optimizer.cleanup()
+                else:
+                    logger.debug("Portfolio optimizer has no cleanup method, skipping")
+                
+            if hasattr(self, 'robo_service'):
+                await self.robo_service.cleanup()
+                
+            logger.info("Trading system shutdown complete")
+        except Exception as e:
+            logger.error(f"Error during shutdown: {e}")
+
+# Helper function to wait for shutdown signal
+async def wait_for_shutdown(shutdown_event):
+    await shutdown_event.wait()
+    logger.info("Shutdown event triggered")
+
+async def main():
+    """Main entry point for the trading system."""
+    system = None
+    try:
+        # Create and initialize the trading system
+        system = TradingSystem("config/trading.yaml")
+        await system.initialize()
+        
+        # Run the main system loop
+        await system.run()
+        
+    except Exception as e:
+        logger.error(f"Fatal error: {str(e)}")
+    finally:
+        # Ensure proper cleanup even if there's an error
+        if system:
+            await system.shutdown()
+
+if __name__ == "__main__":
+    # Configure Windows-specific event loop policy
+    if sys.platform.startswith('win'):
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    
+    # Set up signal handling before starting the loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    # Create a Future to track shutdown requests
+    shutdown_event = asyncio.Event()
+    
+    # Define signal handlers outside the loop
+    def handle_shutdown(sig, frame):
+        logger.info("\nShutdown signal received...")
+        shutdown_event.set()
+    
+    # Register signal handlers
+    signal.signal(signal.SIGINT, handle_shutdown)
+    signal.signal(signal.SIGTERM, handle_shutdown)
+    
+    try:
+        # Run main async function and monitor for shutdown signal
+        main_task = loop.create_task(main())
+        
+        # Run until either main completes or shutdown is requested
+        try:
+            loop.run_until_complete(
+                asyncio.wait([
+                    main_task,
+                    wait_for_shutdown(shutdown_event)
+                ], return_when=asyncio.FIRST_COMPLETED)  # Change this line
+            )
+        finally:
+            # Set shutdown event when main task completes
+            shutdown_event.set()
+            # Wait briefly for other task to respond to shutdown signal
+            loop.run_until_complete(asyncio.sleep(0.5))
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received")
+    except Exception as e:
+        logger.error(f"Top-level exception: {e}")
+    finally:
+        # Clean up pending tasks
+        pending = asyncio.all_tasks(loop)
+        for task in pending:
+            if not task.done():
+                task.cancel()
+        
+        # Wait briefly for cancellations to process
+        if pending:
+            loop.run_until_complete(asyncio.wait(pending, timeout=1.0))
+        
+        # Close the loop
+        loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.close()
+        logger.info("AsyncIO event loop closed")
+        
+        # Force exit if still hanging
+        import os
+        os._exit(0)  # Force exit the process
+

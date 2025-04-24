@@ -51,3 +51,10 @@ This progressive approach gives immediate benefits while building toward a compr
 - Market Sentiment Analysis (visualizing LLM output)
 - Risk Metrics Dashboard
 - System Configuration
+
+
+# Check if log files are being created
+Get-ChildItem .\logs\
+
+# View the most recent log file
+Get-Content .\logs\trading_*.log -Tail 30
