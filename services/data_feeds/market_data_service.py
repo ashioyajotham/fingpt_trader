@@ -91,32 +91,71 @@ class MarketDataService(BaseService):
             await self.exchange.close()
         self.cache.clear()
 
-    async def get_realtime_quote(self, symbols: List[str]) -> Dict:
-        """Get real-time market data"""
-        await self._check_rate_limit()
-        quotes = {}
-
+    async def get_realtime_quote(self, symbols):
+        results = {}
         for symbol in symbols:
-            for attempt in range(self.max_retries):
-                try:
-                    ticker = await self.exchange.fetch_ticker(symbol)
-                    quotes[symbol] = {
-                        "price": ticker["last"],
-                        "volume": ticker["baseVolume"],
-                        "timestamp": ticker["timestamp"],
+            try:
+                # Try primary exchange first
+                data = await self._fetch_with_retry(symbol)
+                results[symbol] = data
+            except Exception as e:
+                logger.error(f"Error fetching {symbol} after 3 attempts")
+                # Try fallback exchanges if available
+                if hasattr(self, '_try_fallback_exchanges'):
+                    results[symbol] = await self._try_fallback_exchanges(symbol)
+                else:
+                    # Basic fallback if method doesn't exist
+                    results[symbol] = {
+                        "symbol": symbol,
+                        "price": None,
+                        "error": str(e),
+                        "timestamp": datetime.now().timestamp()
                     }
-                    break
-                except Exception as e:
-                    if attempt == self.max_retries - 1:
-                        print(
-                            f"Error fetching {symbol} after {self.max_retries} attempts"
-                        )
-                        # Try fallback exchanges
-                        quotes[symbol] = await self._try_fallback_exchanges(symbol)
-                    else:
-                        await asyncio.sleep(self.retry_delay)
+        return results
 
-        return quotes
+    async def _fetch_with_retry(self, symbol: str) -> Dict:
+        """Fetch market data with retry logic"""
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                # Try get_ticker instead of get_symbol_ticker
+                return await self.exchange.get_ticker(symbol=symbol)
+            except Exception as e:
+                logger.warning(f"Attempt {attempt}/{max_retries} failed for {symbol}: {str(e)}")
+                await asyncio.sleep(1)
+        
+        logger.error(f"Error fetching {symbol} after {max_retries} attempts")
+        return {
+            "symbol": symbol,
+            "price": None,
+            "error": "Failed after multiple attempts",
+            "timestamp": datetime.now().timestamp()
+        }
+
+    async def _try_fallback_exchanges(self, symbol: str) -> dict:
+        """Attempt to get data from fallback exchanges when primary fails"""
+        logger.info(f"Using fallback exchanges for {symbol}")
+        
+        # Try alternative exchanges defined in config
+        fallback_exchanges = self.config.get('fallback_exchanges', [])
+        
+        for exchange_name in fallback_exchanges:
+            try:
+                if exchange_name in self.clients:
+                    client = self.clients[exchange_name]
+                    data = await client.get_ticker(symbol)
+                    logger.info(f"Successfully fetched {symbol} data from fallback exchange {exchange_name}")
+                    return data
+            except Exception as e:
+                logger.warning(f"Fallback exchange {exchange_name} also failed for {symbol}: {e}")
+        
+        # If all fallbacks fail, return empty data with error flag
+        return {
+            "symbol": symbol,
+            "price": None,
+            "error": "All exchanges failed",
+            "timestamp": datetime.now().timestamp()
+        }
 
     async def _check_rate_limit(self) -> None:
         """Enforce rate limiting"""

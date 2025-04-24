@@ -250,6 +250,115 @@ class TradingSystem:
             logger.error(f"Initialization failed: {str(e)}")
             raise
 
+    async def run(self):
+        """Main trading system loop"""
+        logger.info("Starting trading system main loop...")
+        self.is_running = True
+        
+        try:
+            # Initialize market data feeds
+            await self.market_data_service.start()
+            await self.news_service.start()
+            
+            # Start sentiment analyzer
+            await self.sentiment_analyzer.initialize()
+            
+            # Start market inefficiency detector
+            await self.market_detector.initialize()
+            
+            # Main trading loop
+            while self.is_running:
+                try:
+                    # Get latest market data
+                    market_data = await self.market_data_service.get_realtime_quote(
+                        self.config.get('trading', {}).get('pairs', ['BTCUSDT', 'ETHUSDT'])
+                    )
+                    
+                    # Update market state
+                    self.market_state = market_data
+                    
+                    # Process market data through sentiment analyzer
+                    await self.sentiment_analyzer.process_market_data(market_data)
+                    
+                    # Check for trading signals
+                    signals = await self.market_detector.detect_opportunities(market_data)
+                    
+                    # Log any detected signals
+                    if signals:
+                        logger.info(f"Detected {len(signals)} trading signals")
+                        for signal in signals:
+                            logger.info(f"Signal: {signal['symbol']} - {signal['type']} "
+                                       f"(strength: {signal['strength']:.2f})")
+                            
+                            # Execute trades based on signals
+                            if signal['strength'] > self.config.get('trading', {}).get('signal_threshold', 0.7):
+                                await self.execute_trade(signal)
+                    
+                    # Sleep to avoid excessive polling
+                    await asyncio.sleep(self.config.get('trading', {}).get('loop_interval', 10))
+                    
+                except Exception as e:
+                    logger.error(f"Error in trading loop: {str(e)}")
+                    # Continue despite errors in a single iteration
+                    await asyncio.sleep(5)
+        
+        except asyncio.CancelledError:
+            logger.info("Trading loop cancelled")
+        except Exception as e:
+            logger.error(f"Fatal error in trading loop: {str(e)}")
+        finally:
+            self.is_running = False
+            logger.info("Trading system main loop stopped")
+            
+    async def execute_trade(self, signal: Dict) -> None:
+        """Execute a trade based on a signal"""
+        try:
+            # Determine position size based on signal strength and risk parameters
+            position_size = self._calculate_position_size(signal)
+            
+            # Format trade for execution
+            trade = {
+                'symbol': signal['symbol'],
+                'type': signal['type'],
+                'size': position_size,
+                'price': signal['price'],
+                'exchange': 'binance'  # Default exchange
+            }
+            
+            # Format order size according to exchange requirements
+            formatted_size = self._format_order_size(trade)
+            trade['size'] = formatted_size
+            
+            logger.info(f"Executing {trade['type']} trade for {trade['symbol']}: {formatted_size} units")
+            
+            # Execute on exchange
+            client = self.exchange_clients[trade['exchange']]
+            if trade['type'].upper() == 'BUY':
+                result = await client.create_market_buy_order(trade['symbol'], trade['size'])
+            else:
+                result = await client.create_market_sell_order(trade['symbol'], trade['size'])
+                
+            logger.info(f"Trade executed: {result}")
+            
+        except Exception as e:
+            logger.error(f"Failed to execute trade: {str(e)}")
+            
+    def _calculate_position_size(self, signal: Dict) -> float:
+        """Calculate appropriate position size based on signal and risk parameters"""
+        # Get account balance
+        account_value = self.config.get('trading', {}).get('initial_balance', 10000.0)
+        
+        # Basic position sizing (improve with Kelly criterion or other methods)
+        max_position = account_value * self.config.get('risk', {}).get('max_position_pct', 0.1)
+        
+        # Scale by signal strength
+        position_size = max_position * signal['strength']
+        
+        # Convert to asset quantity based on current price
+        quantity = position_size / signal['price']
+        
+        return quantity
+
     # Add this method to convert order size properly
     def _format_order_size(self, trade: Dict) -> float:
         """Format order size correctly for the exchange"""

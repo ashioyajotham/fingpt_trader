@@ -229,3 +229,46 @@ class MarketInefficencyDetector:
         except Exception as e:
             logger.error(f"Error in technical signal detection: {e}")
             return []  # Return empty list on error
+
+    async def detect_opportunities(self, market_data: Dict) -> List[Dict]:
+        """Detect trading opportunities based on market data"""
+        signals = []
+        
+        try:
+            for symbol, data in market_data.items():
+                if not data or not isinstance(data, dict) or not data.get('price'):
+                    continue
+                    
+                # Extract price
+                price = float(data.get('price', 0))
+                
+                # Delegate to existing analysis method if available
+                analysis_result = None
+                if hasattr(self, 'analyze_market_inefficiency'):
+                    analysis_result = await self.analyze_market_inefficiency(symbol, price)
+                elif hasattr(self, 'find_inefficiencies'):
+                    analysis_result = await self.find_inefficiencies(symbol, price)
+                
+                # Default analysis if no method exists
+                if not analysis_result:
+                    # Simple placeholder analysis (should be replaced with actual logic)
+                    analysis_result = {
+                        'signal': 'HOLD',
+                        'strength': 0.0,
+                        'reason': 'No analysis method found'
+                    }
+                    
+                # Generate signal if analysis suggests opportunity
+                if analysis_result.get('signal') != 'HOLD' and analysis_result.get('strength', 0) > 0:
+                    signals.append({
+                        'symbol': symbol,
+                        'type': analysis_result.get('signal', 'HOLD'),
+                        'strength': analysis_result.get('strength', 0),
+                        'price': price,
+                        'timestamp': datetime.now().timestamp()
+                    })
+        
+        except Exception as e:
+            logger.error(f"Error detecting opportunities: {str(e)}")
+            
+        return signals

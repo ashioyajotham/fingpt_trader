@@ -43,7 +43,6 @@ class NewsDataFeed(BaseService):
         self.keywords = {
             'BTCUSDT': ['bitcoin', 'btc', 'crypto'],
             'ETHUSDT': ['ethereum', 'eth', 'defi'],
-            # Add more pairs as needed
         }
 
     async def _setup(self) -> None:
@@ -69,9 +68,13 @@ class NewsDataFeed(BaseService):
             raise
 
     async def start(self) -> None:
-        """Start the news feed"""
+        """Start the news feed with periodic updates"""
         self.running = True
         self.session = aiohttp.ClientSession()
+        
+        # Start background task for fetching news
+        asyncio.create_task(self._periodic_news_fetch())
+        
         logger.info("News data feed started")
 
     async def stop(self) -> None:
@@ -127,6 +130,53 @@ class NewsDataFeed(BaseService):
         if len(self.cache) > self.max_cache_size:
             self.cache.pop(0)
 
+    async def _periodic_news_fetch(self) -> None:
+        """Periodically fetch news from API sources"""
+        try:
+            while self.running:
+                await self._fetch_from_api()
+                await asyncio.sleep(self.update_interval)  # Wait before next fetch
+        except asyncio.CancelledError:
+            logger.info("News fetching task cancelled")
+        except Exception as e:
+            logger.error(f"Error in news fetching task: {e}")
+
+    async def _fetch_from_api(self) -> None:
+        """Fetch news from external API"""
+        if not hasattr(self, 'api_key') or not self.api_key:
+            self.api_key = os.environ.get('CRYPTOPANIC_API_KEY')
+            
+        if not self.api_key:
+            logger.error("No API key available for news service")
+            return
+            
+        url = f"https://cryptopanic.com/api/v1/posts/?auth_token={self.api_key}&kind=news"
+        
+        try:
+            async with self.session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    
+                    # Process each news item
+                    for item in data.get('results', []):
+                        news_item = {
+                            'title': item.get('title', ''),
+                            'content': item.get('body', ''),
+                            'source': item.get('source', {}).get('title', 'Unknown'),
+                            'timestamp': datetime.now(),
+                            'url': item.get('url', '')
+                        }
+                        
+                        # Add to cache and notify handlers
+                        await self.process_news(news_item)
+                        
+                    logger.info(f"Fetched {len(data.get('results', []))} news items")
+                else:
+                    logger.error(f"News API error: {response.status} - {await response.text()}")
+                    
+        except Exception as e:
+            logger.error(f"Error fetching news: {str(e)}")
+
     def _check_relevance(self, news_item: Dict) -> bool:
         """Check if news item is relevant"""
         text = f"{news_item.get('title', '')} {news_item.get('content', '')}"
@@ -148,6 +198,30 @@ class NewsDataFeed(BaseService):
                 symbols.append(pair)
                 
         return symbols
+
+    def _calculate_relevance(self, news_item: Dict) -> float:
+        """Calculate relevance score for news item (0.0 to 1.0)"""
+        text = f"{news_item.get('title', '')} {news_item.get('content', '')}"
+        
+        # Initialize relevance score
+        relevance = 0.0
+        
+        # Check for cryptocurrency mentions
+        for pair, keywords in self.keywords.items():
+            for keyword in keywords:
+                if keyword.lower() in text.lower():
+                    relevance += 0.2  # Increase relevance for each keyword match
+                    break  # Only count each pair once
+        
+        # Check for recent publication (within last 24 hours)
+        published_time = news_item.get('timestamp')
+        if published_time and isinstance(published_time, datetime):
+            hours_ago = (datetime.now() - published_time).total_seconds() / 3600
+            if hours_ago < 24:
+                relevance += 0.3  # More relevant if recent
+        
+        # Cap at 1.0 maximum
+        return min(relevance, 1.0)
 
 class NewsService(BaseService):
     def __init__(self, config: Optional[Dict] = None):

@@ -227,15 +227,22 @@ class BinanceClient:
             logger.error(f"Error closing Binance client: {e}")
 
     async def close_connections(self):
-        """Close all open HTTP connections"""
+        """Close all open HTTP and WebSocket connections"""
         try:
+            # Close HTTP session if exists
             if hasattr(self, 'session') and self.session:
                 await self.session.close()
+                logger.info("Binance HTTP session closed")
             
-            if hasattr(self, 'ws_client') and self.ws_client:
-                await self.ws_client.close()
+            # Close WebSocket connection if exists
+            if hasattr(self, 'ws_connection') and self.ws_connection:
+                await self.ws_connection.close()
+                logger.info("Binance WebSocket connection closed")
             
-            logger.info("Binance client connections closed")
+            # Any other cleanup needed
+            if hasattr(self, 'rest_client') and hasattr(self.rest_client, 'close'):
+                await self.rest_client.close()
+            
         except Exception as e:
             logger.error(f"Error closing Binance connections: {e}")
 
