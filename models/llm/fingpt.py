@@ -318,8 +318,20 @@ class FinGPT(BaseLLM):
         )
 
     async def generate(self, prompt: str, **kwargs) -> str:
-        """Generate text using llama.cpp with Falcon instruction format"""
-        instruction_prompt = f"User: {prompt}\n\nAssistant:"
+        """Generate text using llama.cpp with task-specific formatting"""
+        
+        # Check if this is a sentiment analysis request
+        if kwargs.get('task') == 'sentiment':
+            instruction_prompt = self._create_sentiment_prompt(prompt)
+        else:
+            # Default to financial analysis prompt
+            instruction_prompt = f"""### Task: Financial Analysis
+            
+Please analyze the following financial information:
+
+{prompt}
+
+### Response:"""
         
         response = self.model(
             instruction_prompt,
@@ -328,8 +340,7 @@ class FinGPT(BaseLLM):
             top_p=0.9,
             repeat_penalty=1.2,
             echo=False,
-            # Falcon-specific stop tokens
-            stop=["User:", "\n\nUser", "\n\n\nUser"]
+            stop=["###", "\n\n", "User:", "\n\nUser"]
         )
         
         result = response['choices'][0]['text'].strip() if response.get('choices') and response['choices'] else ""

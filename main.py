@@ -411,13 +411,16 @@ if __name__ == "__main__":
         # Run main async function and monitor for shutdown signal
         main_task = loop.create_task(main())
         
+        # Create a task from the wait_for_shutdown coroutine
+        shutdown_task = loop.create_task(wait_for_shutdown(shutdown_event))
+        
         # Run until either main completes or shutdown is requested
         try:
             loop.run_until_complete(
                 asyncio.wait([
                     main_task,
-                    wait_for_shutdown(shutdown_event)
-                ], return_when=asyncio.FIRST_COMPLETED)  # Change this line
+                    shutdown_task  # Now using a task instead of raw coroutine
+                ], return_when=asyncio.FIRST_COMPLETED)
             )
         finally:
             # Set shutdown event when main task completes

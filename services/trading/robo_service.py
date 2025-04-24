@@ -102,6 +102,16 @@ class RoboService(BaseService):
             profile=self.client_profile.__dict__
         )
 
+    async def setup(self, exchange_clients=None, trading_pairs=None, initial_balance=10000.0):
+        """Public setup method for the RoboService"""
+        # Store provided parameters
+        self.exchange_clients = exchange_clients or {}
+        self.trading_pairs = trading_pairs or ['BTCUSDT']
+        self.initial_balance = initial_balance
+        
+        # Call the private setup method with the stored parameters
+        return await self._setup()
+
     async def _setup(self):
         """
         Initialize portfolio and risk management settings.

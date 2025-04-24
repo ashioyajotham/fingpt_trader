@@ -226,6 +226,19 @@ class BinanceClient:
         except Exception as e:
             logger.error(f"Error closing Binance client: {e}")
 
+    async def close_connections(self):
+        """Close all open HTTP connections"""
+        try:
+            if hasattr(self, 'session') and self.session:
+                await self.session.close()
+            
+            if hasattr(self, 'ws_client') and self.ws_client:
+                await self.ws_client.close()
+            
+            logger.info("Binance client connections closed")
+        except Exception as e:
+            logger.error(f"Error closing Binance connections: {e}")
+
     async def cleanup(self) -> None:
         """Alias for close() for compatibility"""
         await self.close()

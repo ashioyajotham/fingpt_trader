@@ -1,55 +1,105 @@
-# FinGPT Trader 🔬📈
+# FinGPT Trader
 
-A quantitative trading system integrating large language models (Falcon-7B) with statistical arbitrage strategies. Combines natural language processing for market sentiment analysis with traditional quantitative methods for market inefficiency detection.
+A quantitative trading system integrating a large language model (Falcon-7B) with market data analysis. The system uses natural language processing for market sentiment analysis alongside quantitative methods for trading decision support.
 
-## System Overview
+## Current Implementation Status
+
+✅ = Implemented | 🚧 = Partially Implemented | 📅 = Planned
+
+## System Components
 
 - **Quantitative Analysis Engine**
-  - Statistical arbitrage detection
-  - Order book imbalance analysis
-  - Market microstructure modeling
+  - 🚧 Basic market data processing
+  - 📅 Order book imbalance analysis
+  - 📅 Market microstructure modeling
 
-- **NLP-Enhanced Market Analysis**
-  - Sentiment extraction using Falcon-7B
-  - News impact quantification
-  - Text-based signal generation
+- **Sentiment Analysis**
+  - ✅ Basic sentiment extraction using Falcon-7B
+  - 🚧 News impact integration
+  - 📅 Advanced text-based signal generation
 
-- **Systematic Trading Framework**
-  - Event-driven architecture
-  - Asynchronous execution
-  - Multi-asset portfolio optimization
+- **Trading Framework**
+  - ✅ Event-driven architecture
+  - ✅ Asynchronous execution
+  - 📅 Multi-asset portfolio optimization
 
-## Core Features 🚀
+## Functional Features
 
-- **AI-Driven Market Analysis**
-  - Real-time sentiment analysis using Falcon-7B
-  - Pattern recognition in order book data
-  - Market inefficiency detection using ML
+### Currently Implemented ✅
 
-- **Smart Portfolio Management**
+- **Sentiment Analysis**
+  - Real-time processing of news with Falcon-7B
+  - Confidence-weighted sentiment scores
+  - Integration with trading signals
+
+- **Basic Market Data Processing**
+  - Price data collection from Binance
+  - Simple statistical analysis
+  - Signal generation based on confidence thresholds
+
+- **Trading Execution**
+  - Binance testnet integration
+  - Market order execution
+  - Position management
+
+- **Risk Monitoring**
+  - Basic position tracking
+  - Simple exposure metrics
+  - Initial drawdown monitoring
+
+### In Development 🚧
+
+- **Market Analysis**
+  - Improved sentiment integration with market data
+  - Better minimum order size handling
+  - Enhanced trade signal generation
+
+- **System Stability**
+  - Event loop management and graceful shutdown
+  - Error recovery mechanisms
+  - API rate limit handling
+
+### Planned Features 📅
+
+- **Advanced Portfolio Management**
   - Dynamic position sizing based on Kelly Criterion
-  - Tax-aware trading with loss harvesting
   - Risk-adjusted rebalancing
+  - Multi-asset correlation analysis
 
-- **Multi-Exchange Support**
-  - Binance integration (testnet/mainnet)
-  - Advanced connection management
-  - Rate limit handling
+- **Tax Optimization**
+  - Tax-loss harvesting algorithms
+  - Wash sale prevention logic
+  - Tax efficiency metrics
 
-## System Architecture 🏗️
+- **Advanced Risk Management**
+  - Value-at-Risk (VaR) calculations
+  - Sentiment-adjusted position sizing
+  - Correlation-aware risk metrics
+
+## System Architecture
 
 ```mermaid
 graph TD
-    A[Falcon-7B Model] -->|Sentiment Analysis| B[Market Analysis Engine]
-    B -->|Signals| C[Trading Core]
+    A[Falcon-7B Model] -->|Basic Sentiment Analysis| B[Market Analysis Engine]
+    B -->|Simple Signals| C[Trading Core]
     D[Binance API] -->|Market Data| B
     C -->|Orders| D
-    E[Risk Manager] -->|Limits| C
-    F[Portfolio Manager] -->|Positions| C
-    G[Tax Optimizer] -->|Strategy| F
+    E[Risk Monitor] -->|Basic Limits| C
+    F[Portfolio Tracker] -->|Positions| C
+    
+    style A fill:#d0f0c0
+    style B fill:#f0e0a0
+    style C fill:#f0e0a0
+    style D fill:#d0f0c0
+    style E fill:#f0e0a0
+    style F fill:#f0e0a0
+    
+    classDef implemented fill:#d0f0c0;
+    classDef partial fill:#f0e0a0;
+    classDef planned fill:#f0d0d0;
 ```
 
-## Quick Start 🚦
+## Quick Start
 
 1. **Environment Setup**
 ```bash
@@ -63,50 +113,58 @@ pip install -r requirements.txt
 
 2. **Configuration**
 ```bash
-# Set up your .env file
-cp .env.example .env
-# Edit with your API keys and tokens:
-# - BINANCE_API_KEY
-# - BINANCE_SECRET_KEY
-# - HUGGINGFACE_TOKEN
+# Set up your .env file with required API keys:
+BINANCE_API_KEY=your_key_here
+BINANCE_API_SECRET=your_secret_here
+CRYPTOPANIC_API_KEY=your_key_here  # Required for news feeds
+HUGGINGFACE_TOKEN=your_token_here   # Optional for model access
 ```
 
 3. **Run Trading System**
 ```bash
 # Development mode (testnet)
 python main.py
-
-# With specific pairs
-python scripts/run_trader.py --pairs BTCUSDT,ETHUSDT
 ```
 
-## Unique Features 💫
+## Technical Implementation Details
 
-### 1. AI-Enhanced Market Analysis
+### Sentiment Analysis Implementation
+
 ```python
-# Example of sentiment-adjusted trading signal
-sentiment_score = await analyzer.get_sentiment(news_data)
-market_signal = detector.analyze_inefficiencies(
-    orderbook_data=depth,
-    sentiment_weight=sentiment_score
-)
+# Current implementation of sentiment analysis
+sentiment_result = await model.predict_sentiment(news_text)
+sentiment_score = sentiment_result.get('sentiment', 0)
+confidence = sentiment_result.get('confidence', 0.5)
+
+# Signal generation with confidence threshold
+if confidence >= config['confidence_threshold']:
+    generate_trading_signal(sentiment_score, confidence)
 ```
 
-### 2. Advanced Risk Management
-- Dynamic VaR calculation
-- Sentiment-adjusted position sizing
-- Real-time drawdown monitoring
+### Current Challenges
 
-### 3. Tax-Aware Trading
-- Automated tax-loss harvesting
-- Wash sale prevention
-- Tax efficiency optimization
+The system currently faces several implementation challenges:
 
-## Mathematical Framework 📐
+1. **Sentiment Analysis Quality**
+   - Model produces inconsistent formatting
+   - Confidence scoring needs improvement
+   - News relevance filtering is basic
 
-### Sentiment-Adjusted Market Inefficiency Detection
+2. **Order Execution**
+   - Minimum order size requirements not always met
+   - Better USD to crypto quantity conversion needed
+   - Improved error handling for rejected orders
 
-The system uses a composite signal model:
+3. **System Stability**
+   - AsyncIO event loop management issues
+   - Shutdown sequence optimization
+   - Exception handling during data processing
+
+## Roadmap: Planned Mathematical Framework
+
+The following mathematical models are planned for future implementation:
+
+### Sentiment-Adjusted Signal Model
 
 $$ S(t) = \alpha M(t) + \beta I(t) + \gamma L(t) $$
 
@@ -117,96 +175,42 @@ Where:
 - $L(t)$ is NLP sentiment score
 - $\alpha, \beta, \gamma$ are weights
 
-### Order Book Imbalance
-
-$$ I(t) = \frac{\sum_{i=1}^n V^b_i - \sum_{i=1}^n V^a_i}{\sum_{i=1}^n V^b_i + \sum_{i=1}^n V^a_i} $$
-
-Where:
-- $V^b_i$ is bid volume at level i
-- $V^a_i$ is ask volume at level i
-- $n$ is depth of orderbook
-
 ### Position Sizing with Kelly Criterion
-
-Modified Kelly formula incorporating sentiment:
 
 $$ f^* = \frac{p(1+r) - q}{r} \cdot (1 + \lambda|S|) $$
 
-Where:
-- $f^* is optimal fraction
-- $p$ is win probability
-- $q = 1-p$ is loss probability
-- $r$ is win/loss ratio
-- $S$ is sentiment score
-- $\lambda$ is sentiment sensitivity
-
-### Risk Management
-
-Value at Risk with sentiment adjustment:
+### Advanced Risk Management
 
 $$ VaR_{\alpha}(S) = -\inf\{l \in \mathbb{R}: P(L \leq l | S) \geq \alpha\} $$
 
-Portfolio risk score:
-
 $$ R = \sqrt{w^T\Sigma w} \cdot (1 + \delta|S|) $$
 
-Where:
-- $w$ is portfolio weights
-- $\Sigma$ is covariance matrix
-- $S$ is sentiment score
-- $\delta$ is risk adjustment factor
+## Development Status
 
-### Tax-Loss Harvesting
+Current development priorities:
+- [x] Fix AsyncIO event loop issues
+- [x] Improve error handling in API calls
+- [ ] Enhance sentiment analysis prompt engineering
+- [ ] Fix minimum order size calculation
+- [ ] Implement proper USD to crypto quantity conversion
+- [ ] Develop basic backtesting framework
 
-Harvesting threshold with wash sale prevention:
+## Warning
 
-$$ H(p, t) = \begin{cases} 
-1 & \text{if } \frac{p_t - p_0}{p_0} < \tau \text{ and } t > T_{wash} \\
-0 & \text{otherwise}
-\end{cases} $$
+⚠️ **IMPORTANT**: This system is in early development stage and not production-ready:
+- Use testnet only - not suitable for real trading yet
+- Expect instability and potential errors
+- Many advanced features described are planned but not yet implemented
+- System requires significant technical knowledge to run properly
 
-Where:
-- $p_t$ is current price
-- $p_0$ is entry price
-- $\tau$ is loss threshold
-- $T_{wash}$ is wash sale period
+## License
 
-## Development Status 🔄
+MIT License - See [LICENSE](LICENSE) for details.
 
-Currently in active development with focus on:
-- [ ] WebSocket connection stability
-- [ ] Enhanced error recovery
-- [ ] Performance optimization
-- [ ] Advanced backtesting framework
+## Contributing
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on contributing to this project.
 
-## Contributing 🤝
-
-1. Fork the repository
-2. Create your feature branch
-3. Test thoroughly using testnet
-4. Submit a pull request
-
-## Trading Strategies 📊
-
-Current implementation includes:
-- Sentiment-driven market making
-- Statistical arbitrage
-- Tax-loss harvesting
-- Portfolio rebalancing
-
-## Warning ⚠️
-
-This is a complex trading system. Always:
-- Start with testnet trading
-- Use small position sizes
-- Monitor system performance
-- Understand the risks involved
-
-## License 📄
-
-MIT License - See [LICENSE](LICENSE)
-
-## Acknowledgments 🙏
+## Acknowledgments
 
 - [Falcon-7B](https://huggingface.co/tiiuae/falcon-7b) for NLP capabilities
 - [python-binance](https://python-binance.readthedocs.io/) for exchange connectivity
