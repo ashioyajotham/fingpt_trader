@@ -1,14 +1,26 @@
+# =====================================================================
+# FinGPT Trader - Model Configuration
+# =====================================================================
+# Purpose: Configuration for the FinGPT model, including base settings,
+# inference parameters, and generation configuration.
+#
+# This file controls all aspects of the LLM's behavior including:
+# - Model loading and hardware utilization
+# - Inference settings and optimizations
+# - Text generation parameters
+# =====================================================================
+
 fingpt:
   model:
     base:
-      name: "tiiuae/falcon-7b-instruct"  # Updated to an instruction-tuned model
-      format: "gguf"  # Changed from ggml to gguf
+      name: "tiiuae/falcon-7b"
+      format: "gguf"
       version: "v3"
       trust_remote_code: true
       dtype: "float16"
       low_cpu_mem_usage: true
     
-    llama_cpp:  # Add llama.cpp specific settings
+    llama_cpp:  # llama.cpp specific settings
       n_ctx: 2048
       n_threads: 4
       n_gpu_layers: 0
@@ -20,6 +32,17 @@ fingpt:
       use_mmap: true
       use_mlock: false
     
+    # Add prompts section for sentiment analysis
+    prompts:
+      sentiment: |
+        Analyze the financial sentiment in this news text. Rate on a scale from -1.0 (extremely negative/bearish) 
+        to +1.0 (extremely positive/bullish). Neutral sentiment should be exactly 0.0.
+        
+        DO NOT default to 0.5 - use the full range from -1.0 to +1.0 based on how strongly positive or negative 
+        the sentiment is. Return only a JSON object with 'sentiment' (float) and 'confidence' (float between 0 and 1).
+        
+        News text: {text}
+      
     conversion:
       output_format: "gguf"  # Update to GGUF format
       precision: "f16"
@@ -48,6 +71,6 @@ fingpt:
   generation:
     max_length: 128
     min_length: 1
-    temperature: 0.7
+    temperature: 0.4  # Reduced from 0.7 to get more deterministic responses
     top_p: 0.9
     num_beams: 1

@@ -119,53 +119,26 @@ class SentimentAnalyzer(BaseService):
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
 
-    async def analyze(self, text: str) -> Dict[str, float]:
-        """Analyze sentiment using FinGPT with timeout handling"""
-        if not text or len(text.strip()) < 10:
-            logger.warning("Empty or too short text for sentiment analysis")
-            return {'compound': 0.0, 'confidence': 0.0}
-            
-        chunks = self._chunk_text(text, max_tokens=750)
-        logger.info(f"Processing {len(chunks)} text chunks for sentiment analysis")
-        
-        sentiments = []
-        async with asyncio.timeout(30):  # Add 30 second timeout
-            try:
-                for i, chunk in enumerate(chunks):
-                    try:
-                        sentiment = await self.fingpt.predict_sentiment(chunk)
-                        sentiments.append(sentiment)
-                        logger.debug(f"Processed chunk {i+1}/{len(chunks)}")
-                    except Exception as e:
-                        logger.error(f"Error processing chunk {i+1}: {str(e)}")
-                        continue
-                    
-            except asyncio.TimeoutError:
-                logger.error("Sentiment analysis timed out after 30 seconds")
-                return {'compound': 0.0, 'confidence': 0.0}
-                
-            except Exception as e:
-                logger.error(f"Sentiment analysis error: {str(e)}")
-                return {'compound': 0.0, 'confidence': 0.0}
-        
-        if not sentiments:
-            logger.warning("No valid sentiment chunks processed, returning neutral")
-            return {'compound': 0.0, 'confidence': 0.0}
-            
-        # Average sentiments with error handling
+    async def analyze(self, text: str) -> Dict:
+        """Analyze sentiment using LLM"""
         try:
-            compound = sum(s['sentiment'] for s in sentiments) / len(sentiments)
-            confidence = sum(s['confidence'] for s in sentiments) / len(sentiments)
+            # Improve the prompt for better sentiment differentiation
+            prompt = f"""
+            Analyze the sentiment of the following financial news text. 
+            Consider market impact, investor sentiment, and financial implications.
+            Rate on a scale from -1.0 (extremely bearish) to 1.0 (extremely bullish).
+            Provide only a JSON response with 'sentiment' and 'confidence' values.
             
-            logger.info(f"Sentiment analysis complete: score={compound:.2f}, confidence={confidence:.2f}")
-            return {
-                'compound': compound,
-                'confidence': confidence
-            }
+            News text: {text}
             
+            JSON response:
+            """
+            
+            response = await self.fingpt.generate(prompt, temperature=0.2)
+            # Parse the response...
         except Exception as e:
-            logger.error(f"Error calculating final sentiment: {str(e)}")
-            return {'compound': 0.0, 'confidence': 0.0}
+            logger.error(f"Error during sentiment analysis: {e}")
+            return {'sentiment': 0.0, 'confidence': 0.0}
 
     def _chunk_text(self, text: str, max_tokens: int = 750) -> List[str]:
         """Split text into chunks for processing"""
@@ -419,18 +392,31 @@ class SentimentAnalyzer(BaseService):
             await self._process_trade_impact(pair, data['data'])
 
     async def _handle_news_data(self, news_item: Dict) -> None:
-        """Process news updates"""
-        # Extract relevant symbols
-        symbols = news_item.get('symbols', [])
-        
-        for symbol in symbols:
-            if symbol in self.active_pairs:
-                # Process sentiment for each relevant pair
-                await self.add_sentiment_data(
-                    symbol,
-                    f"{news_item['title']} {news_item['content']}",
-                    news_item['timestamp']
-                )
+        """Process incoming news data for sentiment analysis"""
+        try:
+            # Extract text from news item
+            text = f"{news_item.get('title', '')}. {news_item.get('content', '')}"
+            
+            # CORRECT - With await
+            result = await self.analyze(text)
+            
+            # Now you can safely use subscript notation on the result
+            score = result['compound']
+            confidence = result['confidence']
+            
+            # Store in sentiment history
+            for symbol in news_item.get('symbols', []):
+                if symbol not in self.sentiment_scores:
+                    self.sentiment_scores[symbol] = []
+                    
+                self.sentiment_scores[symbol].append({
+                    'score': score,
+                    'confidence': confidence,
+                    'timestamp': datetime.now()
+                })
+                
+        except Exception as e:
+            logger.error(f"Error processing news for sentiment: {e}")
 
     async def _fetch_relevant_news(self, pair: str) -> List[str]:
         """Fetch relevant news for the trading pair"""

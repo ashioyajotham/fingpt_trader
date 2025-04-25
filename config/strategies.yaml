@@ -1,76 +1,145 @@
+# =====================================================================
+# FinGPT Trader - Strategy Configuration
+# =====================================================================
+# Purpose: Central configuration for all trading strategies and models
+# This file contains parameters that control strategy behavior, signal 
+# generation thresholds, and model-specific settings.
+# 
+# IMPORTANT: System-wide parameters should be defined in trading.yaml
+# =====================================================================
+
+# =====================================================================
+# STRATEGY DEFINITIONS
+# =====================================================================
 strategies:
+  # Sentiment-based trading strategy configuration
   sentiment:
+    # Time window for sentiment analysis (hours)
     window_size: 24
-    threshold: 0.5
+    
+    # Sentiment detection parameters
+    detection_threshold: 0.3   # Minimum sentiment score to generate signal
+    execution_threshold: 0.5   # Threshold required to execute a trade
+    min_confidence: 0.6        # Minimum model confidence required
+    
+    # Signal strength calculation weights
+    weights:
+      recent_sentiment: 0.5    # Weight of most recent sentiment
+      trend_sentiment: 0.3     # Weight of sentiment trend direction
+      sentiment_volatility: 0.2 # Weight of sentiment volatility
+
+  # Hybrid strategy combining sentiment and technical analysis
   hybrid:
     weights:
-      sentiment: 0.4
-      technical: 0.6
+      sentiment: 0.4           # Weight of sentiment signals
+      technical: 0.6           # Weight of technical indicators
+    
+    # Technical indicators to use
+    indicators:
+      - name: "RSI"
+        period: 14
+        overbought: 70
+        oversold: 30
+      - name: "MACD"
+        fast_period: 12
+        slow_period: 26
+        signal_period: 9
+  
+  # Market inefficiency detection strategy
+  inefficiency:
+    # Detection parameters
+    min_divergence: 0.02      # Minimum divergence to detect inefficiency (2%)
+    window_size: 12           # Hours to analyze for inefficiencies
+    detection_threshold: 0.02 # Minimum detection threshold for inefficiency
+    
+    # Correlation thresholds
+    min_correlation: 0.7      # Minimum correlation to consider related assets
+    divergence_z_score: 2.0   # Z-score threshold for statistical significance
 
+# =====================================================================
+# SENTIMENT ANALYSIS CONFIGURATION
+# =====================================================================
 sentiment:
   # Processing parameters
   processing:
-    chunk_size: 750
-    min_chunk_length: 10
-    timeout: 30
-    batch_size: 5
-    retries: 3
+    chunk_size: 750            # Maximum text chunk size for processing
+    min_chunk_length: 10       # Minimum length to process a chunk
+    timeout: 30                # Maximum seconds to wait for analysis
+    batch_size: 5              # Number of chunks to process in parallel
+    retries: 3                 # Number of retries on failure
+  
+  # Model parameters
+  model:
+    temperature: 0.4           # Higher values (0.4-0.7) produce more varied sentiment
+    top_p: 0.9                 # Nucleus sampling parameter
+    max_tokens: 150            # Maximum tokens in response
+    
+    # Prompt template (variables: {text})
+    prompt_template: |
+      Analyze the financial sentiment in this news text. Rate on a scale from -1.0 (extremely negative/bearish) 
+      to +1.0 (extremely positive/bullish). Neutral sentiment should be exactly 0.0.
+      
+      DO NOT default to 0.5 - use the full range from -1.0 to +1.0 based on how strongly positive or negative 
+      the sentiment is. Return only a JSON object with 'sentiment' (float) and 'confidence' (float between 0 and 1).
+      
+      News text: {text}
 
-  # Performance metrics
-  metrics:
-    accuracy_threshold: 0.7
-    confidence_threshold: 0.6
-    impact_threshold: 0.02
-    correlation_window: 24
-
-  # Signal generation
-  signals:
-    min_samples: 5
-    threshold: 0.3
-    time_decay: 0.95
-    min_confidence: 0.6
+  # Historical analysis
+  history:
+    max_age_hours: 72          # Maximum age for historical sentiment data
+    min_samples: 5             # Minimum samples needed for analysis
+    time_decay: 0.95           # Time decay factor for historical sentiment
+    
+    # Impact weights for signal generation
     impact_weights:
-      sentiment: 0.4
-      market_data: 0.3
-      correlation: 0.3
+      sentiment: 0.4           # Weight of raw sentiment
+      market_data: 0.3         # Weight of market price correlation
+      correlation: 0.3         # Weight of sentiment-price correlation
 
-  # Trading parameters
-  trading:
-    position_size: 1000.0
-    max_position: 10000.0
-    stop_loss: 0.02
-    take_profit: 0.05
-
+# =====================================================================
+# TRADING PARAMETERS FOR STRATEGIES
+# =====================================================================
+trading:
+  # Position sizing
+  position:
+    size: 1000.0              # Default position size in USDT
+    max: 10000.0              # Maximum position size
+    stop_loss: 0.02           # Default stop loss percentage (2%)
+    take_profit: 0.05         # Default take profit percentage (5%)
+  
   # Risk management
   risk:
-    max_positions: 5
-    max_concentration: 0.2
-    daily_drawdown_limit: 0.03
+    max_positions: 5          # Maximum number of simultaneous positions
+    max_concentration: 0.2    # Maximum single asset concentration (20%)
+    daily_drawdown_limit: 0.03 # Daily maximum drawdown allowed (3%)
+    
+    # Per-strategy risk allocation
+    allocation:
+      sentiment: 0.4          # 40% of capital for sentiment strategy
+      hybrid: 0.4             # 40% of capital for hybrid strategy
+      inefficiency: 0.2       # 20% of capital for inefficiency strategy
 
-  # Model settings
-  model:
-    name: "fingpt"  # Specify single model instead of weights
-    version: "mt_falcon-7b"
-    format: "gguf"  # Add GGUF format specification
-    backend: "llama_cpp"  # Specify backend
-    settings:  
-      context_length: 2048
-      batch_size: 512
-      temperature: 0.1
-      repetition_penalty: 1.1
-
-inefficiency:
-  window: 20
-  z_threshold: 2.0
-  pairs:
-    - ["BTC/USDT", "ETH/USDT"]
-    - ["ETH/USDT", "BNB/USDT"]
-
-robo:
-  rebalance_threshold: 0.05
-  tax_harvest_threshold: -0.05
-  risk_profile: "moderate"
-  target_weights:
-    stocks: 0.6
-    bonds: 0.3
-    cash: 0.1
+# =====================================================================
+# NEWS AND MARKET DATA PROCESSING
+# =====================================================================
+data:
+  # News data configuration
+  news:
+    update_interval: 300       # Seconds between news updates
+    sources:
+      - cryptopanic            # News sources to use
+      - newsapi
+    relevance_threshold: 0.6   # Minimum relevance score to consider news
+  
+  # Market data configuration  
+  market:
+    update_interval: 60        # Seconds between market data updates
+    cache_size: 1000           # Maximum cache size for market data
+    pairs:                     # Trading pairs to monitor
+      - BTCUSDT
+      - ETHUSDT
+      - BNBUSDT
+    indicators:                # Technical indicators to calculate
+      - RSI
+      - MACD
+      - Bollinger

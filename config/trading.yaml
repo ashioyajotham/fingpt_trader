@@ -1,6 +1,16 @@
-# Trading System Core Configuration
+# =====================================================================
+# FinGPT Trader - Trading System Configuration
+# =====================================================================
+# Purpose: Core system configuration for the trading platform
+# This file contains system-wide parameters, exchange settings, and
+# global trading rules that apply across all strategies.
+# 
+# IMPORTANT: Strategy-specific parameters should be defined in strategies.yaml
+# =====================================================================
 
-# Exchange Configuration
+# =====================================================================
+# EXCHANGE CONFIGURATION
+# =====================================================================
 exchanges:
   - name: binance
     test_mode: true  # Set to false for production
@@ -8,34 +18,78 @@ exchanges:
       timeout: 30
       max_retries: 3
       defaultType: "spot"
+      rate_limit: 
+        max_requests: 10
+        per_second: 1
+    fallbacks:
+      - name: kucoin
+        test_mode: true
+      - name: gate
+        test_mode: true
 
-# Trading Parameters
+# =====================================================================
+# GLOBAL TRADING PARAMETERS
+# =====================================================================
 trading:
-  pairs:  # Single source of truth for trading pairs
+  pairs:  
     - BTCUSDT
     - ETHUSDT
-  initial_balance: 1000.0
-  confidence_threshold: 0.7
-  min_trade_amount: 15.0  # Increased from 1.0 to ensure above exchange minimum
-  max_position_size: 0.2
-  loop_interval: 60
+    - BNBUSDT
+  
+  initial_balance: 10000.0  # Starting capital (USDT)
+  
+  # Add loop interval
+  loop_interval: 60  # Main trading loop interval (seconds)
+  
+  # Execution parameters
+  execution:
+    signal_threshold: 0.5  # Minimum signal strength to execute trades
+    default_exchange: "binance"  # Default exchange for execution
 
-# Risk Management
+# =====================================================================
+# RISK MANAGEMENT
+# =====================================================================
 risk:
-  max_drawdown: 0.1
-  position_limit: 0.2
-  var_limit: 0.02
-  leverage_limit: 1.0
-  concentration_limit: 0.35
-  min_position_size: 0.01
+  # Portfolio risk limits
+  max_drawdown: 0.1         # Maximum allowed drawdown (10%)
+  position_limit: 0.2       # Maximum single position size (20%)
+  concentration_limit: 0.35 # Maximum allocation to one asset class (35%)
+  var_limit: 0.02           # Value-at-Risk daily limit (2%)
+  
+  # Leverage controls
+  leverage_limit: 1.0       # Maximum allowed leverage (1x = no leverage)
+  margin_minimum: 0.5       # Minimum margin requirement (50%)
+  
+  # Position controls
+  min_position_size: 0.01   # Minimum position size (% of portfolio)
+  auto_stop_loss: true      # Automatically set stop losses
+  trailing_stop: false      # Use trailing stops
+  
+  # Emergency controls
+  circuit_breaker:
+    enabled: true
+    daily_loss_limit: 0.05  # Halt trading after 5% daily loss
+    cooldown_period: 3600   # 1-hour cooldown after circuit breaker (seconds)
 
-# External Configurations
+# =====================================================================
+# EXTERNAL CONFIGURATIONS
+# =====================================================================
 configs:
-  model: "config/model.yaml"
-  services: "config/services.yaml"
+  model: "config/model.yaml"        # LM model configuration
+  services: "config/services.yaml"  # External services configuration
+  strategies: "config/strategies.yaml"  # Trading strategies configuration
 
-# Development Mode
+# =====================================================================
+# DEVELOPMENT MODE SETTINGS
+# =====================================================================
 development:
-  enabled: true
-  test_pairs: ["BTCUSDT", "ETHUSDT", "BNBUSDT"]
-  max_pairs: 10
+  enabled: true                    # Enable development features
+  debug: true                      # Enable debug logging
+  test_pairs: ["BTCUSDT", "ETHUSDT", "BNBUSDT"]  # Test trading pairs
+  max_pairs: 10                    # Maximum pairs in development mode
+  simulated_latency: 0             # Simulated network latency (ms)
+  mock_execution: true             # Use mock trade execution
+  backtest:
+    start_date: "2023-01-01"       # Backtest start date
+    end_date: "2023-12-31"         # Backtest end date
+    initial_balance: 10000.0       # Backtest starting capital

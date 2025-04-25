@@ -11,10 +11,9 @@ class SignalGenerator:
     def __init__(self, config: Dict):
         """Initialize with strategy configuration"""
         self.config = config.get('signals', {})
-        self.metrics = config.get('metrics', {})
         
-        # Signal generation parameters
-        self.threshold = self.config.get('threshold', 0.3)
+        # Use consistent naming with trading.yaml
+        self.threshold = self.config.get('detection_threshold', 0.3)  # Clear name
         self.min_samples = self.config.get('min_samples', 5)
         self.time_decay = self.config.get('time_decay', 0.95)
         self.impact_weights = self.config.get('impact_weights', {

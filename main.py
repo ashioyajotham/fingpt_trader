@@ -73,7 +73,6 @@ import asyncio
 from typing import Dict, List, Optional, Any
 import numpy as np
 import pandas as pd
-import yaml
 from datetime import datetime
 import logging
 
@@ -81,7 +80,6 @@ import logging
 import sys
 from pathlib import Path
 import os
-from dotenv import load_dotenv
 import signal
 
 from utils.logging import LogManager
@@ -155,68 +153,140 @@ class TradingSystem:
         execute_trades(): Execute trading decisions
         update_portfolio(): Update portfolio states
         check_risk_metrics(): Monitor risk limits
-    Example:
-        >>> system = TradingSystem("config/trading.yaml")
-        >>> asyncio.run(system.run())
     """
-    def __init__(self, config_path: str):
-        self.config_manager = ConfigManager()
+    def __init__(self):
+        """Initialize the trading system with unified configuration"""
+        # Use the ConfigManager instead of direct YAML loading
+        self.config_manager = ConfigManager.get_instance()
+        
+        # Get configurations from centralized manager
         self.config = self.config_manager.get_config('trading')
+        self.model_config = self.config_manager.get_config('model')
+        self.strategies_config = self.config_manager.get_config('strategies')
+        self.services_config = self.config_manager.get_config('services')
+        
         if not self.config:
             raise ValueError("Trading configuration not found")
-        # Load and validate environment variables
-        load_dotenv(override=True, verbose=True)
-        # Enhanced environment variable logging
-        api_key = os.environ.get('BINANCE_API_KEY')
-        api_secret = os.environ.get('BINANCE_API_SECRET')
-        logger.info(f"API Key present: {bool(api_key)} (length: {len(api_key) if api_key else 0})")
-        logger.info(f"API Secret present: {bool(api_secret)} (length: {len(api_secret) if api_secret else 0})")
-        # Verify required environment variables
-        required_env = {
-            'BINANCE_API_KEY': 'Binance API key',
-            'BINANCE_API_SECRET': 'Binance API secret'
-        }
-        missing = []
-        for var, name in required_env.items():
-            value = os.getenv(var)
-            if not value or len(value.strip()) < 10:  # Basic validation
-                missing.append(name)
-        if missing:
-            raise ValueError(f"Missing or invalid {', '.join(missing)}")
-        logger.info("Environment variables validated successfully")
-        # Load and process config
-        with open(config_path, 'r') as f:
-            self.config = yaml.safe_load(f)
-        # Load model and service configs first
-        with open(self.config['configs']['model']) as f:
-            self.model_config = yaml.safe_load(f)
-        with open(self.config['configs']['services']) as f:
-            self.service_config = yaml.safe_load(f)
-        # Initialize FinGPT model first
+        
+        # Validate required configuration
+        self._validate_required_config()
+        
+        # Initialize FinGPT model using model config
         self.fingpt_model = FinGPT(self.model_config['fingpt'])
-        # Initialize data services
-        self.market_data_service = MarketDataService(self.service_config['data_feeds']['market'])
-        self.news_service = NewsService(self.service_config['data_feeds']['news'])
-        # Initialize sentiment analyzer with model instance
+        
+        # Initialize data services with centralized config
+        data_feeds_config = self.services_config.get('data_feeds', {})
+        self.market_data_service = MarketDataService(data_feeds_config.get('market', {}))
+        self.news_service = NewsService(data_feeds_config.get('news', {}))
+        
+        # Initialize analysis components
         sentiment_config = {
-            **self.config.get('sentiment', {}),
             'model': self.fingpt_model,
-            'data_feeds': self.service_config['data_feeds']
+            'detection_threshold': self.get_config('strategies.strategies.sentiment.detection_threshold'),
+            'execution_threshold': self.get_config('trading.execution.signal_threshold')
         }
+        
         self.sentiment_analyzer = SentimentAnalyzer(sentiment_config)
-        self.market_detector = MarketInefficencyDetector(self.config.get('market', {}))
-        self.portfolio_optimizer = PortfolioOptimizer(self.config.get('portfolio', {}))
+        self.market_detector = MarketInefficencyDetector(self.get_config('strategies.strategies.inefficiency'))
+        self.portfolio_optimizer = PortfolioOptimizer(self.get_config('trading.portfolio', {}))
+        
+        # Initialize risk manager
         self.risk_manager = RiskManager(
-            max_drawdown=self.config.get('risk', {}).get('max_drawdown', 0.1),
-            var_limit=self.config.get('risk', {}).get('var_limit', 0.02)
+            max_drawdown=self.get_config('risk.max_drawdown'),
+            var_limit=self.get_config('risk.var_limit')
         )
+        
+        # Initialize state variables
         self.portfolio = None
         self.market_state = {}
         self.exchange_clients = {}
         self.is_running = False
+        
         # Add robo advisor components
-        self.robo_service = RoboService(self.config.get('robo', {}))
+        self.robo_service = RoboService(self.get_config('trading.robo', {}))
         self.client_profiles = {}
+
+    def get_config(self, path: str, default=None):
+        """
+        Access configuration using dot notation with optional default
+        
+        Args:
+            path: Configuration path in dot notation (e.g. 'trading.pairs')
+            default: Default value if path doesn't exist
+        """
+        parts = path.split('.')
+        if not parts:
+            raise ValueError(f"Invalid config path: {path}")
+            
+        # Handle different configuration files
+        if parts[0] == 'trading':
+            # If first part is 'trading', looking in trading.yaml
+            config_obj = self.config
+            if len(parts) == 1:
+                return config_obj
+                
+            # For trading.X paths, search directly in the root of trading.yaml
+            # This is the critical change - don't look for a 'trading' key
+            remaining_parts = parts[1:]
+            current = config_obj
+            
+        elif parts[0] == 'strategies':
+            config_obj = self.strategies_config
+            remaining_parts = parts
+            current = config_obj
+            
+        elif parts[0] == 'model':
+            config_obj = self.model_config
+            remaining_parts = parts
+            current = config_obj
+            
+        else:
+            # Assume any other path refers to something inside trading.yaml
+            config_obj = self.config
+            remaining_parts = parts
+            current = config_obj
+        
+        # Navigate through the parts
+        for part in remaining_parts:
+            if not isinstance(current, dict) or part not in current:
+                if default is not None:
+                    return default
+                logger.error(f"Missing required configuration: {path}")
+                raise KeyError(f"Configuration path not found: {path}")
+            current = current[part]
+            
+        return current
+
+    def _validate_required_config(self):
+        """Ensure all required configuration parameters exist"""
+        required_params = [
+            # Core trading parameters
+            'trading.pairs',
+            'trading.initial_balance',
+            'trading.execution.signal_threshold',
+            
+            # Risk parameters
+            'risk.position_limit',
+            'risk.max_drawdown',
+            
+            # Strategy parameters
+            'strategies.strategies.sentiment.detection_threshold',
+            
+            # Other critical parameters
+            'trading.loop_interval'
+        ]
+        
+        missing = []
+        for param in required_params:
+            try:
+                self.get_config(param)
+            except (KeyError, ValueError) as e:
+                missing.append(param)
+                
+        if missing:
+            error_msg = f"Missing required configuration parameters: {', '.join(missing)}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
     async def initialize(self):
         """Initialize the trading system components"""
@@ -230,10 +300,13 @@ class TradingSystem:
             for exchange_config in self.config.get('exchanges', []):
                 exchange_name = exchange_config.get('name', '').lower()
                 if exchange_name == 'binance':
-                    # Use the create factory method instead of direct constructor
+                    # Get credentials from ConfigManager
+                    credentials = self.config_manager.get_exchange_credentials('binance')
+                    
+                    # Use the create factory method
                     self.exchange_clients[exchange_name] = await BinanceClient.create({
-                        'api_key': os.getenv('BINANCE_API_KEY'),
-                        'api_secret': os.getenv('BINANCE_API_SECRET'),
+                        'api_key': credentials['api_key'],
+                        'api_secret': credentials['api_secret'],
                         'test_mode': exchange_config.get('test_mode', True),
                         'options': exchange_config.get('options', {})
                     })
@@ -241,8 +314,8 @@ class TradingSystem:
             # Initialize robo service
             await self.robo_service.setup(
                 exchange_clients=self.exchange_clients,
-                trading_pairs=self.config.get('trading', {}).get('pairs', ['BTCUSDT']),
-                initial_balance=self.config.get('trading', {}).get('initial_balance', 10000.0)
+                trading_pairs=self.get_config('trading.pairs'),
+                initial_balance=self.get_config('trading.initial_balance')
             )
             
             logger.info("Trading system initialized")
@@ -271,7 +344,7 @@ class TradingSystem:
                 try:
                     # Get latest market data
                     market_data = await self.market_data_service.get_realtime_quote(
-                        self.config.get('trading', {}).get('pairs', ['BTCUSDT', 'ETHUSDT'])
+                        self.get_config('trading.pairs')
                     )
                     
                     # Update market state
@@ -290,12 +363,12 @@ class TradingSystem:
                             logger.info(f"Signal: {signal['symbol']} - {signal['type']} "
                                        f"(strength: {signal['strength']:.2f})")
                             
-                            # Execute trades based on signals
-                            if signal['strength'] > self.config.get('trading', {}).get('signal_threshold', 0.7):
+                            # Execute trades based on signals that meet the threshold
+                            if signal['strength'] > self.get_config('trading.execution.signal_threshold'):
                                 await self.execute_trade(signal)
                     
                     # Sleep to avoid excessive polling
-                    await asyncio.sleep(self.config.get('trading', {}).get('loop_interval', 10))
+                    await asyncio.sleep(self.get_config('trading.loop_interval'))
                     
                 except Exception as e:
                     logger.error(f"Error in trading loop: {str(e)}")
@@ -322,7 +395,7 @@ class TradingSystem:
                 'type': signal['type'],
                 'size': position_size,
                 'price': signal['price'],
-                'exchange': 'binance'  # Default exchange
+                'exchange': self.get_config('trading.execution.default_exchange', 'binance')
             }
             
             # Format order size according to exchange requirements
@@ -345,11 +418,12 @@ class TradingSystem:
             
     def _calculate_position_size(self, signal: Dict) -> float:
         """Calculate appropriate position size based on signal and risk parameters"""
-        # Get account balance
-        account_value = self.config.get('trading', {}).get('initial_balance', 10000.0)
+        # Get account balance and position limits from config
+        account_value = self.get_config('trading.initial_balance')
+        position_limit = self.get_config('risk.position_limit')
         
-        # Basic position sizing (improve with Kelly criterion or other methods)
-        max_position = account_value * self.config.get('risk', {}).get('max_position_pct', 0.1)
+        # Calculate max position size
+        max_position = account_value * position_limit
         
         # Scale by signal strength
         position_size = max_position * signal['strength']
@@ -359,7 +433,6 @@ class TradingSystem:
         
         return quantity
 
-    # Add this method to convert order size properly
     def _format_order_size(self, trade: Dict) -> float:
         """Format order size correctly for the exchange"""
         try:
@@ -481,8 +554,8 @@ async def main():
     """Main entry point for the trading system."""
     system = None
     try:
-        # Create and initialize the trading system
-        system = TradingSystem("config/trading.yaml")
+        # Create and initialize using ConfigManager
+        system = TradingSystem()
         await system.initialize()
         
         # Run the main system loop
@@ -528,7 +601,7 @@ if __name__ == "__main__":
             loop.run_until_complete(
                 asyncio.wait([
                     main_task,
-                    shutdown_task  # Now using a task instead of raw coroutine
+                    shutdown_task
                 ], return_when=asyncio.FIRST_COMPLETED)
             )
         finally:
