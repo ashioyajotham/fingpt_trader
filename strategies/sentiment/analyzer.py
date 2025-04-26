@@ -38,6 +38,10 @@ class SentimentAnalyzer(BaseService):
         self.news_feed = NewsDataFeed(news_feed_config)
         self.sentiment_window = config.get('sentiment_window', 24)  # Default to 24 hours
         
+        # Add missing threshold parameters
+        self.detection_threshold = config.get('detection_threshold', 0.3)
+        self.confidence_threshold = config.get('confidence_threshold', 0.6)
+        
         # Other existing attributes
         self.min_correlation_samples = config.get('min_correlation_samples', 10)
         self.price_impact_threshold = config.get('price_impact_threshold', 0.01)
@@ -53,6 +57,8 @@ class SentimentAnalyzer(BaseService):
         self.last_update = datetime.now()
         self.sentiment_history = {}
         self.market_correlation = {}
+        self.last_market_update = datetime.now() 
+        self.last_news_update = datetime.now()
 
     async def _setup(self) -> None:
         """Required implementation of abstract method"""
@@ -134,7 +140,9 @@ class SentimentAnalyzer(BaseService):
             JSON response:
             """
             
+            logger.debug(f"Sending prompt to FinGPT: {prompt[:100]}...")
             response = await self.fingpt.generate(prompt, temperature=0.2)
+            logger.debug(f"Received raw response: {response[:150]}...")
             
             # Parse the response
             try:
@@ -148,19 +156,26 @@ class SentimentAnalyzer(BaseService):
                     json_str = json_match.group(1)
                     result = json.loads(json_str)
                     # Use sentiment key if it exists, otherwise default to 0.0
-                    return {
-                        'compound': result.get('sentiment', 0.0),
-                        'confidence': result.get('confidence', 0.0)
-                    }
+                    sentiment_score = result.get('sentiment', 0.0)
+                    confidence = result.get('confidence', 0.0)
+                    
+                    # Log detailed results
+                    logger.info(f"Sentiment analysis: score={sentiment_score:.2f}, confidence={confidence:.2f}")
+                    if abs(sentiment_score) >= self.detection_threshold and confidence >= self.confidence_threshold:
+                        logger.info(f"Strong sentiment signal detected! (threshold={self.detection_threshold:.2f})")
+                    else:
+                        logger.info(f"Sentiment below thresholds, no signal generated")
+                    
+                    return result
             except Exception as json_error:
                 logger.error(f"Error parsing sentiment JSON: {json_error}")
             
             # Fallback return if parsing fails
-            return {'compound': 0.0, 'confidence': 0.0}
+            return {'sentiment': 0.0, 'confidence': 0.0}
             
         except Exception as e:
-            logger.error(f"Error during sentiment analysis: {e}")
-            return {'compound': 0.0, 'confidence': 0.0}
+            logger.error(f"Error analyzing sentiment: {str(e)}")
+            return {'sentiment': 0.0, 'confidence': 0.0}
 
     def _chunk_text(self, text: str, max_tokens: int = 750) -> List[str]:
         """Split text into chunks for processing"""
@@ -427,7 +442,7 @@ class SentimentAnalyzer(BaseService):
                 logger.warning("Sentiment analysis returned None")
                 return
                 
-            score = result.get('compound', 0.0)
+            score = result.get('sentiment', 0.0)  # Changed from 'compound'
             confidence = result.get('confidence', 0.0)
             
             # Store in sentiment history
@@ -477,13 +492,13 @@ class SentimentAnalyzer(BaseService):
                 self.sentiment_scores[symbol] = []
                 
             self.sentiment_scores[symbol].append({
-                'score': result['compound'],
-                'confidence': result['confidence'],
+                'score': result.get('sentiment', 0.0),  # Use 'sentiment' key instead of 'compound'
+                'confidence': result.get('confidence', 0.0),
                 'timestamp': datetime.now()
             })
             
             # Log sentiment for debugging
-            logger.debug(f"Sentiment for {symbol}: {result['compound']:.2f} (confidence: {result['confidence']:.2f})")
+            logger.debug(f"Sentiment for {symbol}: {result.get('sentiment', 0.0):.2f} (confidence: {result.get('confidence', 0.0):.2f})")
             
         except Exception as e:
             logger.error(f"Error analyzing sentiment: {e}")

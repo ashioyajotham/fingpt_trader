@@ -330,7 +330,7 @@ class TradingSystem:
         """Main trading system loop"""
         logger.info("Starting trading system main loop...")
         self.is_running = True
-        
+        cycle_count = 0
         try:
             # Initialize market data feeds
             await self.market_data_service.start()
@@ -344,6 +344,8 @@ class TradingSystem:
             
             # Main trading loop
             while self.is_running:
+                cycle_count += 1
+                logger.info(f"=== Trading Cycle #{cycle_count} ===")
                 try:
                     # Get latest market data
                     market_data = await self.market_data_service.get_realtime_quote(
@@ -364,6 +366,12 @@ class TradingSystem:
                         logger.info(f"Detected {len(signals)} trading signals")
                         self._process_signals(signals)
                     
+                    # Add periodic portfolio updates:
+                    if cycle_count % 5 == 0:  # Every 5 cycles
+                        positions = self.robo_service.get_positions()
+                        logger.info(f"Current Portfolio: {positions}")
+                        logger.info(f"Balance: {self.robo_service.get_balance():.2f} USDT")
+                    
                     # Sleep to avoid excessive polling
                     await asyncio.sleep(self.get_config('trading.loop_interval'))
                     
@@ -381,14 +389,24 @@ class TradingSystem:
             logger.info("Trading system main loop stopped")
             
     def _process_signals(self, signals):
-        for signal in signals:
-            logger.info(f"Signal generated: {signal['symbol']} - Direction: {signal['direction']}, Strength: {signal['strength']:.2f}, Threshold: {self.execution_threshold}")
+        if not signals:
+            logger.debug("No trading signals detected in this cycle")
+            return
             
-            if signal['strength'] >= self.execution_threshold:
-                logger.info(f"Signal exceeds threshold ({self.execution_threshold}), executing trade...")
-                # Execute trade
+        logger.info(f"Processing {len(signals)} trading signals")
+        
+        for signal in signals:
+            # Access execution_threshold through get_config to ensure it exists
+            execution_threshold = self.get_config('trading.execution.signal_threshold')
+            
+            logger.info(f"Signal: {signal['symbol']} - Direction: {signal['direction']}, "
+                       f"Strength: {signal['strength']:.2f}, Threshold: {execution_threshold:.2f}")
+            
+            if signal['strength'] >= execution_threshold:
+                logger.info(f"✅ Signal exceeds threshold, executing trade...")
+                # Execute trade logic here
             else:
-                logger.info(f"Signal below threshold ({self.execution_threshold}), no trade executed")
+                logger.info(f"❌ Signal below threshold, no trade executed")
 
     async def execute_trade(self, signal: Dict) -> None:
         """Execute a trade based on a signal"""

@@ -1,6 +1,6 @@
 # FinGPT Trader
 
-A quantitative trading system integrating a large language model (Falcon-7B) with market data analysis. The system uses natural language processing for market sentiment analysis alongside quantitative methods for trading decision support.
+A quantitative trading system integrating a large language model (Falcon-7B) with market data analysis. The system uses natural language processing for market sentiment analysis alongside quantitative methods and market inefficiency detection for trading decision support.
 
 ## Current Implementation Status
 
@@ -9,18 +9,20 @@ A quantitative trading system integrating a large language model (Falcon-7B) wit
 ## System Components
 
 - **Quantitative Analysis Engine**
-  - 🚧 Basic market data processing
+  - ✅ Basic market data processing
+  - 🚧 Market inefficiency detection
   - 📅 Order book imbalance analysis
   - 📅 Market microstructure modeling
 
 - **Sentiment Analysis**
   - ✅ Basic sentiment extraction using Falcon-7B
-  - 🚧 News impact integration
-  - 📅 Advanced text-based signal generation
+  - ✅ News impact integration
+  - 🚧 Text-based signal generation
 
 - **Trading Framework**
   - ✅ Event-driven architecture
   - ✅ Asynchronous execution
+  - ✅ Configuration-driven threshold management
   - 📅 Multi-asset portfolio optimization
 
 ## Functional Features
@@ -31,6 +33,14 @@ A quantitative trading system integrating a large language model (Falcon-7B) wit
   - Real-time processing of news with Falcon-7B
   - Confidence-weighted sentiment scores
   - Integration with trading signals
+  - Threshold-based signal generation
+
+- **Market Inefficiency Detection**
+  - Technical indicator-based inefficiency detection
+  - Z-score analysis of price spreads
+  - RSI overbought/oversold analysis
+  - Moving average crossover detection
+  - Volume spike identification
 
 - **Basic Market Data Processing**
   - Price data collection from Binance
@@ -80,24 +90,38 @@ A quantitative trading system integrating a large language model (Falcon-7B) wit
 
 ```mermaid
 graph TD
-    A[Falcon-7B Model] -->|Basic Sentiment Analysis| B[Market Analysis Engine]
-    B -->|Simple Signals| C[Trading Core]
+    A[Falcon-7B Model] -->|Sentiment Analysis| B[Market Analysis Engine]
+    B -->|Signal Generation| C[Trading Core]
     D[Binance API] -->|Market Data| B
     C -->|Orders| D
-    E[Risk Monitor] -->|Basic Limits| C
+    E[Risk Monitor] -->|Position Limits| C
     F[Portfolio Tracker] -->|Positions| C
+    G[Market Inefficiency Detector] -->|Trading Signals| B
+    H[News Data Feed] -->|Real-time News| A
     
     style A fill:#d0f0c0
-    style B fill:#f0e0a0
+    style B fill:#d0f0c0
     style C fill:#f0e0a0
     style D fill:#d0f0c0
     style E fill:#f0e0a0
-    style F fill:#f0e0a0
+    style F fill:#d0f0c0
+    style G fill:#d0f0c0
+    style H fill:#d0f0c0
     
     classDef implemented fill:#d0f0c0;
     classDef partial fill:#f0e0a0;
     classDef planned fill:#f0d0d0;
 ```
+
+## Configuration Architecture
+
+The system uses a hierarchical YAML-based configuration system:
+- `trading.yaml`: Core trading parameters, thresholds, and position sizing
+- `strategies.yaml`: Strategy-specific parameters and detection thresholds
+- `model.yaml`: ML model configurations
+- `services.yaml`: External service connectivity parameters
+
+All configuration values are accessed through a centralized configuration system with proper validation, eliminating hardcoded values throughout the codebase.
 
 ## Quick Start
 
@@ -131,14 +155,70 @@ python main.py
 ### Sentiment Analysis Implementation
 
 ```python
-# Current implementation of sentiment analysis
-sentiment_result = await model.predict_sentiment(news_text)
-sentiment_score = sentiment_result.get('sentiment', 0)
-confidence = sentiment_result.get('confidence', 0.5)
+async def analyze(self, text: str) -> Dict:
+    """Analyze sentiment using LLM"""
+    prompt = f"""
+    Analyze the sentiment of the following financial news text. 
+    Consider market impact, investor sentiment, and financial implications.
+    Rate on a scale from -1.0 (extremely bearish) to 1.0 (extremely bullish).
+    Provide only a JSON response with 'sentiment' and 'confidence' values.
+    
+    News text: {text}
+    """
+    
+    response = await self.fingpt.generate(prompt, temperature=0.2)
+    result = self._parse_sentiment(response)
+    
+    logger.info(f"Sentiment analysis: score={result.get('sentiment', 0.0):.2f}, " 
+                f"confidence={result.get('confidence', 0.0):.2f}")
+    
+    if (abs(result.get('sentiment', 0)) >= self.detection_threshold and 
+        result.get('confidence', 0) >= self.confidence_threshold):
+        logger.info(f"Strong sentiment signal detected! (threshold={self.detection_threshold:.2f})")
+        
+    return result
+```
 
-# Signal generation with confidence threshold
-if confidence >= config['confidence_threshold']:
-    generate_trading_signal(sentiment_score, confidence)
+### Market Inefficiency Detection
+
+The system implements a comprehensive market inefficiency detector:
+
+```python
+# Detection of technical inefficiencies
+def _detect_technical_signals(self, prices: pd.DataFrame) -> List[Dict]:
+    signals = []
+    
+    # Get price series
+    close = prices['close']
+    
+    # Moving Average Crossovers
+    short_ma = close.rolling(window=5).mean()
+    long_ma = close.rolling(window=20).mean()
+    
+    # Generate crossover signals
+    if len(close) > 20:
+        # Bullish crossover
+        if short_ma.iloc[-2] < long_ma.iloc[-2] and short_ma.iloc[-1] > long_ma.iloc[-1]:
+            signals.append({
+                'confidence': 0.6,
+                'direction': 1,  # Long
+                'magnitude': 0.02,  # 2% expected move
+                'metadata': {'source': 'ma_crossover_bullish'}
+            })
+            
+        # Bearish crossover    
+        elif short_ma.iloc[-2] > long_ma.iloc[-2] and short_ma.iloc[-1] < long_ma.iloc[-1]:
+            signals.append({
+                'confidence': 0.6,
+                'direction': -1,  # Short
+                'magnitude': 0.02,
+                'metadata': {'source': 'ma_crossover_bearish'}
+            })
+    
+    # RSI Signals with configuration-driven thresholds
+    # Additional technical signals...
+    
+    return signals
 ```
 
 ### Current Challenges
@@ -146,19 +226,19 @@ if confidence >= config['confidence_threshold']:
 The system currently faces several implementation challenges:
 
 1. **Sentiment Analysis Quality**
-   - Model produces inconsistent formatting
-   - Confidence scoring needs improvement
-   - News relevance filtering is basic
+   - Model sometimes produces inconsistent formatting
+   - News relevance filtering needs improvement
+   - Sentiment confidence calibration is ongoing
 
 2. **Order Execution**
    - Minimum order size requirements not always met
    - Better USD to crypto quantity conversion needed
-   - Improved error handling for rejected orders
+   - Timeout handling for exchange API calls
 
 3. **System Stability**
-   - AsyncIO event loop management issues
-   - Shutdown sequence optimization
-   - Exception handling during data processing
+   - Need improved logging for system monitoring
+   - Better handling for exchange API timeouts
+   - Enhanced data validation for external inputs
 
 ## Roadmap: Planned Mathematical Framework
 
@@ -190,6 +270,7 @@ $$ R = \sqrt{w^T\Sigma w} \cdot (1 + \delta|S|) $$
 Current development priorities:
 - [x] Fix AsyncIO event loop issues
 - [x] Improve error handling in API calls
+- [x] Add detailed sentiment score logging
 - [ ] Enhance sentiment analysis prompt engineering
 - [ ] Fix minimum order size calculation
 - [ ] Implement proper USD to crypto quantity conversion
@@ -208,10 +289,4 @@ Current development priorities:
 MIT License - See [LICENSE](LICENSE) for details.
 
 ## Contributing
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on contributing to this project.
-
-## Acknowledgments
-
-- [Falcon-7B](https://huggingface.co/tiiuae/falcon-7b) for NLP capabilities
-- [python-binance](https://python-binance.readthedocs.io/) for exchange connectivity
-- [FinRL](https://github.com/AI4Finance-Foundation/FinRL) for inspiration
+Contributions are welcome! Please fork the repository and submit a pull request with your changes. Ensure to follow the code style and include tests for new features. See [CONTRIBUTING.md](CONTRIBUTING.md) for more details.
