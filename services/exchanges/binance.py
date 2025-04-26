@@ -141,12 +141,31 @@ class BinanceClient:
     
     @classmethod
     async def get_instance(cls, config=None):
-        """Get singleton instance"""
-        if not cls._instance:
-            if not config:
-                raise ValueError("Config required for first initialization")
-            cls._instance = await cls.create(config)
-        return cls._instance
+        if cls._instance is None:
+            logger.info("Initializing new Binance client instance")
+            cls._instance = await cls._create_instance(config)
+            return cls._instance
+        else:
+            # Only log this at debug level
+            logger.debug("Using shared Binance client instance") 
+            return cls._instance
+
+    @classmethod
+    async def _create_instance(cls, config: Dict) -> 'BinanceClient':
+        """Internal method to create instance for singleton pattern"""
+        if not config:
+            raise ValueError("Configuration required for Binance client creation")
+            
+        # Get credentials from config
+        api_key = config.get('api_key')
+        api_secret = config.get('api_secret')
+        test_mode = config.get('test_mode', True)
+        
+        # Create instance
+        instance = cls(api_key=api_key, api_secret=api_secret)
+        instance.testnet = test_mode
+        await instance.initialize()
+        return instance
 
     @classmethod
     async def create(cls, config: Dict) -> 'BinanceClient':
@@ -435,11 +454,11 @@ class BinanceClient:
                 'high': float(ticker['highPrice']),
                 'low': float(ticker['lowPrice'])
             }
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout error fetching ticker for {symbol} - connection may be slow")
+            return {}
         except Exception as e:
-            logger.error(f"Error fetching ticker for {symbol}: {str(e)}")
-            # Try retrieving data from fallback exchange if configured
-            if hasattr(self, '_try_fallback_exchanges'):
-                return await self._try_fallback_exchanges(symbol)
+            logger.error(f"Error fetching ticker for {symbol}: {type(e).__name__}: {str(e)}")
             return {}
 
     async def has_symbol(self, symbol: str) -> bool:
