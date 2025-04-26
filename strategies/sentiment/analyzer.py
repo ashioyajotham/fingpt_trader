@@ -36,6 +36,12 @@ class SentimentAnalyzer(BaseService):
         
         self.market_feed = MarketDataFeed(market_feed_config)
         self.news_feed = NewsDataFeed(news_feed_config)
+        self.sentiment_window = config.get('sentiment_window', 24)  # Default to 24 hours
+        
+        # Other existing attributes
+        self.min_correlation_samples = config.get('min_correlation_samples', 10)
+        self.price_impact_threshold = config.get('price_impact_threshold', 0.01)
+        self.active_pairs = market_feed_config['pairs']
         
         # Data handlers
         self.handlers = {
@@ -113,57 +119,62 @@ class SentimentAnalyzer(BaseService):
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
 
-    async def analyze(self, text: str) -> Dict[str, float]:
-        """Analyze sentiment using FinGPT with timeout handling"""
-        if not text or len(text.strip()) < 10:
-            logger.warning("Empty or too short text for sentiment analysis")
-            return {'compound': 0.0, 'confidence': 0.0}
-            
-        chunks = self._chunk_text(text, max_tokens=750)
-        logger.info(f"Processing {len(chunks)} text chunks for sentiment analysis")
-        
-        sentiments = []
-        async with asyncio.timeout(30):  # Add 30 second timeout
-            try:
-                for i, chunk in enumerate(chunks):
-                    try:
-                        sentiment = await self.fingpt.predict_sentiment(chunk)
-                        sentiments.append(sentiment)
-                        logger.debug(f"Processed chunk {i+1}/{len(chunks)}")
-                    except Exception as e:
-                        logger.error(f"Error processing chunk {i+1}: {str(e)}")
-                        continue
-                    
-            except asyncio.TimeoutError:
-                logger.error("Sentiment analysis timed out after 30 seconds")
-                return {'compound': 0.0, 'confidence': 0.0}
-                
-            except Exception as e:
-                logger.error(f"Sentiment analysis error: {str(e)}")
-                return {'compound': 0.0, 'confidence': 0.0}
-        
-        if not sentiments:
-            logger.warning("No valid sentiment chunks processed, returning neutral")
-            return {'compound': 0.0, 'confidence': 0.0}
-            
-        # Average sentiments with error handling
+    async def analyze(self, text: str) -> Dict:
+        """Analyze sentiment using LLM"""
         try:
-            compound = sum(s['sentiment'] for s in sentiments) / len(sentiments)
-            confidence = sum(s['confidence'] for s in sentiments) / len(sentiments)
+            # Improve the prompt for better sentiment differentiation
+            prompt = f"""
+            Analyze the sentiment of the following financial news text. 
+            Consider market impact, investor sentiment, and financial implications.
+            Rate on a scale from -1.0 (extremely bearish) to 1.0 (extremely bullish).
+            Provide only a JSON response with 'sentiment' and 'confidence' values.
             
-            logger.info(f"Sentiment analysis complete: score={compound:.2f}, confidence={confidence:.2f}")
-            return {
-                'compound': compound,
-                'confidence': confidence
-            }
+            News text: {text}
+            
+            JSON response:
+            """
+            
+            response = await self.fingpt.generate(prompt, temperature=0.2)
+            
+            # Parse the response
+            try:
+                # Extract JSON from response
+                import json
+                import re
+                
+                # Find JSON content in response
+                json_match = re.search(r'(\{.*\})', response, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(1)
+                    result = json.loads(json_str)
+                    # Use sentiment key if it exists, otherwise default to 0.0
+                    return {
+                        'compound': result.get('sentiment', 0.0),
+                        'confidence': result.get('confidence', 0.0)
+                    }
+            except Exception as json_error:
+                logger.error(f"Error parsing sentiment JSON: {json_error}")
+            
+            # Fallback return if parsing fails
+            return {'compound': 0.0, 'confidence': 0.0}
             
         except Exception as e:
-            logger.error(f"Error calculating final sentiment: {str(e)}")
+            logger.error(f"Error during sentiment analysis: {e}")
             return {'compound': 0.0, 'confidence': 0.0}
 
     def _chunk_text(self, text: str, max_tokens: int = 750) -> List[str]:
         """Split text into chunks for processing"""
-        words = text.split()
+        # First clean the text to remove model output patterns
+        cleaned_text = ""
+        for line in text.split('\n'):
+            if not any(pattern in line.lower() for pattern in [
+                'sentiment score:', 'you:', 'assistant:', 
+                'analysis:', 'raw response'
+            ]):
+                cleaned_text += line + " "
+        
+        # Now continue with the chunking as before
+        words = cleaned_text.split()
         chunks = []
         words_per_chunk = max_tokens // 6  # Conservative estimate
         
@@ -189,6 +200,32 @@ class SentimentAnalyzer(BaseService):
             for item in news_data:
                 await self.process_news_item(item)
             self.last_news_update = datetime.now()
+
+    async def process_market_data(self, data: Dict) -> None:
+        """Process market data for sentiment analysis"""
+        try:
+            # Process each symbol in the data
+            for symbol, market_data in data.items():
+                # Skip if no price data
+                if not market_data or not market_data.get('price'):
+                    continue
+                
+                price = float(market_data.get('price', 0))
+                timestamp = datetime.now()
+                
+                # Add to price history - FIXED: remove await
+                self.add_market_data(symbol, price, timestamp)
+                
+                # Check for relevant news and analyze
+                news_items = await self._fetch_relevant_news(symbol)
+                for news in news_items:
+                    await self.analyze_sentiment(news, symbol)  # Now this will work
+                    
+                # Update correlation metrics
+                await self.update_correlation(symbol)
+                
+        except Exception as e:
+            logger.error(f"Error processing market data: {e}")
 
     def add_market_data(self, symbol: str, price: float, timestamp: datetime) -> None:
         """Add market data for sentiment correlation"""
@@ -277,23 +314,60 @@ class SentimentAnalyzer(BaseService):
         
         return impact
 
-    async def update_correlation(self, symbol: str, sentiment_changes: pd.Series, 
-                               price_changes: pd.Series) -> None:
-        """Update price-sentiment correlation"""
-        if len(sentiment_changes) < self.min_correlation_samples:
-            return
+    async def update_correlation(self, symbol):
+        """Calculate correlation between sentiment and price movements"""
+        try:
+            # Get historical sentiment data for this symbol
+            if symbol not in self.sentiment_history:
+                logger.debug(f"No sentiment history for {symbol}, skipping correlation")
+                return
+                
+            # Extract sentiment changes from history
+            sentiment_data = self.sentiment_history[symbol]
+            if len(sentiment_data) < self.min_correlation_samples:
+                logger.debug(f"Not enough samples for {symbol} correlation: {len(sentiment_data)}/{self.min_correlation_samples}")
+                return
+                
+            # Calculate sentiment changes
+            sentiment_values = [entry['score'] for entry in sentiment_data]
+            sentiment_changes = [sentiment_values[i] - sentiment_values[i-1] 
+                                for i in range(1, len(sentiment_values))]
+                                
+            # Get price data for correlation
+            if not hasattr(self, 'price_history') or symbol not in self.price_history:
+                logger.debug(f"No price history for {symbol}, skipping correlation")
+                return
+                
+            # Calculate price changes
+            price_data = self.price_history[symbol]
+            price_values = [entry['price'] for entry in price_data]
+            price_changes = [price_values[i]/price_values[i-1] - 1 
+                            for i in range(1, len(price_values))]
+                            
+            # Ensure we have matching data points
+            min_length = min(len(sentiment_changes), len(price_changes))
+            if min_length < self.min_correlation_samples:
+                logger.debug(f"Insufficient matching data points for correlation: {min_length}")
+                return
+                
+            # Calculate correlation
+            import numpy as np
+            correlation = np.corrcoef(
+                sentiment_changes[:min_length],
+                price_changes[:min_length]
+            )[0, 1]
             
-        # Calculate rolling correlation
-        correlation = sentiment_changes.rolling(
-            window=self.min_correlation_samples
-        ).corr(price_changes)
-        
-        # Store correlation
-        self.correlation_history[symbol] = {
-            'value': correlation.iloc[-1],
-            'timestamp': datetime.now(),
-            'samples': len(sentiment_changes)
-        }
+            # Update correlation record
+            self.market_correlation[symbol] = {
+                'value': correlation,
+                'updated_at': datetime.now(),
+                'samples': min_length
+            }
+            
+            logger.info(f"Sentiment-price correlation for {symbol}: {correlation:.4f} (samples: {min_length})")
+            
+        except Exception as e:
+            logger.error(f"Error updating correlation for {symbol}: {e}")
 
     def get_sentiment_signal(self, symbol: str) -> Dict:
         """Get trading signal from sentiment"""
@@ -340,54 +414,76 @@ class SentimentAnalyzer(BaseService):
             await self._process_trade_impact(pair, data['data'])
 
     async def _handle_news_data(self, news_item: Dict) -> None:
-        """Process news updates"""
-        # Extract relevant symbols
-        symbols = news_item.get('symbols', [])
-        
-        for symbol in symbols:
-            if symbol in self.active_pairs:
-                # Process sentiment for each relevant pair
-                await self.add_sentiment_data(
-                    symbol,
-                    f"{news_item['title']} {news_item['content']}",
-                    news_item['timestamp']
-                )
+        """Process incoming news data for sentiment analysis"""
+        try:
+            # Extract text from news item
+            text = f"{news_item.get('title', '')}. {news_item.get('content', '')}"
+            
+            # With await
+            result = await self.analyze(text)
+            
+            # Check if result is None before accessing
+            if result is None:
+                logger.warning("Sentiment analysis returned None")
+                return
+                
+            score = result.get('compound', 0.0)
+            confidence = result.get('confidence', 0.0)
+            
+            # Store in sentiment history
+            for symbol in news_item.get('symbols', []):
+                if symbol not in self.sentiment_scores:
+                    self.sentiment_scores[symbol] = []
+                    
+                self.sentiment_scores[symbol].append({
+                    'score': score,
+                    'confidence': confidence,
+                    'timestamp': datetime.now()
+                })
+                
+        except Exception as e:
+            logger.error(f"Error processing news for sentiment: {e}")
 
     async def _fetch_relevant_news(self, pair: str) -> List[str]:
         """Fetch relevant news for the trading pair"""
         try:
             base_asset = pair.replace('USDT', '').replace('USD', '')
             
-            # Broader search terms
-            search_terms = {
-                'BTC': ['Bitcoin', 'BTC', 'crypto market', 'cryptocurrency'],
-                'ETH': ['Ethereum', 'ETH', 'DeFi', 'smart contracts'],
-                'BNB': ['Binance', 'BNB', 'exchange token']
-            }
+            # Use news_feed instead of news_service
+            news_data = await self.news_feed.get_latest()
             
-            # Use multiple search terms for better coverage
-            news_data = []
-            terms = search_terms.get(base_asset, [f"{base_asset} crypto"])
+            # Filter news items relevant to this asset
+            relevant_news = []
+            for item in news_data:
+                content = f"{item.get('title', '')} {item.get('content', '')}"
+                if base_asset.lower() in content.lower():
+                    relevant_news.append(content)
             
-            for term in terms:
-                articles = await self.news_service.get_news(term)
-                news_data.extend(articles)
-            
-            # Deduplicate articles
-            seen = set()
-            unique_texts = []
-            
-            for article in news_data:
-                title = article.get('title', '')
-                if title and title not in seen:
-                    seen.add(title)
-                    unique_texts.append(title)
-                    if article.get('description'):
-                        unique_texts.append(article['description'])
-            
-            logger.info(f"Fetched {len(unique_texts)} unique news items for {pair}")
-            return unique_texts
+            logger.info(f"Fetched {len(relevant_news)} relevant news items for {pair}")
+            return relevant_news
             
         except Exception as e:
             logger.error(f"Failed to fetch news for {pair}: {e}")
             return []
+
+    async def analyze_sentiment(self, text: str, symbol: str) -> None:
+        """Analyze sentiment for a specific symbol and store results"""
+        try:
+            # Use existing analyze method
+            result = await self.analyze(text)
+            
+            # Store sentiment data
+            if symbol not in self.sentiment_scores:
+                self.sentiment_scores[symbol] = []
+                
+            self.sentiment_scores[symbol].append({
+                'score': result['compound'],
+                'confidence': result['confidence'],
+                'timestamp': datetime.now()
+            })
+            
+            # Log sentiment for debugging
+            logger.debug(f"Sentiment for {symbol}: {result['compound']:.2f} (confidence: {result['confidence']:.2f})")
+            
+        except Exception as e:
+            logger.error(f"Error analyzing sentiment: {e}")

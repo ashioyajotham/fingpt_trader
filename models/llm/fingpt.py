@@ -318,9 +318,20 @@ class FinGPT(BaseLLM):
         )
 
     async def generate(self, prompt: str, **kwargs) -> str:
-        """Generate text using llama.cpp with Falcon instruction format"""
-        # Falcon-7B-Instruct uses a simpler formatting than some other models
-        instruction_prompt = f"User: {prompt}\n\nAssistant:"
+        """Generate text using llama.cpp with task-specific formatting"""
+        
+        # Check if this is a sentiment analysis request
+        if kwargs.get('task') == 'sentiment':
+            instruction_prompt = self._create_sentiment_prompt(prompt)
+        else:
+            # Default to financial analysis prompt
+            instruction_prompt = f"""### Task: Financial Analysis
+            
+Please analyze the following financial information:
+
+{prompt}
+
+### Response:"""
         
         response = self.model(
             instruction_prompt,
@@ -329,8 +340,7 @@ class FinGPT(BaseLLM):
             top_p=0.9,
             repeat_penalty=1.2,
             echo=False,
-            # Falcon-specific stop tokens
-            stop=["User:", "\n\nUser", "\n\n\nUser"]
+            stop=["###", "\n\n", "User:", "\n\nUser"]
         )
         
         result = response['choices'][0]['text'].strip() if response.get('choices') and response['choices'] else ""
@@ -348,74 +358,154 @@ class FinGPT(BaseLLM):
         """Extract sentiment labels from outputs"""
         return [output.split("Answer: ")[1].strip() for output in outputs]
 
-    async def predict_sentiment(self, text: str) -> Dict[str, float]:
-        """Analyze financial sentiment using Falcon-specific instruction format"""
-        prompt = (
-            f"Please analyze the sentiment of this financial news article. "
-            f"Rate it on a scale from -1.0 (very negative) to +1.0 (very positive).\n\n"
-            f"News: \"{text}\"\n\n"
-            f"Provide your reasoning and then give the numerical score in this format: 'Sentiment score: X.X'"
-        )
-        
-        response = await self.generate(prompt)
-        print(f"Raw response: '{response}'")
-        
-        sentiment_score = self._process_sentiment(response)
-        confidence = self._calculate_confidence(response, sentiment_score)
-        
-        return {
-            "text": text,
-            "sentiment": sentiment_score,
-            "confidence": confidence,
-            "raw_response": response
-        }
+    def _create_sentiment_prompt(self, text: str) -> str:
+        """
+        Create a structured prompt for sentiment analysis with clear instructions.
+        Uses markdown formatting which typically produces more reliable responses.
+        """
+        return f"""### System: Financial Sentiment Analysis
+You are performing sentiment analysis on financial text. Follow these instructions exactly:
 
-    def _process_sentiment(self, text: str) -> float:
-        """
-        Process model output to extract sentiment score.
-        
-        Args:
-            text (str): Model output text
+### Instructions:
+1. Analyze the financial sentiment of the text below
+2. Determine if it is positive, negative, or neutral for investors
+3. Assign a score between -1.0 (extremely bearish) and 1.0 (extremely bullish)
+4. Return ONLY the sentiment score as a decimal number
+5. Do not include any explanations or additional text
+
+### Text to analyze:
+{text}
+
+### Response (ONLY a number between -1.0 and 1.0):
+Sentiment score:"""
+
+    async def predict_sentiment(self, text: str) -> Dict[str, float]:
+        """Analyze financial sentiment using a structured prompt format"""
+        try:
+            # Clean the text before analysis to remove any potential model outputs
+            text = self._clean_input_text(text)
             
-        Returns:
-            float: Sentiment score between -1.0 (negative) and 1.0 (positive)
-        """
-        # Try to extract numerical score first (if model produced one)
-        import re
+            # Use the structured prompt creator
+            prompt = self._create_sentiment_prompt(text)
+            
+            # Generate response
+            response = self.model(
+                prompt,
+                max_tokens=32,  # Limit to prevent rambling
+                temperature=0.1,  # Lower temperature for more consistent results
+                top_p=0.9,
+                repeat_penalty=1.2,
+                echo=False,
+                stop=["###", "\n\n"]  # Stop at section markers or blank lines
+            )
+            
+            result = response['choices'][0]['text'].strip() if response.get('choices') else ""
+            
+            # Extract sentiment score
+            sentiment_value = self._extract_sentiment_score(result)
+            
+            # Calculate confidence based on response quality
+            confidence = 0.8 if re.match(r'^-?\d+\.?\d*$', result.strip()) else 0.5
+            
+            return {
+                "sentiment": sentiment_value,
+                "confidence": confidence
+            }
+        except Exception as e:
+            logger.error(f"Sentiment analysis error: {str(e)}")
+            return {
+                "sentiment": 0.0,
+                "confidence": 0.1
+            }
+
+    def _clean_input_text(self, text: str) -> str:
+        """Remove potential model outputs and conversation patterns from input text"""
+        if not text:
+            return ""
+            
+        # Remove lines containing model output patterns
+        clean_lines = []
+        for line in text.split('\n'):
+            line = line.strip()
+            if any(pattern in line.lower() for pattern in [
+                'sentiment score:', 'you:', 'assistant:', 
+                'raw response:', 'analysis:'
+            ]):
+                continue
+            clean_lines.append(line)
         
-        # Look for any number between -1 and 1 with optional decimal places
-        num_pattern = r'(-?\d+\.?\d*)'
-        matches = re.findall(num_pattern, text)
+        return " ".join(clean_lines)
+
+    def _extract_sentiment_score(self, text: str) -> float:
+        """Extract numeric sentiment score with improved pattern matching"""
+        text = text.lower().strip()
         
-        for match in matches:
+        # First try exact format (just a number)
+        if re.match(r'^-?\d+\.?\d*$', text):
             try:
-                value = float(match)
-                # Only accept values in the valid sentiment range
+                value = float(text)
                 if -1.0 <= value <= 1.0:
                     return value
             except ValueError:
-                continue
+                pass
         
-        # If no valid number found, use lexical analysis
-        text = text.lower()
+        # Try common patterns with clear extraction
+        patterns = [
+            r'sentiment score:?\s*(-?\d+\.?\d*)',
+            r'score:?\s*(-?\d+\.?\d*)',
+            r'[-:]?\s*(-?\d+\.?\d*)\s*[/]?',
+        ]
         
-        # Calculate sentiment from lexical cues
-        pos_terms = ["positive", "bullish", "upbeat", "strong", "growth", "gain", "increase", 
-                    "improve", "beat", "record", "exceeds", "profit"]
-                    
-        neg_terms = ["negative", "bearish", "downbeat", "weak", "decline", "loss", "decrease", 
-                    "worsen", "miss", "below", "disappoints", "risk"]
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                try:
+                    value = float(match.group(1))
+                    # Ensure value is in valid range
+                    if -1.0 <= value <= 1.0:
+                        return value
+                    elif 1.0 < value <= 10.0:  # Scale down if needed
+                        return min(1.0, value / 10.0)
+                    elif -10.0 <= value < -1.0:
+                        return max(-1.0, value / 10.0)
+                except (ValueError, IndexError):
+                    continue
         
-        # Count term occurrences
-        pos_score = sum(1 for term in pos_terms if term in text)
-        neg_score = sum(1 for term in neg_terms if term in text)
+        # Return neutral if no valid score found
+        return 0.0
+
+    def _process_sentiment(self, response: str) -> Dict[str, Any]:
+        """Process raw LLM response into a structured sentiment result"""
+        # Extract sentiment score using different possible patterns
+        patterns = [
+            r'sentiment score:\s*(-?\d+\.?\d*)', # Standard format
+            r'score:\s*(-?\d+\.?\d*)',           # Abbreviated format
+            r'sentiment:\s*(-?\d+\.?\d*)',       # Alternative format
+            r'(-?\d+\.?\d*)/1\.0',               # Ratio format
+            r'(-?\d+\.?\d*)'                      # Just a number as fallback
+        ]
         
-        # Calculate sentiment score based on term frequency (-1 to 1 range)
-        total = pos_score + neg_score
-        if total == 0:
-            return 0.0  # Truly neutral if no sentiment terms
-            
-        return (pos_score - neg_score) / total
+        sentiment_value = 0.0
+        for pattern in patterns:
+            match = re.search(pattern, response.lower())
+            if match:
+                try:
+                    value = float(match.group(1))
+                    # Validate the value is in proper range
+                    if -1.0 <= value <= 1.0:
+                        sentiment_value = value
+                        break
+                except (ValueError, IndexError):
+                    continue
+        
+        # Calculate confidence based on response quality
+        confidence = self._calculate_confidence(response, sentiment_value)
+        
+        return {
+            "sentiment": sentiment_value,
+            "confidence": confidence,
+            "raw_response": response.strip()
+        }
 
     def _verify_base_model_files(self, model_path: Path) -> bool:
         """Verify base model files are present for Falcon-7B-Instruct"""
@@ -488,31 +578,34 @@ class FinGPT(BaseLLM):
             return False
 
     def _calculate_confidence(self, response: str, sentiment: float) -> float:
-        """Calculate confidence score based on response quality"""
-        if not response:
-            return 0.1
-            
-        # Check for numerical responses
-        has_number = bool(re.search(r'-?\d+\.?\d*', response))
+        """Calculate confidence score based on response quality indicators"""
+        # Check for presence of reasoning and numerical patterns
+        has_reasoning = len(response.split()) > 15  # More than 15 words suggests some reasoning
+        has_number = bool(re.search(r'-?\d+\.?\d*', response))  # Contains a number
+        has_sentiment_terms = any(term in response.lower() for term in [
+            "bullish", "bearish", "positive", "negative", "neutral", "optimistic", 
+            "pessimistic", "market", "investor", "stock", "price", "growth", "decline"
+        ])
         
-        # Look for reasoning indicators
-        reasoning_terms = ["because", "since", "as", "given that", "due to", "indicates", "suggests"]
-        has_reasoning = any(term in response.lower() for term in reasoning_terms)
-        
-        # Check for sentiment terms
-        sentiment_terms = ["positive", "negative", "bullish", "bearish", "neutral"]
-        has_sentiment_terms = any(term in response.lower() for term in sentiment_terms)
+        # Check if response follows requested format
+        has_correct_format = bool(re.search(r'sentiment score:\s*-?\d+\.?\d*', response.lower()))
         
         # Calculate base confidence
         base_confidence = 0.1
-        if has_number: base_confidence += 0.4
-        if has_reasoning: base_confidence += 0.3
+        if has_number: base_confidence += 0.2
         if has_sentiment_terms: base_confidence += 0.2
+        if has_reasoning: base_confidence += 0.3
+        if has_correct_format: base_confidence += 0.2
         
+        # Penalize extreme values without strong justification
+        if abs(sentiment) > 0.8 and not has_reasoning:
+            base_confidence -= 0.2
+            
         # Adjust by response length (longer generally means more thoughtful)
         words = len(response.split())
-        length_factor = min(0.2, words / 100)
+        length_factor = min(0.15, words / 150)
         
+        # Calculate final confidence, capped at 95%
         return min(0.95, base_confidence + length_factor)
 
     def _get_model_info(self) -> Dict[str, Any]:

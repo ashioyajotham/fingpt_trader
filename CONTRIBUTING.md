@@ -1,9 +1,5 @@
 # Contributing to FinGPT Trader
 
-## Code of Conduct
-
-We are committed to providing a welcoming and inspiring community for all. Please read and follow our [Code of Conduct](CODE_OF_CONDUCT.md).
-
 ## Development Setup
 
 1. **Fork and Clone**
@@ -32,16 +28,16 @@ We are committed to providing a welcoming and inspiring community for all. Pleas
 ### 1. Branching Strategy
 
 - `main`: Production-ready code
-- `develop`: Development branch
+- `build`: Development branch
 - Feature branches: `feature/your-feature`
 - Bugfix branches: `fix/issue-description`
 
 ```bash
 # Create feature branch
-git checkout -b feature/your-feature develop
+git checkout -b feature/your-feature build
 
 # Create bugfix branch
-git checkout -b fix/issue-description develop
+git checkout -b fix/issue-description build
 ```
 
 ### 2. Code Style

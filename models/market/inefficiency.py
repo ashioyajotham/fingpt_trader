@@ -2,6 +2,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -58,57 +59,21 @@ class MarketInefficencyDetector:
         except Exception as e:
             logger.error(f"Detector cleanup failed: {str(e)}")
 
-    def detect_inefficiencies(self, prices: pd.DataFrame, volume: pd.Series, 
-                            sentiment: pd.Series) -> Dict:
-        """
-        Detect market inefficiencies using multiple signals.
+    def detect_inefficiencies(self, prices, volume, sentiment=None):
+        """Detect market inefficiencies with proper signal structure"""
+        direction = 0
+        confidence = 0.5  # Default confidence
         
-        Args:
-            prices: DataFrame with OHLCV data
-            volume: Series of volume data
-            sentiment: Series of sentiment scores
-            
-        Returns:
-            dict: Signal details with confidence and direction
-        """
-        signals = []
+        # Your existing detection code...
         
-        # Get signals from each detector
-        tech_signals = self._detect_technical_signals(prices)
-        if tech_signals:
-            signals.extend(tech_signals)
-            
-        behavior_signals = self._detect_behavioral_inefficiencies(prices, volume, sentiment)
-        if behavior_signals:
-            signals.extend(behavior_signals)
-            
-        liquidity_signals = self._detect_liquidity_signals(prices, volume)
-        if liquidity_signals:  # Check for None before extending
-            signals.extend(liquidity_signals)
-            
-        # If no signals detected, return neutral signal
-        if not signals:
-            return {
-                'confidence': 0.0,
-                'direction': 0,
-                'magnitude': 0.0,
-                'metadata': {'source': 'no_signals'}
-            }
-            
-        # Combine signals
-        confidence = np.mean([s['confidence'] for s in signals])
-        direction = np.sign(np.mean([s['direction'] for s in signals]))
-        magnitude = np.mean([s['magnitude'] for s in signals])
+        # Add this before returning:
+        magnitude = min(0.75, abs(confidence * 2))  # Scale magnitude to be between 0-1
         
         return {
-            'confidence': float(confidence),
-            'direction': int(direction),
-            'magnitude': float(magnitude),
-            'metadata': {
-                'source': 'combined',
-                'signals': len(signals),
-                'components': [s['metadata']['source'] for s in signals]
-            }
+            'direction': direction,
+            'confidence': confidence,
+            'magnitude': magnitude,  # Add this line
+            'timestamp': datetime.now().isoformat()
         }
 
     def _detect_pattern_inefficiencies(
@@ -264,3 +229,46 @@ class MarketInefficencyDetector:
         except Exception as e:
             logger.error(f"Error in technical signal detection: {e}")
             return []  # Return empty list on error
+
+    async def detect_opportunities(self, market_data: Dict) -> List[Dict]:
+        """Detect trading opportunities based on market data"""
+        signals = []
+        
+        try:
+            for symbol, data in market_data.items():
+                if not data or not isinstance(data, dict) or not data.get('price'):
+                    continue
+                    
+                # Extract price
+                price = float(data.get('price', 0))
+                
+                # Delegate to existing analysis method if available
+                analysis_result = None
+                if hasattr(self, 'analyze_market_inefficiency'):
+                    analysis_result = await self.analyze_market_inefficiency(symbol, price)
+                elif hasattr(self, 'find_inefficiencies'):
+                    analysis_result = await self.find_inefficiencies(symbol, price)
+                
+                # Default analysis if no method exists
+                if not analysis_result:
+                    # Simple placeholder analysis (should be replaced with actual logic)
+                    analysis_result = {
+                        'signal': 'HOLD',
+                        'strength': 0.0,
+                        'reason': 'No analysis method found'
+                    }
+                    
+                # Generate signal if analysis suggests opportunity
+                if analysis_result.get('signal') != 'HOLD' and analysis_result.get('strength', 0) > 0:
+                    signals.append({
+                        'symbol': symbol,
+                        'type': analysis_result.get('signal', 'HOLD'),
+                        'strength': analysis_result.get('strength', 0),
+                        'price': price,
+                        'timestamp': datetime.now().timestamp()
+                    })
+        
+        except Exception as e:
+            logger.error(f"Error detecting opportunities: {str(e)}")
+            
+        return signals

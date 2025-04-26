@@ -226,6 +226,26 @@ class BinanceClient:
         except Exception as e:
             logger.error(f"Error closing Binance client: {e}")
 
+    async def close_connections(self):
+        """Close all open HTTP and WebSocket connections"""
+        try:
+            # Close HTTP session if exists
+            if hasattr(self, 'session') and self.session:
+                await self.session.close()
+                logger.info("Binance HTTP session closed")
+            
+            # Close WebSocket connection if exists
+            if hasattr(self, 'ws_connection') and self.ws_connection:
+                await self.ws_connection.close()
+                logger.info("Binance WebSocket connection closed")
+            
+            # Any other cleanup needed
+            if hasattr(self, 'rest_client') and hasattr(self.rest_client, 'close'):
+                await self.rest_client.close()
+            
+        except Exception as e:
+            logger.error(f"Error closing Binance connections: {e}")
+
     async def cleanup(self) -> None:
         """Alias for close() for compatibility"""
         await self.close()
@@ -416,7 +436,10 @@ class BinanceClient:
                 'low': float(ticker['lowPrice'])
             }
         except Exception as e:
-            logger.error(f"Error fetching ticker for {symbol}: {e}")
+            logger.error(f"Error fetching ticker for {symbol}: {str(e)}")
+            # Try retrieving data from fallback exchange if configured
+            if hasattr(self, '_try_fallback_exchanges'):
+                return await self._try_fallback_exchanges(symbol)
             return {}
 
     async def has_symbol(self, symbol: str) -> bool:
