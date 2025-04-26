@@ -53,8 +53,20 @@ This progressive approach gives immediate benefits while building toward a compr
 - System Configuration
 
 
-# Check if log files are being created
-Get-ChildItem .\logs\
+Next Steps
+Trading Execution Integration
 
-# View the most recent log file
-Get-Content .\logs\trading_*.log -Tail 30
+Connect sentiment signals to actual trade execution
+The _process_signals method needs to call execute_trade
+Portfolio Performance Monitoring
+
+Add tracking of trade outcomes based on signals
+Log portfolio performance metrics over time
+Model Performance Tuning
+
+Consider adjusting thresholds based on observed performance
+Current detection_threshold of 0.3 seems to work well
+Documentation and Visualization
+
+Add a simple dashboard to visualize sentiment over time
+Document the sentiment analysis results pattern
