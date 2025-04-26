@@ -8,26 +8,28 @@ logger = logging.getLogger(__name__)
 class SignalGenerator:
     """Generate trading signals from sentiment and market data"""
     
-    def __init__(self, config: Dict):
+    def __init__(self, config: Dict, trading_system=None):
         """Initialize with strategy configuration"""
-        self.config = config.get('signals', {})
+        self.trading_system = trading_system
+        self._validate_config(config)
+        self.config = config
         
-        # Use consistent naming with trading.yaml
-        self.threshold = self.config.get('detection_threshold', 0.3)  # Clear name
-        self.min_samples = self.config.get('min_samples', 5)
-        self.time_decay = self.config.get('time_decay', 0.95)
-        self.impact_weights = self.config.get('impact_weights', {
-            'sentiment': 0.4,
-            'volume': 0.3,
-            'correlation': 0.3
-        })
+        # Get threshold values directly from config without fallbacks
+        self.detection_threshold = self.config['detection_threshold']
         
-        # Performance thresholds
-        self.confidence_threshold = self.metrics.get('confidence_threshold', 0.6)
-        self.accuracy_threshold = self.metrics.get('accuracy_threshold', 0.7)
+        # Get execution threshold from trading.yaml
+        self.execution_threshold = self.trading_system.get_config('trading.execution.signal_threshold')
+        
+        # Get performance thresholds
+        self.confidence_threshold = self.config['confidence_threshold']
+        self.accuracy_threshold = self.config['accuracy_threshold']
+        
+        # Get signal weights from config
+        self.impact_weights = self.config['impact_weights']
         
         # Initialize tracking
         self.signals = []
+        self.min_samples = self.config['min_samples']
         self.performance = {
             'total': 0,
             'correct': 0,
@@ -61,7 +63,7 @@ class SignalGenerator:
 
     def _process_sentiment(self, score: float) -> Dict:
         """Process sentiment score into signal component"""
-        if abs(score) < self.threshold:
+        if abs(score) < self.detection_threshold:
             return {'value': 0, 'confidence': 0}
             
         return {

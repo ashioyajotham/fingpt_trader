@@ -135,10 +135,32 @@ class SentimentAnalyzer(BaseService):
             """
             
             response = await self.fingpt.generate(prompt, temperature=0.2)
-            # Parse the response...
+            
+            # Parse the response
+            try:
+                # Extract JSON from response
+                import json
+                import re
+                
+                # Find JSON content in response
+                json_match = re.search(r'(\{.*\})', response, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(1)
+                    result = json.loads(json_str)
+                    # Use sentiment key if it exists, otherwise default to 0.0
+                    return {
+                        'compound': result.get('sentiment', 0.0),
+                        'confidence': result.get('confidence', 0.0)
+                    }
+            except Exception as json_error:
+                logger.error(f"Error parsing sentiment JSON: {json_error}")
+            
+            # Fallback return if parsing fails
+            return {'compound': 0.0, 'confidence': 0.0}
+            
         except Exception as e:
             logger.error(f"Error during sentiment analysis: {e}")
-            return {'sentiment': 0.0, 'confidence': 0.0}
+            return {'compound': 0.0, 'confidence': 0.0}
 
     def _chunk_text(self, text: str, max_tokens: int = 750) -> List[str]:
         """Split text into chunks for processing"""
@@ -397,12 +419,16 @@ class SentimentAnalyzer(BaseService):
             # Extract text from news item
             text = f"{news_item.get('title', '')}. {news_item.get('content', '')}"
             
-            # CORRECT - With await
+            # With await
             result = await self.analyze(text)
             
-            # Now you can safely use subscript notation on the result
-            score = result['compound']
-            confidence = result['confidence']
+            # Check if result is None before accessing
+            if result is None:
+                logger.warning("Sentiment analysis returned None")
+                return
+                
+            score = result.get('compound', 0.0)
+            confidence = result.get('confidence', 0.0)
             
             # Store in sentiment history
             for symbol in news_item.get('symbols', []):

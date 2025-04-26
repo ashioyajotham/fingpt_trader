@@ -12,49 +12,51 @@
 # STRATEGY DEFINITIONS
 # =====================================================================
 strategies:
-  # Sentiment-based trading strategy configuration
-  sentiment:
-    # Time window for sentiment analysis (hours)
-    window_size: 24
-    
-    # Sentiment detection parameters
-    detection_threshold: 0.3   # Minimum sentiment score to generate signal
-    execution_threshold: 0.5   # Threshold required to execute a trade
-    min_confidence: 0.6        # Minimum model confidence required
-    
-    # Signal strength calculation weights
-    weights:
-      recent_sentiment: 0.5    # Weight of most recent sentiment
-      trend_sentiment: 0.3     # Weight of sentiment trend direction
-      sentiment_volatility: 0.2 # Weight of sentiment volatility
+  # NOTE: This needs to be strategies.strategies to match the TradingSystem._validate_required_config
+  strategies:
+    # Sentiment-based trading strategy configuration
+    sentiment:
+      # Time window for sentiment analysis (hours)
+      window_size: 24
+      
+      # Sentiment detection parameters
+      detection_threshold: 0.3   # Minimum sentiment score to generate signal
+      execution_threshold: 0.5   # Threshold required to execute a trade
+      min_confidence: 0.6        # Minimum model confidence required
+      
+      # Signal strength calculation weights
+      weights:
+        recent_sentiment: 0.5    # Weight of most recent sentiment
+        trend_sentiment: 0.3     # Weight of sentiment trend direction
+        sentiment_volatility: 0.2 # Weight of sentiment volatility
 
-  # Hybrid strategy combining sentiment and technical analysis
-  hybrid:
-    weights:
-      sentiment: 0.4           # Weight of sentiment signals
-      technical: 0.6           # Weight of technical indicators
+    # Hybrid strategy combining sentiment and technical analysis
+    hybrid:
+      weights:
+        sentiment: 0.4           # Weight of sentiment signals
+        technical: 0.6           # Weight of technical indicators
+      
+      # Technical indicators to use
+      indicators:
+        - name: "RSI"
+          period: 14
+          overbought: 70
+          oversold: 30
+        - name: "MACD"
+          fast_period: 12
+          slow_period: 26
+          signal_period: 9
     
-    # Technical indicators to use
-    indicators:
-      - name: "RSI"
-        period: 14
-        overbought: 70
-        oversold: 30
-      - name: "MACD"
-        fast_period: 12
-        slow_period: 26
-        signal_period: 9
-  
-  # Market inefficiency detection strategy
-  inefficiency:
-    # Detection parameters
-    min_divergence: 0.02      # Minimum divergence to detect inefficiency (2%)
-    window_size: 12           # Hours to analyze for inefficiencies
-    detection_threshold: 0.02 # Minimum detection threshold for inefficiency
-    
-    # Correlation thresholds
-    min_correlation: 0.7      # Minimum correlation to consider related assets
-    divergence_z_score: 2.0   # Z-score threshold for statistical significance
+    # Market inefficiency detection strategy
+    inefficiency:
+      # Detection parameters
+      min_divergence: 0.02      # Minimum divergence to detect inefficiency (2%)
+      window_size: 12           # Hours to analyze for inefficiencies
+      detection_threshold: 0.02 # Minimum detection threshold for inefficiency
+      
+      # Correlation thresholds
+      min_correlation: 0.7      # Minimum correlation to consider related assets
+      divergence_z_score: 2.0   # Z-score threshold for statistical significance
 
 # =====================================================================
 # SENTIMENT ANALYSIS CONFIGURATION

@@ -30,21 +30,32 @@ exchanges:
 # =====================================================================
 # GLOBAL TRADING PARAMETERS
 # =====================================================================
+# Trading pairs that system will monitor
 trading:
+  # Critical settings required by validation
   pairs:  
     - BTCUSDT
     - ETHUSDT
     - BNBUSDT
   
   initial_balance: 10000.0  # Starting capital (USDT)
-  
-  # Add loop interval
   loop_interval: 60  # Main trading loop interval (seconds)
   
   # Execution parameters
   execution:
     signal_threshold: 0.5  # Minimum signal strength to execute trades
     default_exchange: "binance"  # Default exchange for execution
+  
+  # Portfolio parameters
+  portfolio:
+    rebalance_frequency: 86400  # Rebalance every 24 hours (seconds)
+    rebalance_threshold: 0.05   # Minimum deviation to trigger rebalance (5%)
+  
+  # Robo advisor parameters
+  robo:
+    enabled: true
+    fee_rate: 0.001
+    min_trade_size: 15.0
 
 # =====================================================================
 # RISK MANAGEMENT
@@ -75,7 +86,7 @@ risk:
 # EXTERNAL CONFIGURATIONS
 # =====================================================================
 configs:
-  model: "config/model.yaml"        # LM model configuration
+  model: "config/model.yaml"        # LLM model configuration
   services: "config/services.yaml"  # External services configuration
   strategies: "config/strategies.yaml"  # Trading strategies configuration
 

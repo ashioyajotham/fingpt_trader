@@ -218,36 +218,39 @@ class TradingSystem:
         if not parts:
             raise ValueError(f"Invalid config path: {path}")
             
-        # Handle different configuration files
-        if parts[0] == 'trading':
-            # If first part is 'trading', looking in trading.yaml
-            config_obj = self.config
-            if len(parts) == 1:
-                return config_obj
-                
-            # For trading.X paths, search directly in the root of trading.yaml
-            # This is the critical change - don't look for a 'trading' key
-            remaining_parts = parts[1:]
-            current = config_obj
+        # Special case for trading paths
+        if parts[0] == 'trading' and len(parts) > 1:
+            # FIXED: Only one level of 'trading' needed
+            adjusted_path = ['trading'] + parts[1:]
             
+            # Start with the config object
+            current = self.config
+            
+            # Navigate through the adjusted path
+            for part in adjusted_path:
+                if not isinstance(current, dict) or part not in current:
+                    if default is not None:
+                        return default
+                    logger.error(f"Missing required configuration: {path}")
+                    raise KeyError(f"Configuration path not found: {path}")
+                current = current[part]
+                    
+            return current
+        
+        # Handle other config files normally
         elif parts[0] == 'strategies':
             config_obj = self.strategies_config
-            remaining_parts = parts
-            current = config_obj
-            
         elif parts[0] == 'model':
             config_obj = self.model_config
-            remaining_parts = parts
-            current = config_obj
-            
+        elif parts[0] == 'services':
+            config_obj = self.services_config
         else:
-            # Assume any other path refers to something inside trading.yaml
+            # Unknown config prefix, use trading as default
             config_obj = self.config
-            remaining_parts = parts
-            current = config_obj
         
-        # Navigate through the parts
-        for part in remaining_parts:
+        # Standard path traversal
+        current = config_obj
+        for part in parts:
             if not isinstance(current, dict) or part not in current:
                 if default is not None:
                     return default
@@ -359,13 +362,7 @@ class TradingSystem:
                     # Log any detected signals
                     if signals:
                         logger.info(f"Detected {len(signals)} trading signals")
-                        for signal in signals:
-                            logger.info(f"Signal: {signal['symbol']} - {signal['type']} "
-                                       f"(strength: {signal['strength']:.2f})")
-                            
-                            # Execute trades based on signals that meet the threshold
-                            if signal['strength'] > self.get_config('trading.execution.signal_threshold'):
-                                await self.execute_trade(signal)
+                        self._process_signals(signals)
                     
                     # Sleep to avoid excessive polling
                     await asyncio.sleep(self.get_config('trading.loop_interval'))
@@ -383,6 +380,16 @@ class TradingSystem:
             self.is_running = False
             logger.info("Trading system main loop stopped")
             
+    def _process_signals(self, signals):
+        for signal in signals:
+            logger.info(f"Signal generated: {signal['symbol']} - Direction: {signal['direction']}, Strength: {signal['strength']:.2f}, Threshold: {self.execution_threshold}")
+            
+            if signal['strength'] >= self.execution_threshold:
+                logger.info(f"Signal exceeds threshold ({self.execution_threshold}), executing trade...")
+                # Execute trade
+            else:
+                logger.info(f"Signal below threshold ({self.execution_threshold}), no trade executed")
+
     async def execute_trade(self, signal: Dict) -> None:
         """Execute a trade based on a signal"""
         try:

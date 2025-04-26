@@ -436,7 +436,10 @@ class BinanceClient:
                 'low': float(ticker['lowPrice'])
             }
         except Exception as e:
-            logger.error(f"Error fetching ticker for {symbol}: {e}")
+            logger.error(f"Error fetching ticker for {symbol}: {str(e)}")
+            # Try retrieving data from fallback exchange if configured
+            if hasattr(self, '_try_fallback_exchanges'):
+                return await self._try_fallback_exchanges(symbol)
             return {}
 
     async def has_symbol(self, symbol: str) -> bool:
