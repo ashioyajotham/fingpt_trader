@@ -14,11 +14,10 @@ logger = logging.getLogger(__name__)
 
 class SentimentAnalyzer:
     def __init__(self, config):
-        # Get model instance from config
-        self.fingpt = config.get('model')
-        if not self.fingpt:
-            raise ValueError("FinGPT model instance required")
-            
+        # Initialize FinGPT model from config
+        fingpt_config = config.get('model_config', {})
+        self.fingpt = FinGPT(fingpt_config)  # Create the model instance
+        
         # Initialize data feeds
         market_feed_config = {
             'pairs': config.get('pairs', ['BTCUSDT', 'ETHUSDT']),

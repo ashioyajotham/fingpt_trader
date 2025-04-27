@@ -175,6 +175,20 @@ class TradingSystem:
         # Validate required configuration
         self._validate_required_config()
         
+        # Initialize empty containers to avoid attributes not found errors
+        self.exchange_clients = {}
+        
+        # Create instances of required services and components
+        self.robo_service = RoboService(self.config)
+        self.market_data_service = MarketDataService(self.services_config.get('market_data', {}))
+        self.news_service = NewsService(self.services_config.get('news', {}))
+        self.sentiment_analyzer = SentimentAnalyzer(self.strategies_config.get('sentiment', {}))
+        self.market_detector = MarketInefficencyDetector(self.model_config.get('market', {}))
+        
+        # Initialize portfolio optimizer and risk manager
+        self.portfolio_optimizer = PortfolioOptimizer(self.config.get('portfolio', {}))
+        self.risk_manager = RiskManager(self.config.get('risk', {}))
+        
         # Default setting for model verbosity
         self.model_quiet = False
         
@@ -272,9 +286,6 @@ class TradingSystem:
         logger.info("Starting trading system initialization...")
         
         try:
-            # Initialize empty containers to avoid attributes not found errors
-            self.exchange_clients = {}
-            
             # Configure model with verbosity setting from verbosity manager if available
             model_config = self.model_config.get('fingpt', {})
             
@@ -660,6 +671,10 @@ async def main():
     # Control model output separately if requested
     vm.set_suppress_model_output(args.model_quiet)
     
+    # Add handling for the --silent flag
+    if args.silent:
+        vm.silence_all()
+
     # Configure logging based on verbosity arguments
     logging_level = configure_logging(args)
     

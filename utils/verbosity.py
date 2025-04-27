@@ -74,3 +74,18 @@ class VerbosityManager:
         
         # Close null device
         self._null_device.close()
+        
+    def silence_all(self):
+        """Completely silence all output"""
+        # Redirect stdout and stderr to null
+        sys.stdout = open(os.devnull, 'w')
+        sys.stderr = open(os.devnull, 'w')
+        
+        # Set environment variables to control external libraries
+        os.environ["LLAMA_VERBOSE"] = "0"
+        
+        # Set Python logging to critical only
+        logging.getLogger().setLevel(logging.CRITICAL)
+        
+        # Flag for complete silence
+        self.completely_silent = True

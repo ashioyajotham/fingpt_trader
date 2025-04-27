@@ -325,32 +325,45 @@ class FinGPT(BaseLLM):
 
     async def generate(self, prompt: str, **kwargs) -> str:
         """Generate text using llama.cpp with task-specific formatting"""
-        
-        # Check if this is a sentiment analysis request
-        if kwargs.get('task') == 'sentiment':
-            instruction_prompt = self._create_sentiment_prompt(prompt)
-        else:
-            # Default to financial analysis prompt
-            instruction_prompt = f"""### Task: Financial Analysis
+        try:
+            # Check if model is properly initialized
+            if not hasattr(self, 'model') or self.model is None:
+                logger.error("Model not properly initialized")
+                return "Error: Model not initialized"
+                
+            # Check for correct model type
+            if not callable(self.model):
+                logger.error(f"Invalid model type: {type(self.model)}")
+                return f"Error: Invalid model type {type(self.model)}"
             
+            # Check if this is a sentiment analysis request
+            if kwargs.get('task') == 'sentiment':
+                instruction_prompt = self._create_sentiment_prompt(prompt)
+            else:
+                # Default to financial analysis prompt
+                instruction_prompt = f"""### Task: Financial Analysis
+                
 Please analyze the following financial information:
 
 {prompt}
 
 ### Response:"""
-        
-        response = self.model(
-            instruction_prompt,
-            max_tokens=512,
-            temperature=0.3,
-            top_p=0.9,
-            repeat_penalty=1.2,
-            echo=False,
-            stop=["###", "\n\n", "User:", "\n\nUser"]
-        )
-        
-        result = response['choices'][0]['text'].strip() if response.get('choices') and response['choices'] else ""
-        return result
+            
+            response = self.model(
+                instruction_prompt,
+                max_tokens=512,
+                temperature=0.3,
+                top_p=0.9,
+                repeat_penalty=1.2,
+                echo=False,
+                stop=["###", "\n\n", "User:", "\n\nUser"]
+            )
+            
+            result = response['choices'][0]['text'].strip() if response.get('choices') and response['choices'] else ""
+            return result
+        except Exception as e:
+            logger.error(f"Generation error: {str(e)}")
+            return f"Error during generation: {str(e)}"
 
     def preprocess(self, texts: List[str]) -> List[str]:
         """Format inputs for sentiment analysis"""
@@ -394,7 +407,17 @@ Sentiment score:"""
             # Use the structured prompt creator
             prompt = self._create_sentiment_prompt(text)
             
-            # Generate response
+            # Check if model is properly initialized
+            if not hasattr(self, 'model') or self.model is None:
+                logger.error("Model not properly initialized")
+                return {"sentiment": 0.0, "confidence": 0.1}
+                
+            # Check for correct model type
+            if not callable(self.model):
+                logger.error(f"Invalid model type: {type(self.model)}")
+                return {"sentiment": 0.0, "confidence": 0.1}
+            
+            # Call the model directly (llama_cpp interface) instead of using generate()
             response = self.model(
                 prompt,
                 max_tokens=32,  # Limit to prevent rambling
