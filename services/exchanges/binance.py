@@ -79,6 +79,7 @@ import aiohttp
 from binance import AsyncClient, BinanceSocketManager
 import pandas as pd
 from decimal import Decimal
+from utils.logging import debug, info, warning, error
 
 logger = logging.getLogger(__name__)
 

@@ -8,18 +8,16 @@ from models.llm.fingpt import FinGPT
 from services.data_feeds.news_service import NewsDataFeed
 from services.data_feeds.market_data_service import MarketDataFeed
 from services.base_service import BaseService
+from utils.logging import debug, info, warning, error
 
 logger = logging.getLogger(__name__)
 
-class SentimentAnalyzer(BaseService):
-    def __init__(self, config: Optional[Dict] = None):
-        super().__init__(config or {})
+class SentimentAnalyzer:
+    def __init__(self, config):
+        # Initialize FinGPT model from config
+        fingpt_config = config.get('model_config', {})
+        self.fingpt = FinGPT(fingpt_config)  # Create the model instance
         
-        # Get model instance from config
-        self.fingpt = config.get('model')
-        if not self.fingpt:
-            raise ValueError("FinGPT model instance required")
-            
         # Initialize data feeds
         market_feed_config = {
             'pairs': config.get('pairs', ['BTCUSDT', 'ETHUSDT']),
@@ -59,6 +57,12 @@ class SentimentAnalyzer(BaseService):
         self.market_correlation = {}
         self.last_market_update = datetime.now() 
         self.last_news_update = datetime.now()
+        
+        info("Initializing Sentiment Analyzer")
+        debug("Loading sentiment model", {
+            "model_name": config.get("model_name"),
+            "threshold": config.get("detection_threshold")
+        })
 
     async def _setup(self) -> None:
         """Required implementation of abstract method"""

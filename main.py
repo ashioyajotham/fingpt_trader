@@ -69,18 +69,22 @@ Configuration:
         - NewsAPI
 """
 
+# Import section - add these imports at the top
 import asyncio
+import sys
+import os
+import logging
+import argparse
+from pathlib import Path
+
+# Add Windows-specific event loop policy fix before using asyncio
+if sys.platform.startswith('win'):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from typing import Dict, List, Optional, Any
 import numpy as np
 import pandas as pd
 from datetime import datetime
-import logging
-
-
-import sys
-from pathlib import Path
-import os
-import signal
 
 from utils.logging import LogManager
 from utils.config import ConfigManager
@@ -171,40 +175,26 @@ class TradingSystem:
         # Validate required configuration
         self._validate_required_config()
         
-        # Initialize FinGPT model using model config
-        self.fingpt_model = FinGPT(self.model_config['fingpt'])
-        
-        # Initialize data services with centralized config
-        data_feeds_config = self.services_config.get('data_feeds', {})
-        self.market_data_service = MarketDataService(data_feeds_config.get('market', {}))
-        self.news_service = NewsService(data_feeds_config.get('news', {}))
-        
-        # Initialize analysis components
-        sentiment_config = {
-            'model': self.fingpt_model,
-            'detection_threshold': self.get_config('strategies.strategies.sentiment.detection_threshold'),
-            'execution_threshold': self.get_config('trading.execution.signal_threshold')
-        }
-        
-        self.sentiment_analyzer = SentimentAnalyzer(sentiment_config)
-        self.market_detector = MarketInefficencyDetector(self.get_config('strategies.strategies.inefficiency'))
-        self.portfolio_optimizer = PortfolioOptimizer(self.get_config('trading.portfolio', {}))
-        
-        # Initialize risk manager
-        self.risk_manager = RiskManager(
-            max_drawdown=self.get_config('risk.max_drawdown'),
-            var_limit=self.get_config('risk.var_limit')
-        )
-        
-        # Initialize state variables
-        self.portfolio = None
-        self.market_state = {}
+        # Initialize empty containers to avoid attributes not found errors
         self.exchange_clients = {}
-        self.is_running = False
         
-        # Add robo advisor components
-        self.robo_service = RoboService(self.get_config('trading.robo', {}))
-        self.client_profiles = {}
+        # Create instances of required services and components
+        self.robo_service = RoboService(self.config)
+        self.market_data_service = MarketDataService(self.services_config.get('market_data', {}))
+        self.news_service = NewsService(self.services_config.get('news', {}))
+        self.sentiment_analyzer = SentimentAnalyzer(self.strategies_config.get('sentiment', {}))
+        self.market_detector = MarketInefficencyDetector(self.model_config.get('market', {}))
+        
+        # Initialize portfolio optimizer and risk manager
+        self.portfolio_optimizer = PortfolioOptimizer(self.config.get('portfolio', {}))
+        self.risk_manager = RiskManager(self.config.get('risk', {}))
+        
+        # Default setting for model verbosity
+        self.model_quiet = False
+        
+        # Initialize FinGPT model using model config
+        # Will be configured with model_quiet during initialize()
+        self.fingpt_model = None
 
     def get_config(self, path: str, default=None):
         """
@@ -296,6 +286,24 @@ class TradingSystem:
         logger.info("Starting trading system initialization...")
         
         try:
+            # Configure model with verbosity setting from verbosity manager if available
+            model_config = self.model_config.get('fingpt', {})
+            
+            # Add verbosity control
+            if hasattr(self, 'verbosity_manager'):
+                if 'model' not in model_config:
+                    model_config['model'] = {}
+                if 'llama_cpp' not in model_config['model']:
+                    model_config['model']['llama_cpp'] = {}
+                
+                # Get verbosity settings from manager
+                model_config['model']['llama_cpp'].update(
+                    self.verbosity_manager.get_llm_config()
+                )
+            
+            # Initialize FinGPT model with verbosity setting
+            self.fingpt_model = FinGPT(model_config)
+            
             # Set up exchange connections
             from services.exchanges.binance import BinanceClient
             
@@ -575,86 +583,130 @@ async def wait_for_shutdown(shutdown_event):
     await shutdown_event.wait()
     logger.info("Shutdown event triggered")
 
+def configure_logging(args):
+    """Configure logging based on verbosity level arguments."""
+    # Create logs directory if it doesn't exist
+    if not os.path.exists("logs"):
+        os.makedirs("logs")
+    
+    # Get the root logger and remove any existing handlers
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()  # Clear existing handlers to prevent duplicates
+        
+    # Set up file logging regardless of verbosity level
+    if args.log_file:
+        file_handler = logging.FileHandler(args.log_file)
+        file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(file_formatter)
+        file_handler.setLevel(logging.DEBUG)  # Log everything to file
+        root_logger.addHandler(file_handler)
+    
+    # Configure console logging based on verbosity level
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_formatter = logging.Formatter('%(message)s')  # Simplified console format
+    console_handler.setFormatter(console_formatter)
+    
+    # Set console logging level based on args
+    if args.quiet:
+        console_handler.setLevel(logging.WARNING)
+    elif args.verbose:
+        console_handler.setLevel(logging.DEBUG)
+    else:  # normal mode
+        console_handler.setLevel(logging.INFO)
+    
+    # Configure root logger
+    root_logger.setLevel(logging.DEBUG)  # Capture everything at root level
+    root_logger.addHandler(console_handler)
+    
+    # Return the configured logging level for reference
+    if args.quiet:
+        return logging.WARNING
+    elif args.verbose:
+        return logging.DEBUG
+    else:
+        return logging.INFO
+
+def parse_arguments():
+    """Parse command line arguments for the FinGPT Trader application."""
+    parser = argparse.ArgumentParser(description='FinGPT Trader - AI-powered trading system')
+    
+    # Verbosity control arguments (mutually exclusive)
+    verbosity_group = parser.add_mutually_exclusive_group()
+    verbosity_group.add_argument('--quiet', '-q', action='store_true', 
+                    help='Show only essential information (trades, major events)')
+    verbosity_group.add_argument('--verbose', '-v', action='store_true', 
+                    help='Show full debugging output')
+    
+    # Log file option
+    parser.add_argument('--log-file', '-l', type=str, metavar='FILE',
+                    default='logs/fingpt_trader.log',
+                    help='Write detailed logs to specified file')
+    
+    # Add model output suppression (can be used with any verbosity level)
+    parser.add_argument('--model-quiet', '-mq', action='store_true',
+                    help='Suppress model technical output')
+    
+    parser.add_argument('--silent', '-s', action='store_true',
+                help='Silent mode - suppress all output (equivalent to -q -mq)')
+    
+    return parser.parse_args()
+
 async def main():
-    """Main entry point for the trading system."""
+    """Main entry point for the FinGPT Trader application."""
+    # Parse command line arguments
+    args = parse_arguments()
+    
+    # Import verbosity manager here to avoid circular imports
+    from utils.verbosity import VerbosityManager
+    vm = VerbosityManager.get_instance()
+    
+    # Set verbosity level
+    if args.quiet:
+        vm.set_level(VerbosityManager.QUIET)
+    elif args.verbose:
+        vm.set_level(VerbosityManager.VERBOSE)
+    else:
+        vm.set_level(VerbosityManager.NORMAL)
+    
+    # Control model output separately if requested
+    vm.set_suppress_model_output(args.model_quiet)
+    
+    # Add handling for the --silent flag
+    if args.silent:
+        vm.silence_all()
+
+    # Configure logging based on verbosity arguments
+    logging_level = configure_logging(args)
+    
+    # Log startup information
+    logging.info("Starting FinGPT Trader")
+    logging.debug(f"Verbosity level: {logging.getLevelName(logging_level)}")
+    
+    # Continue with existing initialization code
     system = None
     try:
+        # Use verbosity manager when initializing the model
         # Create and initialize using ConfigManager
         system = TradingSystem()
+        
+        # Pass verbosity information to TradingSystem
+        system.verbosity_manager = vm
+        
         await system.initialize()
         
         # Run the main system loop
         await system.run()
         
     except Exception as e:
-        logger.error(f"Fatal error: {str(e)}")
+        logging.error(f"Fatal error: {str(e)}")
     finally:
         # Ensure proper cleanup even if there's an error
         if system:
             await system.shutdown()
+        
+        # Clean up verbosity manager
+        vm.cleanup()
 
 if __name__ == "__main__":
-    # Configure Windows-specific event loop policy
-    if sys.platform.startswith('win'):
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    
-    # Set up signal handling before starting the loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    # Create a Future to track shutdown requests
-    shutdown_event = asyncio.Event()
-    
-    # Define signal handlers outside the loop
-    def handle_shutdown(sig, frame):
-        logger.info("\nShutdown signal received...")
-        shutdown_event.set()
-    
-    # Register signal handlers
-    signal.signal(signal.SIGINT, handle_shutdown)
-    signal.signal(signal.SIGTERM, handle_shutdown)
-    
-    try:
-        # Run main async function and monitor for shutdown signal
-        main_task = loop.create_task(main())
-        
-        # Create a task from the wait_for_shutdown coroutine
-        shutdown_task = loop.create_task(wait_for_shutdown(shutdown_event))
-        
-        # Run until either main completes or shutdown is requested
-        try:
-            loop.run_until_complete(
-                asyncio.wait([
-                    main_task,
-                    shutdown_task
-                ], return_when=asyncio.FIRST_COMPLETED)
-            )
-        finally:
-            # Set shutdown event when main task completes
-            shutdown_event.set()
-            # Wait briefly for other task to respond to shutdown signal
-            loop.run_until_complete(asyncio.sleep(0.5))
-    except KeyboardInterrupt:
-        logger.info("Keyboard interrupt received")
-    except Exception as e:
-        logger.error(f"Top-level exception: {e}")
-    finally:
-        # Clean up pending tasks
-        pending = asyncio.all_tasks(loop)
-        for task in pending:
-            if not task.done():
-                task.cancel()
-        
-        # Wait briefly for cancellations to process
-        if pending:
-            loop.run_until_complete(asyncio.wait(pending, timeout=1.0))
-        
-        # Close the loop
-        loop.run_until_complete(loop.shutdown_asyncgens())
-        loop.close()
-        logger.info("AsyncIO event loop closed")
-        
-        # Force exit if still hanging
-        import os
-        os._exit(0)  # Force exit the process
+    asyncio.run(main())
 

@@ -2,7 +2,7 @@ import logging
 import sys
 from pathlib import Path
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Any
 
 class LogManager:
     """Manages logging with different verbosity levels and file separation"""
@@ -45,8 +45,12 @@ class LogManager:
         console.setLevel(level)
         console.setFormatter(console_formatter)
 
-        # Setup main log file
-        main_log = self.log_dir / f"trading_{self.timestamp}.log"
+        # Setup main log file - use specific file if provided in config
+        if "log_file" in self.config:
+            main_log = Path(self.config["log_file"])
+        else:
+            main_log = self.log_dir / f"trading_{self.timestamp}.log"
+            
         file_handler = logging.FileHandler(main_log)
         file_handler.setLevel(level)
         file_handler.setFormatter(file_formatter)
@@ -69,15 +73,42 @@ class LogManager:
         
     @staticmethod
     def setup_from_yaml(yaml_path: str = None):
-        """Use YAML config if available, else fall back to basic"""
-        try:
-            from utils.logging import setup_logging
-            setup_logging(config_path=yaml_path)
-        except Exception as e:
-            print(f"Failed to load YAML config: {e}, falling back to basic logging")
-            LogManager().setup_basic_logging()
+        """
+        This is now just a wrapper around setup_basic_logging for backwards compatibility.
+        We no longer attempt to load YAML config but keep the method signature for compatibility.
+        """
+        # Just use basic logging without trying to load YAML config
+        LogManager().setup_basic_logging()
 
     def _get_formatter(self) -> logging.Formatter:
         return logging.Formatter(
             "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
         )
+
+def log_with_context(level: int, message: str, context: Dict[str, Any] = None):
+    """Log a message with additional context data if DEBUG level is enabled."""
+    logger = logging.getLogger()
+    
+    # Always log the main message at the specified level
+    logger.log(level, message)
+    
+    # If we're in DEBUG mode and there's context, add it as a separate indented entry
+    if context and logger.level <= logging.DEBUG:
+        context_str = "\n  ".join(f"{k}: {v}" for k, v in context.items())
+        logger.debug(f"Context:\n  {context_str}")
+
+def debug(message: str, context: Dict[str, Any] = None):
+    """Log a debug message with optional context."""
+    log_with_context(logging.DEBUG, message, context)
+
+def info(message: str, context: Dict[str, Any] = None):
+    """Log an info message with optional context."""
+    log_with_context(logging.INFO, message, context)
+
+def warning(message: str, context: Dict[str, Any] = None):
+    """Log a warning message with optional context."""
+    log_with_context(logging.WARNING, message, context)
+
+def error(message: str, context: Dict[str, Any] = None):
+    """Log an error message with optional context."""
+    log_with_context(logging.ERROR, message, context)
