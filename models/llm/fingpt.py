@@ -186,12 +186,18 @@ class FinGPT(BaseLLM):
             # Step 5: Load GGUF model
             logger.info(f"Loading model: {self.base_model}")
             logger.info(f"Loading GGUF model from: {gguf_path}")
-            self.model = Llama(
-                model_path=str(gguf_path),
-                n_ctx=self.n_ctx,
-                n_threads=self.n_threads,
-                n_gpu_layers=self.n_gpu_layers
-            )
+            
+            # Use context manager to suppress console output if needed
+            from utils.verbosity import VerbosityManager
+            vm = VerbosityManager.get_instance()
+            with vm.suppress_output(vm._suppress_model_output):
+                self.model = Llama(
+                    model_path=str(gguf_path),
+                    n_ctx=self.n_ctx,
+                    n_threads=self.n_threads,
+                    n_gpu_layers=self.n_gpu_layers,
+                    verbose=self.config.get("verbose", not vm._suppress_model_output)
+                )
             logger.info("Model loaded successfully")
                 
         except Exception as e:
@@ -451,8 +457,6 @@ Sentiment score:"""
         
         # Try common patterns with clear extraction
         patterns = [
-            r'sentiment score:?\s*(-?\d+\.?\d*)',
-            r'score:?\s*(-?\d+\.?\d*)',
             r'[-:]?\s*(-?\d+\.?\d*)\s*[/]?',
         ]
         
