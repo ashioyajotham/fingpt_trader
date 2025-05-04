@@ -399,3 +399,74 @@ class NewsService(BaseService):
         """Validate API credentials"""
         if not self.api_key:
             raise ValueError("NEWS_API_KEY not configured")
+
+    async def fetch_news(self, pairs: List[str]) -> List[Dict]:
+        """
+        Fetch news for multiple currency pairs
+        
+        Args:
+            pairs: List of trading pairs to fetch news for
+            
+        Returns:
+            List of news articles
+        """
+        results = []
+        
+        # Map trading pairs to search queries
+        pair_to_query = {
+            'BTCUSDT': 'bitcoin cryptocurrency',
+            'ETHUSDT': 'ethereum cryptocurrency',
+            'BNBUSDT': 'binance coin',
+        }
+        
+        # Fetch news for each pair
+        for pair in pairs:
+            try:
+                # Get appropriate search query for this pair
+                query = pair_to_query.get(pair, pair.replace('USDT', '').lower())
+                
+                # Get news using existing method
+                articles = await self.get_news(query)
+                
+                # Add pair information to each article
+                for article in articles:
+                    article['pair'] = pair
+                    
+                results.extend(articles)
+            except Exception as e:
+                logger.error(f"Error fetching news for {pair}: {str(e)}")
+        
+        return results
+        
+    def is_relevant(self, news_item: Dict, pair: str) -> bool:
+        """
+        Check if a news item is relevant to a specific trading pair
+        
+        Args:
+            news_item: News article data
+            pair: Trading pair symbol
+            
+        Returns:
+            True if relevant, False otherwise
+        """
+        # If pair is directly specified in the news item
+        if news_item.get('pair') == pair:
+            return True
+        
+        # Extract text for analysis
+        text = f"{news_item.get('title', '')} {news_item.get('description', '')}"
+        
+        # Map pairs to relevant keywords
+        pair_keywords = {
+            'BTCUSDT': ['bitcoin', 'btc', 'xbt'],
+            'ETHUSDT': ['ethereum', 'eth'],
+            'BNBUSDT': ['binance', 'bnb', 'binance coin']
+        }
+        
+        # Check if any keywords for this pair appear in the text
+        keywords = pair_keywords.get(pair, [pair.replace('USDT', '').lower()])
+        for keyword in keywords:
+            if keyword.lower() in text.lower():
+                return True
+                
+        return False

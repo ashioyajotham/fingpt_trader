@@ -65,33 +65,38 @@ class MarketDataService(BaseService):
     async def _setup(self) -> None:
         """Initialize exchange connection"""
         try:
-            # Check if API credentials are available
-            self.api_key = self.api_key or os.getenv("BINANCE_API_KEY")
-            self.api_secret = self.api_secret or os.getenv("BINANCE_API_SECRET")
+            # Get exchange credentials
+            self.api_key = self.config.get('api_key') or os.getenv("BINANCE_API_KEY")
+            self.api_secret = self.config.get('api_secret') or os.getenv("BINANCE_API_SECRET")
             
             if not self.api_key or not self.api_secret:
-                logger.error("Binance API credentials not set")
-                raise ValueError("Binance API credentials not set")
+                logger.error("Exchange API credentials not configured")
+                raise ValueError("API credentials missing")
             
-            # Create a BinanceClient instance
+            # Initialize exchange client
             from services.exchanges.binance import BinanceClient
             self.exchange = await BinanceClient.get_instance({
                 'api_key': self.api_key,
                 'api_secret': self.api_secret,
-                'test_mode': True
+                'test_mode': self.config.get('test_mode', True)
             })
             
-            # Initialize tracking data structures
+            if not self.exchange:
+                raise ValueError("Failed to initialize exchange client")
+                
+            # Initialize data structures
+            self.cache = {}
+            self.price_history = {}
+            self.volume_history = {}
+            
             for pair in self.config.get('pairs', []):
-                self.price_events[pair] = []
                 self.price_history[pair] = []
                 self.volume_history[pair] = []
-            
-            logger.info("Market data service initialized with event tracking")
+                
+            logger.info("Market data service initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize market data service: {str(e)}")
-            # Re-raise to ensure caller knows initialization failed
-            raise
+            logger.error(f"Market data service initialization failed: {str(e)}")
+            raise  # Re-raise to ensure caller knows initialization failed
 
     async def _cleanup(self) -> None:
         """Cleanup resources"""
@@ -268,7 +273,6 @@ class MarketDataService(BaseService):
         Returns:
             List[str]: List of trading pair symbols
         """
-        # Return pairs from config or empty list if not set
         return self.config.get('pairs', [])
 
     def get_latest_price(self, symbol):
@@ -282,13 +286,11 @@ class MarketDataService(BaseService):
             float: Latest price or None if not available
         """
         try:
-            # Check if symbol exists in cache
             if symbol in self.cache:
-                data = self.cache[symbol]
-                return float(data.get('price', 0)) if data.get('price') else None
+                return float(self.cache[symbol].get('price', 0))
             return None
         except Exception as e:
-            logger.error(f"Error retrieving price for {symbol}: {str(e)}")
+            logger.error(f"Error getting price for {symbol}: {str(e)}")
             return None
 
 class MarketDataFeed(BaseService):
