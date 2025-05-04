@@ -427,25 +427,54 @@ class TradingSystem:
                 self.ui.display_error(f"Fatal trading error: {str(e)}")
             raise
 
-    def _process_signals(self, signals):
-        if not signals:
-            logger.debug("No trading signals detected in this cycle")
-            return
+    async def _process_signals(self, signals):
+        """Process detected signals and execute trades if needed."""
+        try:
+            trade_count = 0
+            for signal in signals:
+                symbol = signal.get('symbol')
+                direction = signal.get('direction')
+                strength = signal.get('strength', 0.0)
+                price = signal.get('price', 0.0)
+                
+                # Get threshold from config
+                threshold = self.get_config('trading.execution_threshold', 0.5)
+                
+                # Log signal detection
+                logger.info(f"Signal detected: {symbol} {direction} (strength: {strength:.2f})")
+                
+                # Check if signal strength exceeds execution threshold
+                if strength >= threshold:
+                    # Use rich-compatible symbols
+                    logger.info(f"[green]Signal exceeds threshold, executing trade...[/green]")
+                    
+                    # Execute trade
+                    trade_result = await self.robo_service.execute_trade(signal)
+                    
+                    # Log result
+                    if trade_result:
+                        trade_count += 1
+                        logger.info(f"Trade executed: {trade_result}")
+                        
+                        # Display in UI if available
+                        if hasattr(self, 'ui'):
+                            self.ui.display_trade_signal(
+                                symbol, 
+                                direction, 
+                                strength,
+                                price,
+                                signal.get('metadata', {}).get('confidence', 0.5)
+                            )
+                else:
+                    # Use rich-compatible formatting
+                    logger.info(f"[red]Signal below threshold, no trade executed[/red]")
             
-        logger.info(f"Processing {len(signals)} trading signals")
-        
-        for signal in signals:
-            # Access execution_threshold through get_config to ensure it exists
-            execution_threshold = self.get_config('trading.execution.signal_threshold')
-            
-            logger.info(f"Signal: {signal['symbol']} - Direction: {signal['direction']}, "
-                       f"Strength: {signal['strength']:.2f}, Threshold: {execution_threshold:.2f}")
-            
-            if signal['strength'] >= execution_threshold:
-                logger.info(f"✅ Signal exceeds threshold, executing trade...")
-                # Execute trade logic here
-            else:
-                logger.info(f"❌ Signal below threshold, no trade executed")
+            return trade_count
+        except Exception as e:
+            logger.error(f"Error processing signals: {str(e)}")
+            if hasattr(self, 'ui'):
+                self.ui.display_error(f"Error processing signals: {str(e)}")
+            return 0
 
     async def execute_trade(self, signal: Dict) -> None:
         """Execute a trade based on a signal"""
@@ -666,6 +695,11 @@ class TradingSystem:
         try:
             signals = []
             
+            # Return empty list if news_data is None
+            if news_data is None:
+                logger.warning("No news data available for sentiment analysis")
+                return signals
+                
             # Get trading pairs
             pairs = self.get_config('trading.pairs')
             
@@ -680,26 +714,44 @@ class TradingSystem:
                         # Clean the text before analysis
                         text = self._sanitize_text(news.get('title', '') + ' ' + news.get('body', ''))
                         
-                        # Get sentiment analysis
-                        sentiment_result = await self.sentiment_analyzer.analyze_text(text)
+                        # Check if sentiment_analyzer is properly initialized
+                        if not hasattr(self, 'sentiment_analyzer') or self.sentiment_analyzer is None:
+                            logger.error("Sentiment analyzer not initialized")
+                            continue
+                            
+                        if not hasattr(self.sentiment_analyzer, 'analyze_text'):
+                            logger.error("Sentiment analyzer missing analyze_text method")
+                            # Try analyze method instead if available
+                            if hasattr(self.sentiment_analyzer, 'analyze'):
+                                logger.info("Falling back to analyze method")
+                                sentiment_result = await self.sentiment_analyzer.analyze(text)
+                            else:
+                                logger.error("No sentiment analysis method available")
+                                continue
+                        else:
+                            # Use the correct method
+                            sentiment_result = await self.sentiment_analyzer.analyze_text(text)
+                        
+                        # Check if sentiment_result is None
+                        if not sentiment_result:
+                            logger.warning("Sentiment analysis returned None result")
+                            continue
+                            
                         sentiment_score = sentiment_result.get('sentiment', 0.0)
                         confidence = sentiment_result.get('confidence', 0.0)
                         
-                        # Log the sentiment analysis
-                        logger.info(f"Sentiment analysis: score={sentiment_score:.2f}, confidence={confidence:.2f}")
-                        
-                        # Display in UI if available
-                        if hasattr(self, 'ui'):
-                            self.ui.display_sentiment_analysis(
-                                text[:200] + '...',
-                                sentiment_score,
-                                confidence
-                            )
+                        # Log the sentiment analysis using rich-compatible formatting
+                        if sentiment_score > 0:
+                            logger.info(f"Sentiment analysis: score=[green]{sentiment_score:.2f}[/green], confidence={confidence:.2f}")
+                        elif sentiment_score < 0:
+                            logger.info(f"Sentiment analysis: score=[red]{sentiment_score:.2f}[/red], confidence={confidence:.2f}")
+                        else:
+                            logger.info(f"Sentiment analysis: score=[yellow]{sentiment_score:.2f}[/yellow], confidence={confidence:.2f}")
                         
                         # Generate signal if sentiment is strong enough
-                        threshold = self.get_config('strategies.strategies.sentiment.detection_threshold', 0.3)
+                        threshold = self.get_config('strategies.sentiment.detection_threshold', 0.3)
                         if abs(sentiment_score) > threshold and confidence > 0.4:
-                            logger.info(f"Strong sentiment signal detected! (threshold={threshold:.2f})")
+                            logger.info(f"[bold]Strong sentiment signal detected![/bold] (threshold={threshold:.2f})")
                             
                             signals.append({
                                 'symbol': pair,
@@ -737,52 +789,38 @@ def configure_logging(args):
     if not os.path.exists("logs"):
         os.makedirs("logs")
     
-    # Get the root logger and remove any existing handlers
-    root_logger = logging.getLogger()
-    root_logger.handlers.clear()  # Clear existing handlers to prevent duplicates
-        
-    # Set up file logging regardless of verbosity level
-    if args.log_file:
-        file_handler = logging.FileHandler(args.log_file)
-        file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        file_handler.setFormatter(file_formatter)
-        file_handler.setLevel(logging.DEBUG)  # Log everything to file
-        root_logger.addHandler(file_handler)
-    
-    # When using UI, we can minimize standard logging to the console
-    using_rich_ui = not args.silent and not args.quiet
-    
-    if using_rich_ui:
-        # With rich UI active, set console logging to WARNING only to avoid duplication
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_formatter = logging.Formatter('%(levelname)s: %(message)s')  # Minimal format
-        console_handler.setFormatter(console_formatter)
-        console_handler.setLevel(logging.WARNING)  # Only warnings and errors - UI handles info
-    else:
-        # Standard console logging when not using rich UI
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_formatter = logging.Formatter('%(message)s')  # Simplified console format
-        console_handler.setFormatter(console_formatter)
-        
-        # Set console logging level based on args
-        if args.quiet:
-            console_handler.setLevel(logging.WARNING)
-        elif args.verbose:
-            console_handler.setLevel(logging.DEBUG)
-        else:  # normal mode
-            console_handler.setLevel(logging.INFO)
-    
-    # Configure root logger
-    root_logger.setLevel(logging.DEBUG)  # Capture everything at root level
-    root_logger.addHandler(console_handler)
-    
-    # Return the configured logging level for reference
+    # Determine appropriate logging level
     if args.quiet:
-        return logging.WARNING
+        level = logging.WARNING
     elif args.verbose:
-        return logging.DEBUG
+        level = logging.DEBUG
     else:
-        return logging.INFO
+        level = logging.INFO
+    
+    # Use Rich-compatible logging if not in silent mode
+    if not args.silent:
+        from utils.logging import LogManager
+        log_manager = LogManager({
+            "log_dir": "logs",
+            "log_file": args.log_file if hasattr(args, 'log_file') else None
+        })
+        log_manager.setup_rich_logging(level)
+    else:
+        # Silent mode - only log to file, not console
+        # Get the root logger and remove any existing handlers
+        root_logger = logging.getLogger()
+        root_logger.handlers.clear()
+        
+        # Set up file logging if requested
+        if hasattr(args, 'log_file') and args.log_file:
+            file_handler = logging.FileHandler(args.log_file, encoding='utf-8')
+            file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            file_handler.setFormatter(file_formatter)
+            file_handler.setLevel(logging.DEBUG)
+            root_logger.addHandler(file_handler)
+            root_logger.setLevel(logging.DEBUG)
+    
+    return level
 
 def parse_arguments():
     """Parse command line arguments for the FinGPT Trader application."""
