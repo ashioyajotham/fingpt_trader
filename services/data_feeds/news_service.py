@@ -223,6 +223,91 @@ class NewsDataFeed(BaseService):
         # Cap at 1.0 maximum
         return min(relevance, 1.0)
 
+class CryptoPanicClient:
+    """Client for CryptoPanic API"""
+    
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.base_url = "https://cryptopanic.com/api/v1"
+        self.session = aiohttp.ClientSession()
+    
+    async def get_posts(self, currencies=None, kind="news", filter="hot", regions="en"):
+        """Get posts from CryptoPanic API"""
+        params = {
+            "auth_token": self.api_key,
+            "kind": kind,
+            "filter": filter,
+            "regions": regions,
+            "public": "true"
+        }
+        
+        if currencies:
+            params["currencies"] = currencies
+            
+        try:
+            url = f"{self.base_url}/posts/"
+            async with self.session.get(url, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data.get('results', [])
+                else:
+                    logger.error(f"CryptoPanic API error: {response.status}")
+                    return []
+        except Exception as e:
+            logger.error(f"CryptoPanic request failed: {str(e)}")
+            return []
+            
+    async def _cleanup(self) -> None:
+        """Cleanup resources"""
+        if self.session:
+            await self.session.close()
+            
+        # Clean up API clients
+        if hasattr(self, 'cryptopanic_client'):
+            await self.cryptopanic_client.close()
+        if hasattr(self, 'news_api_client'):
+            await self.news_api_client.close()
+            
+        self.cache.clear()
+
+class NewsAPIClient:
+    """Client for NewsAPI"""
+    
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.base_url = "https://newsapi.org/v2"
+        self.session = aiohttp.ClientSession()
+    
+    async def get_top_headlines(self, q=None, category="business", language="en"):
+        """Get top headlines from NewsAPI"""
+        params = {
+            "apiKey": self.api_key,
+            "category": category,
+            "language": language
+        }
+        
+        if q:
+            params["q"] = q
+            
+        try:
+            url = f"{self.base_url}/top-headlines"
+            async with self.session.get(url, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data.get('articles', [])
+                else:
+                    logger.error(f"NewsAPI error: {response.status}")
+                    return []
+        except Exception as e:
+            logger.error(f"NewsAPI request failed: {str(e)}")
+            return []
+            
+    async def close(self):
+        """Close the session"""
+        if self.session:
+            await self.session.close()
+
+
 class NewsService(BaseService):
     def __init__(self, config: Optional[Dict] = None):
         super().__init__(config or {})
@@ -262,6 +347,27 @@ class NewsService(BaseService):
         if self.session:
             await self.session.close()
         self.cache.clear()
+
+    async def setup(self, config=None):
+        """Initialize the news service with API clients"""
+        if config:
+            self.config.update(config)
+        
+        try:
+            # Initialize CryptoPanic client
+            api_key = self.config.get('cryptopanic_api_key') or os.getenv('CRYPTOPANIC_API_KEY')
+            if api_key:
+                self.cryptopanic_client = CryptoPanicClient(api_key)
+                
+            # Initialize NewsAPI client as fallback
+            news_api_key = self.config.get('news_api_key') or os.getenv('NEWS_API_KEY')
+            if news_api_key:
+                self.news_api_client = NewsAPIClient(news_api_key)
+                
+            logger.info("News data feed started")
+        except Exception as e:
+            logger.error(f"Failed to initialize news service: {str(e)}")
+            raise
 
     async def get_news(self, query: str) -> List[Dict]:
         """Get latest news prioritizing CryptoPanic"""
@@ -399,3 +505,63 @@ class NewsService(BaseService):
         """Validate API credentials"""
         if not self.api_key:
             raise ValueError("NEWS_API_KEY not configured")
+
+    async def fetch_news(self, pairs: List[str]) -> List[Dict]:
+        """Fetch news for multiple currency pairs"""
+        news_items = []
+        
+        # Try CryptoPanic first
+        if hasattr(self, 'cryptopanic_client') and self.cryptopanic_client:
+            try:
+                # Make max 5 attempts
+                for attempt in range(1, 6):
+                    try:
+                        crypto_news = await self.cryptopanic_client.get_posts()
+                        if crypto_news:
+                            news_items.extend(crypto_news)
+                            break
+                    except Exception as e:
+                        logger.error(f"CryptoPanic attempt {attempt} failed: {str(e)}")
+                        await asyncio.sleep(1)
+            except Exception as e:
+                logger.error(f"CryptoPanic API error: {str(e)}")
+        
+        # Try NewsAPI as fallback if needed
+        if not news_items and hasattr(self, 'news_api_client') and self.news_api_client:
+            try:
+                # Construct query for crypto news
+                query = " OR ".join([pair.replace("USDT", "") for pair in pairs])
+                news_api_results = await self.news_api_client.get_top_headlines(q=query)
+                if news_api_results:
+                    news_items.extend(news_api_results)
+            except Exception as e:
+                logger.error(f"NewsAPI fallback error: {str(e)}")
+        
+        return news_items
+        
+    def is_relevant(self, item: Dict, pair: str) -> bool:
+        """Check if a news item is relevant to a specific trading pair"""
+        # Extract the currency part (e.g., "BTC" from "BTCUSDT")
+        currency = pair.replace("USDT", "").lower()
+        
+        # Check title and content
+        title = item.get('title', '').lower()
+        body = item.get('body', '').lower()
+        content = title + ' ' + body
+        
+        # Check if currency name or common names appear in content
+        currency_keywords = {
+            'btc': ['bitcoin', 'btc'],
+            'eth': ['ethereum', 'eth'],
+            'bnb': ['binance', 'bnb', 'binance coin']
+        }
+        
+        # Get keywords for this currency
+        keywords = currency_keywords.get(currency.lower(), [currency])
+        
+        # Check if any keywords appear in the content
+        for keyword in keywords:
+            if keyword in content:
+                return True
+                
+        return False

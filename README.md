@@ -4,24 +4,24 @@ A quantitative trading system integrating a large language model (Falcon-7B) wit
 
 ## Current Implementation Status
 
-✅ = Implemented | 🚧 = Partially Implemented | 📅 = Planned
+✅ = Implemented | 🚧 = Partially Implemented | 📅 = Planned | ⚠️ = Implementation Issues
 
 ## System Components
 
 - **Quantitative Analysis Engine**
-  - ✅ Basic market data processing
+  - 🚧 Basic market data processing (⚠️ API connection issues)
   - 🚧 Market inefficiency detection
   - 📅 Order book imbalance analysis
   - 📅 Market microstructure modeling
 
 - **Sentiment Analysis**
-  - ✅ Basic sentiment extraction using Falcon-7B
-  - ✅ News impact integration
+  - 🚧 Basic sentiment extraction using Falcon-7B (⚠️ Method implementation inconsistencies)
+  - 🚧 News impact integration (⚠️ News API connection issues)
   - 🚧 Text-based signal generation
 
 - **Trading Framework**
   - ✅ Event-driven architecture
-  - ✅ Asynchronous execution
+  - 🚧 Asynchronous execution (⚠️ Error handling needs improvement)
   - ✅ Configuration-driven threshold management
   - 📅 Multi-asset portfolio optimization
 
@@ -123,6 +123,27 @@ The system uses a hierarchical YAML-based configuration system:
 
 All configuration values are accessed through a centralized configuration system with proper validation, eliminating hardcoded values throughout the codebase.
 
+## Setup Requirements
+
+### Prerequisites
+- Python 3.8+ with asyncio support
+- Windows, macOS, or Linux (note: Windows may have encoding issues)
+- 8GB+ RAM recommended (for model loading)
+- CUDA-compatible GPU recommended but not required
+
+### Environment Setup
+```bash
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # or [activate](http://_vscodecontentref_/2) on Windows
+
+# Install dependencies
+pip install -r [requirements.txt](http://_vscodecontentref_/3)
+
+# Windows-specific: Set console to UTF-8 mode
+chcp 65001  # If running in cmd.exe
+```
+
 ## Quick Start
 
 1. **Environment Setup**
@@ -146,8 +167,17 @@ HUGGINGFACE_TOKEN=your_token_here   # Optional for model access
 
 3. **Run Trading System**
 ```bash
-# Development mode (testnet)
+# Basic run
 python main.py
+
+# Run with minimal console output
+python main.py -q
+
+# Run with verbose debugging output
+python main.py -v
+
+# Suppress model initialization output
+python main.py -mq
 ```
 
 ## Technical Implementation Details
@@ -239,6 +269,23 @@ The system currently faces several implementation challenges:
    - Need improved logging for system monitoring
    - Better handling for exchange API timeouts
    - Enhanced data validation for external inputs
+
+## Known Issues
+
+- **API Connectivity**
+  - Binance client initialization sometimes fails
+  - CryptoPanic API endpoints return null values
+  - Error handling for API failures needs improvement
+
+- **Sentiment Analysis**
+  - Method implementation discrepancies between `analyze()` and `analyze_text()`
+  - Unicode encoding errors in Windows environments
+  - Inconsistent response formats from the LLM
+
+- **System Stability**
+  - NoneType errors when awaiting non-coroutines
+  - Uncaught exceptions in service initialization
+  - UI vs. logging conflicts
 
 ## Roadmap: Planned Mathematical Framework
 

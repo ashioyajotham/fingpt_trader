@@ -289,3 +289,25 @@ class RoboService(BaseService):
         except Exception as e:
             logger.error(f"Position analysis failed: {str(e)}")
             return None
+        
+    def get_positions(self):
+        """
+        Get current portfolio positions.
+        
+        Returns:
+            dict: Current positions with symbol as key and position details as value
+        """
+        if hasattr(self, 'portfolio'):
+            return self.portfolio.positions
+        return {}
+        
+    def get_balance(self):
+        """
+        Get available balance.
+        
+        Returns:
+            float: Available balance in base currency
+        """
+        if hasattr(self, 'portfolio'):
+            return self.portfolio.cash  # Use 'cash' instead of 'balance'
+        return 0.0

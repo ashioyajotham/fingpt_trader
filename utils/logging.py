@@ -71,6 +71,43 @@ class LogManager:
             for logger_name in ["urllib3", "binance", "asyncio"]:
                 logging.getLogger(logger_name).setLevel(logging.WARNING)
         
+    def setup_rich_logging(self, level=logging.INFO):
+        """Set up Rich-compatible logging"""
+        from rich.logging import RichHandler
+        
+        # Create logs directory if needed
+        self.log_dir.mkdir(exist_ok=True)
+        
+        # Configure rich handler for console output
+        rich_handler = RichHandler(
+            rich_tracebacks=True,
+            markup=True,  # Enable rich markup in log messages
+            show_time=False  # Rich adds its own timestamp
+        )
+        rich_handler.setLevel(level)
+        
+        # Configure file handler for log files
+        main_log = self.log_dir / f"trading_{self.timestamp}.log"
+        file_handler = logging.FileHandler(main_log, encoding='utf-8')  # Specify UTF-8 encoding
+        file_formatter = logging.Formatter(
+            '%(asctime)s [%(levelname)s] %(name)s - %(message)s'
+        )
+        file_handler.setFormatter(file_formatter)
+        file_handler.setLevel(level)
+        
+        # Configure root logger
+        root_logger = logging.getLogger()
+        root_logger.setLevel(level)
+        
+        # Remove existing handlers and add new ones
+        root_logger.handlers.clear()
+        root_logger.addHandler(rich_handler)
+        root_logger.addHandler(file_handler)
+        
+        # Set third-party loggers to WARNING
+        for logger_name in ["urllib3", "binance", "asyncio"]:
+            logging.getLogger(logger_name).setLevel(logging.WARNING)
+        
     @staticmethod
     def setup_from_yaml(yaml_path: str = None):
         """

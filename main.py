@@ -281,30 +281,23 @@ class TradingSystem:
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-    async def initialize(self):
-        """Initialize the trading system components"""
+    async def initialize(self, progress_callback=None):
+        """Initialize the trading system components with optional progress reporting."""
         logger.info("Starting trading system initialization...")
         
+        total_steps = 5
+        current_step = 0
+        
         try:
-            # Configure model with verbosity setting from verbosity manager if available
-            model_config = self.model_config.get('fingpt', {})
+            # Initialize empty containers to avoid attributes not found errors
+            self.exchange_clients = {}
             
-            # Add verbosity control
-            if hasattr(self, 'verbosity_manager'):
-                if 'model' not in model_config:
-                    model_config['model'] = {}
-                if 'llama_cpp' not in model_config['model']:
-                    model_config['model']['llama_cpp'] = {}
-                
-                # Get verbosity settings from manager
-                model_config['model']['llama_cpp'].update(
-                    self.verbosity_manager.get_llm_config()
-                )
+            # Update progress
+            if progress_callback:
+                progress_callback((current_step / total_steps) * 100)
+            current_step += 1
             
-            # Initialize FinGPT model with verbosity setting
-            self.fingpt_model = FinGPT(model_config)
-            
-            # Set up exchange connections
+            # Set up exchange connections FIRST
             from services.exchanges.binance import BinanceClient
             
             # Initialize exchange clients
@@ -314,14 +307,39 @@ class TradingSystem:
                     # Get credentials from ConfigManager
                     credentials = self.config_manager.get_exchange_credentials('binance')
                     
-                    # Use the create factory method
                     self.exchange_clients[exchange_name] = await BinanceClient.create({
                         'api_key': credentials['api_key'],
                         'api_secret': credentials['api_secret'],
                         'test_mode': exchange_config.get('test_mode', True),
                         'options': exchange_config.get('options', {})
                     })
-                    
+                    logger.info(f"Initialized {exchange_name} client (testnet: {exchange_config.get('test_mode', True)})")
+            
+            # Update progress
+            if progress_callback:
+                progress_callback((current_step / total_steps) * 100)
+            current_step += 1
+            
+            # NOW initialize services with the created clients
+            # Initialize or update market data service with client
+            if not hasattr(self, 'market_data_service') or self.market_data_service is None:
+                self.market_data_service = MarketDataService(self.services_config.get('market_data', {}))
+            await self.market_data_service.setup(self.exchange_clients)
+            
+            # Initialize or update news service
+            if not hasattr(self, 'news_service') or self.news_service is None:
+                self.news_service = NewsService(self.services_config.get('news', {}))
+            await self.news_service.setup(self.services_config.get('news', {}))
+            
+            # Initialize FinGPT model with verbosity setting
+            self.fingpt_model = FinGPT(self.model_config.get('fingpt', {}))
+            
+            # Initialize sentiment analyzer with model
+            self.sentiment_analyzer = SentimentAnalyzer({
+                'model': self.fingpt_model,
+                'model_config': self.strategies_config.get('sentiment', {})
+            })
+            
             # Initialize robo service
             await self.robo_service.setup(
                 exchange_clients=self.exchange_clients,
@@ -329,92 +347,134 @@ class TradingSystem:
                 initial_balance=self.get_config('trading.initial_balance')
             )
             
+            # Update progress and complete
+            if progress_callback:
+                progress_callback(100)
+            
             logger.info("Trading system initialized")
+            
         except Exception as e:
             logger.error(f"Initialization failed: {str(e)}")
             raise
 
     async def run(self):
-        """Main trading system loop"""
+        """Run the main trading system loop."""
         logger.info("Starting trading system main loop...")
-        self.is_running = True
-        cycle_count = 0
+        
         try:
-            # Initialize market data feeds
-            await self.market_data_service.start()
-            await self.news_service.start()
+            cycle_count = 0
             
-            # Start sentiment analyzer
-            await self.sentiment_analyzer.initialize()
-            
-            # Start market inefficiency detector
-            await self.market_detector.initialize()
-            
-            # Main trading loop
-            while self.is_running:
+            while True:
                 cycle_count += 1
                 logger.info(f"=== Trading Cycle #{cycle_count} ===")
+                
+                # Use UI to show cycle information if available
+                if hasattr(self, 'ui'):
+                    self.ui.console.rule(f"[bold blue]Trading Cycle #{cycle_count}")
+                
                 try:
                     # Get latest market data
-                    market_data = await self.market_data_service.get_realtime_quote(
-                        self.get_config('trading.pairs')
-                    )
+                    await self.update_market_data()
                     
-                    # Update market state
-                    self.market_state = market_data
+                    # Update UI with latest prices if available
+                    if hasattr(self, 'ui'):
+                        for pair in self.market_data_service.get_watched_pairs():
+                            price = self.market_data_service.get_latest_price(pair)
+                            if price:
+                                self.ui.update_price(pair, price)
+                        
+                        # Display market data table
+                        self.ui.display_market_data()
                     
-                    # Process market data through sentiment analyzer
-                    await self.sentiment_analyzer.process_market_data(market_data)
+                    # Check news and sentiment
+                    news_data = await self.update_news_data()
                     
-                    # Check for trading signals
-                    signals = await self.market_detector.detect_opportunities(market_data)
+                    # Update signals based on sentiment analysis
+                    signals = await self.analyze_market_sentiment(news_data)
                     
-                    # Log any detected signals
-                    if signals:
-                        logger.info(f"Detected {len(signals)} trading signals")
-                        self._process_signals(signals)
+                    # Process detected signals
+                    await self._process_signals(signals)
                     
                     # Add periodic portfolio updates:
                     if cycle_count % 5 == 0:  # Every 5 cycles
                         positions = self.robo_service.get_positions()
+                        balance = self.robo_service.get_balance()
+                        
+                        # Log portfolio information
                         logger.info(f"Current Portfolio: {positions}")
-                        logger.info(f"Balance: {self.robo_service.get_balance():.2f} USDT")
-                    
-                    # Sleep to avoid excessive polling
-                    await asyncio.sleep(self.get_config('trading.loop_interval'))
+                        logger.info(f"Balance: {balance:.2f} USDT")
+                        
+                        # Update UI with portfolio information if available
+                        if hasattr(self, 'ui'):
+                            self.ui.display_portfolio(balance, positions)
                     
                 except Exception as e:
                     logger.error(f"Error in trading loop: {str(e)}")
-                    # Continue despite errors in a single iteration
-                    await asyncio.sleep(5)
-        
+                    
+                    # Display error in UI if available
+                    if hasattr(self, 'ui'):
+                        self.ui.display_error(f"Trading loop error: {str(e)}")
+                
+                # Sleep before next cycle
+                await asyncio.sleep(self.config.get('cycle_interval', 60))
+                
         except asyncio.CancelledError:
             logger.info("Trading loop cancelled")
         except Exception as e:
             logger.error(f"Fatal error in trading loop: {str(e)}")
-        finally:
-            self.is_running = False
-            logger.info("Trading system main loop stopped")
+            # Display fatal error in UI if available
+            if hasattr(self, 'ui'):
+                self.ui.display_error(f"Fatal trading error: {str(e)}")
+            raise
+
+    async def _process_signals(self, signals):
+        """Process detected signals and execute trades if needed."""
+        try:
+            trade_count = 0
+            for signal in signals:
+                symbol = signal.get('symbol')
+                direction = signal.get('direction')
+                strength = signal.get('strength', 0.0)
+                price = signal.get('price', 0.0)
+                
+                # Get threshold from config
+                threshold = self.get_config('trading.execution_threshold', 0.5)
+                
+                # Log signal detection
+                logger.info(f"Signal detected: {symbol} {direction} (strength: {strength:.2f})")
+                
+                # Check if signal strength exceeds execution threshold
+                if strength >= threshold:
+                    # Use rich-compatible symbols
+                    logger.info(f"[green]Signal exceeds threshold, executing trade...[/green]")
+                    
+                    # Execute trade
+                    trade_result = await self.robo_service.execute_trade(signal)
+                    
+                    # Log result
+                    if trade_result:
+                        trade_count += 1
+                        logger.info(f"Trade executed: {trade_result}")
+                        
+                        # Display in UI if available
+                        if hasattr(self, 'ui'):
+                            self.ui.display_trade_signal(
+                                symbol, 
+                                direction, 
+                                strength,
+                                price,
+                                signal.get('metadata', {}).get('confidence', 0.5)
+                            )
+                else:
+                    # Use rich-compatible formatting
+                    logger.info(f"[red]Signal below threshold, no trade executed[/red]")
             
-    def _process_signals(self, signals):
-        if not signals:
-            logger.debug("No trading signals detected in this cycle")
-            return
-            
-        logger.info(f"Processing {len(signals)} trading signals")
-        
-        for signal in signals:
-            # Access execution_threshold through get_config to ensure it exists
-            execution_threshold = self.get_config('trading.execution.signal_threshold')
-            
-            logger.info(f"Signal: {signal['symbol']} - Direction: {signal['direction']}, "
-                       f"Strength: {signal['strength']:.2f}, Threshold: {execution_threshold:.2f}")
-            
-            if signal['strength'] >= execution_threshold:
-                logger.info(f"✅ Signal exceeds threshold, executing trade...")
-                # Execute trade logic here
-            else:
-                logger.info(f"❌ Signal below threshold, no trade executed")
+            return trade_count
+        except Exception as e:
+            logger.error(f"Error processing signals: {str(e)}")
+            if hasattr(self, 'ui'):
+                self.ui.display_error(f"Error processing signals: {str(e)}")
+            return 0
 
     async def execute_trade(self, signal: Dict) -> None:
         """Execute a trade based on a signal"""
@@ -578,6 +638,146 @@ class TradingSystem:
         except Exception as e:
             logger.error(f"Error during shutdown: {e}")
 
+    async def update_market_data(self):
+        """Fetch and process the latest market data"""
+        try:
+            # Get the trading pairs from config
+            pairs = self.get_config('trading.pairs')
+            
+            # Fetch latest data from the market data service
+            market_data = await self.market_data_service.get_realtime_quote(pairs)
+            
+            # Log summary of fetched data
+            prices = {symbol: data.get('price') for symbol, data in market_data.items()}
+            logger.debug(f"Updated market data: {prices}")
+            
+            return market_data
+        except Exception as e:
+            logger.error(f"Error updating market data: {str(e)}")
+            if hasattr(self, 'ui'):
+                self.ui.display_error(f"Market data error: {str(e)}")
+            return {}
+
+    async def update_news_data(self):
+        """Fetch and process the latest news data"""
+        try:
+            # Get the trading pairs from config
+            pairs = self.get_config('trading.pairs')
+            
+            # Fetch latest news
+            news_data = await self.news_service.fetch_news(pairs)
+            
+            # Log summary of fetched news
+            news_count = len(news_data)
+            logger.info(f"Fetched {news_count} news items")
+            
+            # Process news data by symbol for easier access
+            processed_news = {}
+            for pair in pairs:
+                # Filter news relevant to this pair
+                relevant_news = [
+                    item for item in news_data 
+                    if self.news_service.is_relevant(item, pair)
+                ]
+                
+                processed_news[pair] = relevant_news
+                logger.info(f"Fetched {len(relevant_news)} relevant news items for {pair}")
+                
+            return processed_news
+        except Exception as e:
+            logger.error(f"Error updating news data: {str(e)}")
+            if hasattr(self, 'ui'):
+                self.ui.display_error(f"News data error: {str(e)}")
+            return {}
+
+    async def analyze_market_sentiment(self, news_data):
+        """Analyze market sentiment based on news data"""
+        try:
+            signals = []
+            
+            # Return empty list if news_data is None
+            if news_data is None:
+                logger.warning("No news data available for sentiment analysis")
+                return signals
+                
+            # Get trading pairs
+            pairs = self.get_config('trading.pairs')
+            
+            for pair in pairs:
+                # Skip if no news for this pair
+                if pair not in news_data or not news_data[pair]:
+                    continue
+                    
+                # Analyze each news item
+                for news in news_data[pair]:
+                    try:
+                        # Clean the text before analysis
+                        text = self._sanitize_text(news.get('title', '') + ' ' + news.get('body', ''))
+                        
+                        # Check if sentiment_analyzer is properly initialized
+                        if not hasattr(self, 'sentiment_analyzer') or self.sentiment_analyzer is None:
+                            logger.error("Sentiment analyzer not initialized")
+                            continue
+                            
+                        if not hasattr(self.sentiment_analyzer, 'analyze_text'):
+                            logger.error("Sentiment analyzer missing analyze_text method")
+                            # Try analyze method instead if available
+                            if hasattr(self.sentiment_analyzer, 'analyze'):
+                                logger.info("Falling back to analyze method")
+                                sentiment_result = await self.sentiment_analyzer.analyze(text)
+                            else:
+                                logger.error("No sentiment analysis method available")
+                                continue
+                        else:
+                            # Use the correct method
+                            sentiment_result = await self.sentiment_analyzer.analyze_text(text)
+                        
+                        # Check if sentiment_result is None
+                        if not sentiment_result:
+                            logger.warning("Sentiment analysis returned None result")
+                            continue
+                            
+                        sentiment_score = sentiment_result.get('sentiment', 0.0)
+                        confidence = sentiment_result.get('confidence', 0.0)
+                        
+                        # Log the sentiment analysis using rich-compatible formatting
+                        if sentiment_score > 0:
+                            logger.info(f"Sentiment analysis: score=[green]{sentiment_score:.2f}[/green], confidence={confidence:.2f}")
+                        elif sentiment_score < 0:
+                            logger.info(f"Sentiment analysis: score=[red]{sentiment_score:.2f}[/red], confidence={confidence:.2f}")
+                        else:
+                            logger.info(f"Sentiment analysis: score=[yellow]{sentiment_score:.2f}[/yellow], confidence={confidence:.2f}")
+                        
+                        # Generate signal if sentiment is strong enough
+                        threshold = self.get_config('strategies.sentiment.detection_threshold', 0.3)
+                        if abs(sentiment_score) > threshold and confidence > 0.4:
+                            logger.info(f"[bold]Strong sentiment signal detected![/bold] (threshold={threshold:.2f})")
+                            
+                            signals.append({
+                                'symbol': pair,
+                                'type': 'SENTIMENT',
+                                'direction': 'BUY' if sentiment_score > 0 else 'SELL',
+                                'strength': abs(sentiment_score) * confidence,
+                                'price': news.get('price', 0.0),
+                                'timestamp': datetime.now(),
+                                'metadata': {
+                                    'sentiment': sentiment_score,
+                                    'confidence': confidence,
+                                    'news_id': news.get('id'),
+                                    'source': news.get('source')
+                                }
+                            })
+                        else:
+                            logger.info(f"Sentiment below thresholds, no signal generated")
+                            
+                    except Exception as e:
+                        logger.error(f"Error analyzing news sentiment: {str(e)}")
+            
+            return signals
+        except Exception as e:
+            logger.error(f"Error in market sentiment analysis: {str(e)}")
+            return []
+
 # Helper function to wait for shutdown signal
 async def wait_for_shutdown(shutdown_event):
     await shutdown_event.wait()
@@ -589,42 +789,38 @@ def configure_logging(args):
     if not os.path.exists("logs"):
         os.makedirs("logs")
     
-    # Get the root logger and remove any existing handlers
-    root_logger = logging.getLogger()
-    root_logger.handlers.clear()  # Clear existing handlers to prevent duplicates
-        
-    # Set up file logging regardless of verbosity level
-    if args.log_file:
-        file_handler = logging.FileHandler(args.log_file)
-        file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        file_handler.setFormatter(file_formatter)
-        file_handler.setLevel(logging.DEBUG)  # Log everything to file
-        root_logger.addHandler(file_handler)
-    
-    # Configure console logging based on verbosity level
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_formatter = logging.Formatter('%(message)s')  # Simplified console format
-    console_handler.setFormatter(console_formatter)
-    
-    # Set console logging level based on args
+    # Determine appropriate logging level
     if args.quiet:
-        console_handler.setLevel(logging.WARNING)
+        level = logging.WARNING
     elif args.verbose:
-        console_handler.setLevel(logging.DEBUG)
-    else:  # normal mode
-        console_handler.setLevel(logging.INFO)
-    
-    # Configure root logger
-    root_logger.setLevel(logging.DEBUG)  # Capture everything at root level
-    root_logger.addHandler(console_handler)
-    
-    # Return the configured logging level for reference
-    if args.quiet:
-        return logging.WARNING
-    elif args.verbose:
-        return logging.DEBUG
+        level = logging.DEBUG
     else:
-        return logging.INFO
+        level = logging.INFO
+    
+    # Use Rich-compatible logging if not in silent mode
+    if not args.silent:
+        from utils.logging import LogManager
+        log_manager = LogManager({
+            "log_dir": "logs",
+            "log_file": args.log_file if hasattr(args, 'log_file') else None
+        })
+        log_manager.setup_rich_logging(level)
+    else:
+        # Silent mode - only log to file, not console
+        # Get the root logger and remove any existing handlers
+        root_logger = logging.getLogger()
+        root_logger.handlers.clear()
+        
+        # Set up file logging if requested
+        if hasattr(args, 'log_file') and args.log_file:
+            file_handler = logging.FileHandler(args.log_file, encoding='utf-8')
+            file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            file_handler.setFormatter(file_formatter)
+            file_handler.setLevel(logging.DEBUG)
+            root_logger.addHandler(file_handler)
+            root_logger.setLevel(logging.DEBUG)
+    
+    return level
 
 def parse_arguments():
     """Parse command line arguments for the FinGPT Trader application."""
@@ -678,6 +874,15 @@ async def main():
     # Configure logging based on verbosity arguments
     logging_level = configure_logging(args)
     
+    # Initialize rich console UI if not in silent mode
+    if not args.silent and not args.quiet:
+        from utils.console_ui import ConsoleUI
+        ui = ConsoleUI.get_instance()
+        ui.setup(watched_pairs=["BTCUSDT", "ETHUSDT", "BNBUSDT"])
+        
+        # Set verbosity level for UI too
+        ui.set_verbose(args.verbose)
+
     # Log startup information
     logging.info("Starting FinGPT Trader")
     logging.debug(f"Verbosity level: {logging.getLevelName(logging_level)}")
@@ -685,20 +890,30 @@ async def main():
     # Continue with existing initialization code
     system = None
     try:
-        # Use verbosity manager when initializing the model
         # Create and initialize using ConfigManager
         system = TradingSystem()
         
         # Pass verbosity information to TradingSystem
         system.verbosity_manager = vm
         
-        await system.initialize()
-        
+        # Add UI instance to trading system if available
+        if not args.silent and not args.quiet:
+            system.ui = ui
+            
+            # Show progress bar for model loading
+            with ui.create_progress_bar("Loading trading model")[0] as progress:
+                # Update progress as initialization proceeds
+                await system.initialize(progress_callback=lambda p: progress.update(task_id=0, completed=p))
+        else:
+            await system.initialize()
+            
         # Run the main system loop
         await system.run()
         
     except Exception as e:
         logging.error(f"Fatal error: {str(e)}")
+        if not args.silent and not args.quiet and 'ui' in locals():
+            ui.display_error(f"Fatal error: {str(e)}")
     finally:
         # Ensure proper cleanup even if there's an error
         if system:
@@ -709,4 +924,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

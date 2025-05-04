@@ -132,6 +132,11 @@ class SentimentAnalyzer:
     async def analyze(self, text: str) -> Dict:
         """Analyze sentiment using LLM"""
         try:
+            # Check if FinGPT is properly initialized
+            if not hasattr(self, 'fingpt') or self.fingpt is None:
+                logger.error("FinGPT model not initialized")
+                return {'sentiment': 0.0, 'confidence': 0.0}
+            
             # Improve the prompt for better sentiment differentiation
             prompt = f"""
             Analyze the sentiment of the following financial news text. 
@@ -180,6 +185,28 @@ class SentimentAnalyzer:
         except Exception as e:
             logger.error(f"Error analyzing sentiment: {str(e)}")
             return {'sentiment': 0.0, 'confidence': 0.0}
+
+    async def analyze_text(self, text: str) -> Dict:
+        """
+        Analyze sentiment of a text string.
+        
+        Args:
+            text: Text to analyze
+            
+        Returns:
+            Dict with sentiment score and confidence
+        """
+        try:
+            # Use the existing analyze method
+            result = await self.analyze(text)
+            return result
+        except Exception as e:
+            logger.error(f"Error in analyze_text: {str(e)}")
+            # Return neutral sentiment with low confidence on error
+            return {
+                'sentiment': 0.0,
+                'confidence': 0.1
+            }
 
     def _chunk_text(self, text: str, max_tokens: int = 750) -> List[str]:
         """Split text into chunks for processing"""

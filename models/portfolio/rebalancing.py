@@ -11,8 +11,8 @@ class Portfolio:
     """Portfolio management class for tracking positions and performance"""
     
     def __init__(self, initial_balance: float):
-        self.cash = initial_balance
-        self.positions = {}  # symbol -> quantity
+        self.cash = initial_balance  # Uses 'cash', not 'balance'
+        self.positions = {}
         self.trades = []
         self.total_trades = 0
         self.portfolio_history = []
