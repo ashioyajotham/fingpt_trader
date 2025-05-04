@@ -285,7 +285,6 @@ class TradingSystem:
         """Initialize the trading system components with optional progress reporting."""
         logger.info("Starting trading system initialization...")
         
-        # Default progress steps
         total_steps = 5
         current_step = 0
         
@@ -298,30 +297,7 @@ class TradingSystem:
                 progress_callback((current_step / total_steps) * 100)
             current_step += 1
             
-            # Configure model with verbosity setting from verbosity manager if available
-            model_config = self.model_config.get('fingpt', {})
-            
-            # Add verbosity control
-            if hasattr(self, 'verbosity_manager'):
-                if 'model' not in model_config:
-                    model_config['model'] = {}
-                if 'llama_cpp' not in model_config['model']:
-                    model_config['model']['llama_cpp'] = {}
-                
-                # Get verbosity settings from manager
-                model_config['model']['llama_cpp'].update(
-                    self.verbosity_manager.get_llm_config()
-                )
-            
-            # Initialize FinGPT model with verbosity setting
-            self.fingpt_model = FinGPT(model_config)
-            
-            # Update progress
-            if progress_callback:
-                progress_callback((current_step / total_steps) * 100)
-            current_step += 1
-            
-            # Set up exchange connections
+            # Set up exchange connections FIRST
             from services.exchanges.binance import BinanceClient
             
             # Initialize exchange clients
@@ -331,14 +307,39 @@ class TradingSystem:
                     # Get credentials from ConfigManager
                     credentials = self.config_manager.get_exchange_credentials('binance')
                     
-                    # Use the create factory method
                     self.exchange_clients[exchange_name] = await BinanceClient.create({
                         'api_key': credentials['api_key'],
                         'api_secret': credentials['api_secret'],
                         'test_mode': exchange_config.get('test_mode', True),
                         'options': exchange_config.get('options', {})
                     })
-                    
+                    logger.info(f"Initialized {exchange_name} client (testnet: {exchange_config.get('test_mode', True)})")
+            
+            # Update progress
+            if progress_callback:
+                progress_callback((current_step / total_steps) * 100)
+            current_step += 1
+            
+            # NOW initialize services with the created clients
+            # Initialize or update market data service with client
+            if not hasattr(self, 'market_data_service') or self.market_data_service is None:
+                self.market_data_service = MarketDataService(self.services_config.get('market_data', {}))
+            await self.market_data_service.setup(self.exchange_clients)
+            
+            # Initialize or update news service
+            if not hasattr(self, 'news_service') or self.news_service is None:
+                self.news_service = NewsService(self.services_config.get('news', {}))
+            await self.news_service.setup(self.services_config.get('news', {}))
+            
+            # Initialize FinGPT model with verbosity setting
+            self.fingpt_model = FinGPT(self.model_config.get('fingpt', {}))
+            
+            # Initialize sentiment analyzer with model
+            self.sentiment_analyzer = SentimentAnalyzer({
+                'model': self.fingpt_model,
+                'model_config': self.strategies_config.get('sentiment', {})
+            })
+            
             # Initialize robo service
             await self.robo_service.setup(
                 exchange_clients=self.exchange_clients,
@@ -346,26 +347,14 @@ class TradingSystem:
                 initial_balance=self.get_config('trading.initial_balance')
             )
             
-            # Update progress
-            if progress_callback:
-                progress_callback((current_step / total_steps) * 100)
-            current_step += 1
-            
-            # Final progress update
+            # Update progress and complete
             if progress_callback:
                 progress_callback(100)
-                
-            # Use UI to display success if available
-            if hasattr(self, 'ui'):
-                self.ui.display_success("Trading system initialized")
             
             logger.info("Trading system initialized")
             
         except Exception as e:
             logger.error(f"Initialization failed: {str(e)}")
-            # Use UI to display error if available
-            if hasattr(self, 'ui'):
-                self.ui.display_error(f"Initialization failed: {str(e)}")
             raise
 
     async def run(self):
@@ -897,4 +886,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
