@@ -527,14 +527,16 @@ class TradingSystem:
             # Calculate position size in quote currency (e.g., USDT)
             position_size = balance * position_pct
 
-            # Check minimum notional value requirement first
-            min_notional = 10.0  # Default minimum value in USDT
+            # Get exchange order minimums from config instead of hardcoding
+            min_notional = self.get_config('trading.execution.min_notional', 10.0)
+            min_qty = self.get_config('trading.execution.min_quantity', 0.00001)
+            
             try:
                 # Get exchange-specific minimum if available
                 if hasattr(self, 'exchange_clients') and 'binance' in self.exchange_clients:
                     min_notional = self.exchange_clients['binance'].get_min_notional(signal['symbol'])
             except Exception as e:
-                logger.warning(f"Error getting min notional, using default: {e}")
+                logger.warning(f"Error getting min notional, using config default: {e}")
 
             # Ensure position meets minimum notional value
             if position_size < min_notional:
@@ -553,19 +555,15 @@ class TradingSystem:
                     logger.error(f"Cannot calculate position size: no valid price for {signal['symbol']}")
                     return 0.0
             
+            # Calculate base quantity
             quantity = position_size / price
-            
-            # Get minimum order size from exchange
-            symbol = signal['symbol']
-            min_notional = 10.0  # Default minimum notional value (e.g., 10 USDT for Binance)
-            min_qty = 0.00001    # Default minimum quantity
-            
+
             # Try to get actual minimums from exchange info
             try:
                 if hasattr(self, 'exchange_clients') and 'binance' in self.exchange_clients:
                     exchange_info = self.exchange_clients['binance'].get_exchange_info()
                     for symbol_info in exchange_info.get('symbols', []):
-                        if symbol_info['symbol'] == symbol:
+                        if symbol_info['symbol'] == signal['symbol']:
                             # Extract minimum notional and quantity
                             for filter in symbol_info.get('filters', []):
                                 if filter['filterType'] == 'NOTIONAL':
@@ -573,7 +571,7 @@ class TradingSystem:
                                 elif filter['filterType'] == 'LOT_SIZE':
                                     min_qty = float(filter['minQty'])
             except Exception as e:
-                logger.warning(f"Error getting exchange minimums: {e}, using defaults")
+                logger.warning(f"Error getting exchange minimums: {e}, using config defaults")
             
             # Ensure quantity meets minimum requirements
             if quantity < min_qty:
@@ -781,6 +779,10 @@ class TradingSystem:
             # Get trading pairs and current market prices
             pairs = self.get_config('trading.pairs')
             
+            # Get sentiment thresholds from config
+            detection_threshold = self.get_config('strategies.sentiment.detection_threshold', 0.3)
+            confidence_threshold = self.get_config('strategies.sentiment.min_confidence', 0.4)
+            
             # First get current market prices for all pairs
             current_prices = {}
             for pair in pairs:
@@ -845,17 +847,16 @@ class TradingSystem:
                         else:
                             logger.info(f"Sentiment analysis: score=[yellow]{sentiment_score:.2f}[/yellow], confidence={confidence:.2f}")
                         
-                        # Generate signal if sentiment is strong enough
-                        threshold = self.get_config('strategies.sentiment.detection_threshold', 0.3)
-                        if abs(sentiment_score) > threshold and confidence > 0.4:
-                            logger.info(f"[bold]Strong sentiment signal detected![/bold] (threshold={threshold:.2f})")
+                        # Generate signal if sentiment is strong enough - using config thresholds
+                        if abs(sentiment_score) > detection_threshold and confidence > confidence_threshold:
+                            logger.info(f"[bold]Strong sentiment signal detected![/bold] (threshold={detection_threshold:.2f})")
                             
                             signals.append({
                                 'symbol': pair,
                                 'type': 'SENTIMENT',
                                 'direction': 'BUY' if sentiment_score > 0 else 'SELL',
                                 'strength': abs(sentiment_score) * confidence,
-                                'price': current_price,  # Use current market price instead of 0.0
+                                'price': current_price,
                                 'timestamp': datetime.now(),
                                 'metadata': {
                                     'sentiment': sentiment_score,
@@ -880,6 +881,10 @@ class TradingSystem:
         try:
             # Get trading pairs
             pairs = self.get_config('trading.pairs')
+            
+            # Get sentiment thresholds from config for UI display
+            bullish_threshold = self.get_config('strategies.sentiment.detection_threshold', 0.3)
+            bearish_threshold = -1 * bullish_threshold
             
             for pair in pairs:
                 # Fetch price directly from cache where we know it's stored correctly
@@ -922,11 +927,34 @@ class TradingSystem:
                             old_price = history[closest_idx]['price']
                             if old_price > 0:
                                 change_pct = ((newest_price - old_price) / old_price) * 100
-                                if hasattr(self, 'ui'):
+                                # Add UI method if it exists
+                                if hasattr(self, 'ui') and hasattr(self.ui, 'update_change'):
                                     self.ui.update_change(pair, change_pct)
             
-            # Update sentiment in UI
-            # ...
+            # Update sentiment in UI using config thresholds
+            if hasattr(self, 'ui') and hasattr(self, 'recent_signals'):
+                for pair in pairs:
+                    # Find the most recent strong sentiment signal for this pair
+                    sentiment_value = "Neutral"
+                    sentiment_direction = "↔"
+                    
+                    # Check recent signals for sentiment data
+                    recent_signals = [s for s in self.recent_signals if s['symbol'] == pair]
+                    if recent_signals:
+                        # Get the most recent signal
+                        signal = max(recent_signals, key=lambda x: x['timestamp'])
+                        sentiment_score = signal['metadata'].get('sentiment', 0.0)
+                        
+                        if sentiment_score > bullish_threshold:
+                            sentiment_value = "Bullish"
+                            sentiment_direction = "↑"
+                        elif sentiment_score < bearish_threshold:
+                            sentiment_value = "Bearish"
+                            sentiment_direction = "↓"
+                        
+                    # Update UI with sentiment
+                    if hasattr(self.ui, 'update_sentiment'):
+                        self.ui.update_sentiment(pair, f"{sentiment_value} {sentiment_direction}")
         except Exception as e:
             logger.error(f"Error updating UI: {str(e)}")
 

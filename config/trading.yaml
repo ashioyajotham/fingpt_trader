@@ -45,6 +45,13 @@ trading:
   execution:
     signal_threshold: 0.5  # Minimum signal strength to execute trades
     default_exchange: "binance"  # Default exchange for execution
+    min_notional: 10.0        # Minimum order value in USDT
+    min_quantity: 0.00001     # Minimum order quantity
+    
+  position_sizing:
+    max_position_pct: 0.05    # Maximum position size as % of portfolio
+    base_position_pct: 0.01   # Base position size as % of portfolio
+    scaling_factor: 1.0       # Factor to scale position sizes
   
   # Portfolio parameters
   portfolio:

@@ -36,6 +36,8 @@ class ConsoleUI:
         self.last_update = datetime.now()
         self.setup_complete = False
         self.verbose = True  # Default to verbose mode
+        # Add missing market_data attribute
+        self.market_data = {}  # Initialize empty market data dictionary
     
     def set_verbose(self, verbose):
         """Control whether to show detailed information"""
@@ -44,6 +46,16 @@ class ConsoleUI:
     def setup(self, watched_pairs: List[str] = None):
         """Initialize the console UI with specific watched pairs."""
         self.watched_pairs = watched_pairs or []
+        
+        # Initialize market_data for each pair
+        self.market_data = {}
+        for pair in self.watched_pairs:
+            self.market_data[pair] = {
+                'price': 0.0,
+                'change': 0.0,
+                'sentiment': "Neutral ↔"
+            }
+        
         self.setup_complete = True
         
         # Display initial header
@@ -110,20 +122,25 @@ class ConsoleUI:
         table.add_column("Sentiment", style="magenta")
         
         for symbol in self.watched_pairs:
-            price = self.last_prices.get(symbol, 0)
-            # Placeholder values - would need actual data
-            change = 0  # From market data
-            sentiment = 0  # From sentiment analyzer
-            
-            change_str = self._format_change(change)
-            sentiment_str = self._format_sentiment(sentiment)
-            
-            table.add_row(
-                symbol,
-                f"{price:.2f}" if price else "N/A",
-                change_str,
-                sentiment_str
-            )
+            if symbol in self.market_data:
+                price = self.last_prices.get(symbol, 0)
+                change = self.market_data[symbol].get('change', 0)
+                sentiment = self.market_data[symbol].get('sentiment', "Neutral ↔")
+                
+                table.add_row(
+                    symbol,
+                    f"{price:.2f}" if price else "N/A",
+                    self._format_change(change),
+                    sentiment  # Already formatted string
+                )
+            else:
+                # Fallback for symbols without data
+                table.add_row(
+                    symbol,
+                    "N/A",
+                    self._format_change(0),
+                    "Neutral ↔"
+                )
         
         self.console.print(table)
     
@@ -140,6 +157,16 @@ class ConsoleUI:
             return -1
         return 0
     
+    def update_change(self, symbol, change_pct):
+        """Update the 24h price change for a symbol"""
+        if symbol in self.market_data:
+            self.market_data[symbol]['change'] = change_pct
+
+    def update_sentiment(self, symbol, sentiment_text):
+        """Update the sentiment display for a symbol"""
+        if symbol in self.market_data:
+            self.market_data[symbol]['sentiment'] = sentiment_text
+
     def display_trade_signal(self, symbol: str, direction: str, strength: float, 
                             price: float, confidence: float):
         """Display a trade signal with colorful formatting."""
