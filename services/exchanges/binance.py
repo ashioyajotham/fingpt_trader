@@ -506,6 +506,7 @@ class BinanceClient:
             # Pre-validate order value
             order_value = amount * current_price
             if order_value < min_notional:
+                logger.warning(f"Buy order failed: Final order value {order_value} USDT below minimum {min_notional} USDT")
                 raise ValueError(f"Order value {order_value:.2f} USDT below minimum {min_notional} USDT")
             
             # Calculate quantity from amount
@@ -517,6 +518,7 @@ class BinanceClient:
             # Final value validation
             final_value = float(formatted_quantity) * current_price
             if final_value < min_notional:
+                logger.warning(f"Buy order failed: Final order value {final_value} USDT below minimum {min_notional} USDT")
                 raise ValueError(f"Final order value {final_value:.2f} USDT below minimum {min_notional} USDT")
             
             params = {

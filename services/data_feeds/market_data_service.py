@@ -141,25 +141,61 @@ class MarketDataService(BaseService):
         self.cache.clear()
 
     async def get_realtime_quote(self, symbols):
+        """Get realtime quotes for multiple symbols"""
         results = {}
         for symbol in symbols:
             try:
                 # Try primary exchange first
                 data = await self._fetch_with_retry(symbol)
-                # Store in cache - ADD THIS LINE
-                self.cache[symbol] = data
+                
+                # Ensure data is properly formatted
+                if isinstance(data, dict):
+                    # Normalize price field if needed
+                    for field in ['lastPrice', 'close', 'last']:
+                        if field in data and field != 'price' and data[field] is not None:
+                            # Copy value to 'price' field
+                            data['price'] = data[field]
+                            logger.debug(f"Normalized price field from '{field}' for {symbol}")
+                            break
+                            
+                    # Store in cache
+                    self.cache[symbol] = data
+                    
+                    # Also update price history for tracking
+                    if 'price' in data and data['price']:
+                        price = float(data['price'])
+                        if price > 0:
+                            if symbol not in self.price_history:
+                                self.price_history[symbol] = []
+                            self.price_history[symbol].append({
+                                'price': price,
+                                'timestamp': datetime.now()
+                            })
+                            logger.debug(f"Updated price history for {symbol}: {price}")
+                
                 results[symbol] = data
+                
             except Exception as e:
-                logger.error(f"Error fetching {symbol} after 3 attempts")
+                logger.error(f"Error fetching {symbol}: {str(e)}")
                 # Try fallback exchanges if available
-                if hasattr(self, '_try_fallback_exchanges'):
-                    results[symbol] = await self._try_fallback_exchanges(symbol)
-                else:
-                    # Basic fallback if method doesn't exist
+                try:
+                    fallback_data = await self._try_fallback_exchanges(symbol)
+                    if fallback_data:
+                        self.cache[symbol] = fallback_data
+                        results[symbol] = fallback_data
+                    else:
+                        results[symbol] = {
+                            "symbol": symbol,
+                            "price": None,
+                            "error": str(e),
+                            "timestamp": datetime.now().timestamp()
+                        }
+                except Exception as fallback_error:
+                    logger.error(f"Fallback fetch also failed for {symbol}: {str(fallback_error)}")
                     results[symbol] = {
                         "symbol": symbol,
                         "price": None,
-                        "error": str(e),
+                        "error": f"All fetch attempts failed: {str(e)}",
                         "timestamp": datetime.now().timestamp()
                     }
         return results
@@ -316,32 +352,61 @@ class MarketDataService(BaseService):
         return self.config.get('pairs', [])
 
     def get_latest_price(self, symbol: str) -> float:
-        """Get the latest price for a trading pair."""
+        """Get the latest price for a trading pair with improved error handling."""
         try:
-            # Check if symbol exists in cache
+            # First check the cache
             if symbol in self.cache:
                 data = self.cache[symbol]
                 logger.debug(f"Cache data for {symbol}: {data}")
                 
-                # Handle different potential price field names
+                # Try standard price fields
                 for price_field in ['price', 'lastPrice', 'last', 'close']:
                     if price_field in data and data[price_field]:
-                        price = float(data[price_field])
-                        logger.debug(f"Found price in field '{price_field}': {price}")
+                        try:
+                            price = float(data[price_field])
+                            if price > 0:
+                                return price
+                        except (ValueError, TypeError):
+                            continue
+                
+                # If we get here, no valid price field was found
+                logger.warning(f"No valid price field found in cache for {symbol}")
+            
+            # Try price history as fallback
+            if hasattr(self, 'price_history') and symbol in self.price_history and self.price_history[symbol]:
+                # Get most recent price
+                try:
+                    latest = self.price_history[symbol][-1]
+                    price = float(latest['price'])
+                    if price > 0:
+                        logger.debug(f"Using history price for {symbol}: {price}")
                         return price
-                
-                logger.warning(f"No recognizable price field in cached data: {data.keys()}")
-                
-            # Try to get from price history if available
-            if symbol in self.price_history and self.price_history[symbol]:
-                # Return the most recent price
-                return float(self.price_history[symbol][-1])
-                
-            logger.debug(f"No price data available for {symbol}")
-            return 0.0  # Return 0.0 instead of None
+                except (IndexError, ValueError, KeyError):
+                    logger.warning(f"Failed to get price from history for {symbol}")
+            
+            # Final fallback - try direct API call 
+            try:
+                ticker = self.exchange.get_ticker(symbol=symbol)
+                if ticker and isinstance(ticker, dict):
+                    # Try different price fields
+                    for field in ['price', 'lastPrice', 'last', 'close']:
+                        if field in ticker and ticker[field]:
+                            try:
+                                price = float(ticker[field])
+                                if price > 0:
+                                    return price
+                            except (ValueError, TypeError):
+                                continue
+            except Exception as e:
+                logger.error(f"Direct API call for price failed: {e}")
+            
+            # If all attempts failed
+            logger.warning(f"All attempts to get price for {symbol} failed")
+            return 0.0
+            
         except Exception as e:
-            logger.error(f"Error retrieving latest price for {symbol}: {str(e)}")
-            return 0.0  # Return 0.0 instead of None
+            logger.error(f"Error in get_latest_price for {symbol}: {str(e)}")
+            return 0.0
 
 class MarketDataFeed(BaseService):
     """Market data feed handler"""
