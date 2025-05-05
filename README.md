@@ -10,19 +10,21 @@ A quantitative trading system integrating a large language model (Falcon-7B) wit
 
 - **Quantitative Analysis Engine**
   - 🚧 Basic market data processing (⚠️ API connection issues)
-  - 🚧 Market inefficiency detection
+  - ✅ Market inefficiency detection
+  - 🚧 Minimum order size handling (⚠️ Size too small for high-value assets)
   - 📅 Order book imbalance analysis
   - 📅 Market microstructure modeling
 
 - **Sentiment Analysis**
-  - 🚧 Basic sentiment extraction using Falcon-7B (⚠️ Method implementation inconsistencies)
-  - 🚧 News impact integration (⚠️ News API connection issues)
-  - 🚧 Text-based signal generation
+  - 🚧 Basic sentiment extraction using Falcon-7B (⚠️ Format parsing issues)
+  - 🚧 News impact integration (⚠️ News API connection issues) 
+  - ✅ Text-based signal generation
 
 - **Trading Framework**
   - ✅ Event-driven architecture
-  - 🚧 Asynchronous execution (⚠️ Error handling needs improvement)
+  - 🚧 Asynchronous execution (⚠️ Method parameter mismatches)
   - ✅ Configuration-driven threshold management
+  - 🚧 Signal processing pipeline (⚠️ Inconsistent signal formats)
   - 📅 Multi-asset portfolio optimization
 
 ## Functional Features
@@ -135,10 +137,10 @@ All configuration values are accessed through a centralized configuration system
 ```bash
 # Create virtual environment
 python -m venv venv
-source venv/bin/activate  # or [activate](http://_vscodecontentref_/2) on Windows
+source venv/bin/activate  # or activate on Windows
 
 # Install dependencies
-pip install -r [requirements.txt](http://_vscodecontentref_/3)
+pip install -r requirements.txt
 
 # Windows-specific: Set console to UTF-8 mode
 chcp 65001  # If running in cmd.exe
@@ -159,10 +161,10 @@ pip install -r requirements.txt
 2. **Configuration**
 ```bash
 # Set up your .env file with required API keys:
-BINANCE_API_KEY=your_key_here
-BINANCE_API_SECRET=your_secret_here
-CRYPTOPANIC_API_KEY=your_key_here  # Required for news feeds
-HUGGINGFACE_TOKEN=your_token_here   # Optional for model access
+BINANCE_API_KEY=your_key_here         # Obtain from Binance Testnet
+BINANCE_API_SECRET=your_secret_here   # Obtain from Binance Testnet
+CRYPTOPANIC_API_KEY=your_key_here     # Required for news feeds
+HUGGINGFACE_TOKEN=your_token_here     # Optional for model access
 ```
 
 3. **Run Trading System**
@@ -199,11 +201,13 @@ async def analyze(self, text: str) -> Dict:
     response = await self.fingpt.generate(prompt, temperature=0.2)
     result = self._parse_sentiment(response)
     
-    logger.info(f"Sentiment analysis: score={result.get('sentiment', 0.0):.2f}, " 
-                f"confidence={result.get('confidence', 0.0):.2f}")
+    # Safe type conversion to avoid format errors
+    sentiment = float(result.get('sentiment', 0.0)) if result.get('sentiment') is not None else 0.0
+    confidence = float(result.get('confidence', 0.0)) if result.get('confidence') is not None else 0.0
     
-    if (abs(result.get('sentiment', 0)) >= self.detection_threshold and 
-        result.get('confidence', 0) >= self.confidence_threshold):
+    logger.info(f"Sentiment analysis: score={sentiment:.2f}, confidence={confidence:.2f}")
+    
+    if (abs(sentiment) >= self.detection_threshold and confidence >= self.confidence_threshold):
         logger.info(f"Strong sentiment signal detected! (threshold={self.detection_threshold:.2f})")
         
     return result
@@ -273,19 +277,43 @@ The system currently faces several implementation challenges:
 ## Known Issues
 
 - **API Connectivity**
-  - Binance client initialization sometimes fails
+  - Binance client initialization fails with invalid parameters (base_url not supported)
   - CryptoPanic API endpoints return null values
   - Error handling for API failures needs improvement
 
 - **Sentiment Analysis**
   - Method implementation discrepancies between `analyze()` and `analyze_text()`
   - Unicode encoding errors in Windows environments
-  - Inconsistent response formats from the LLM
+  - Inconsistent response formats from the LLM causing "Unknown format code 'f'" errors
+  - Type conversion issues when formatting sentiment scores
+
+- **Trading Execution**
+  - Position sizing too small for minimum order requirements
+  - Parameter mismatch in RoboService.execute_trade() method
+  - Inconsistent signal format between different processing methods
 
 - **System Stability**
   - NoneType errors when awaiting non-coroutines
   - Uncaught exceptions in service initialization
   - UI vs. logging conflicts
+
+## Immediate Fixes Needed
+
+1. **Binance Client Initialization**
+   - Remove unsupported `base_url` parameter in AsyncClient.create()
+   - Use only supported parameters: api_key, api_secret, and testnet
+
+2. **Trading Execution**
+   - Fix signature mismatch in RoboService.execute_trade() method
+   - Standardize signal format between different processing stages
+
+3. **Position Sizing**
+   - Add validation for minimum order sizes before execution attempts
+   - Implement dynamic lookup of exchange minimum requirements
+
+4. **Sentiment Analysis**
+   - Add type conversion for sentiment scores before formatting
+   - Add exception handling for inconsistent LLM responses
 
 ## Roadmap: Planned Mathematical Framework
 
@@ -319,8 +347,11 @@ Current development priorities:
 - [x] Improve error handling in API calls
 - [x] Add detailed sentiment score logging
 - [ ] Enhance sentiment analysis prompt engineering
-- [ ] Fix minimum order size calculation
+- [x] Fix minimum order size calculation (identified but not fully implemented)
 - [ ] Implement proper USD to crypto quantity conversion
+- [ ] Fix Binance API client initialization parameters
+- [ ] Address sentiment analysis formatting inconsistencies
+- [ ] Resolve execute_trade() parameter mismatch
 - [ ] Develop basic backtesting framework
 
 ## Warning
@@ -335,5 +366,20 @@ Current development priorities:
 
 MIT License - See [LICENSE](LICENSE) for details.
 
+## Acknowledgements
+
+This project builds on the foundation of several important open-source projects and research:
+
+- **FinGPT Research**: Core ideas on financial sentiment analysis and market prediction using large language models were inspired by research from the FinGPT paper. The paper can be found [here](https://arxiv.org/abs/2306.06031).
+
+- **llama.cpp**: Our inferencing pipeline leverages the efficient llama.cpp framework for running the language model with minimal computational resources, enabling local execution without cloud dependencies. Read more about it [here](https://github.com/ggml-org/llama.cpp)
+
+- **Binance API**: Trading functionality is built on the Binance exchange API and Python client libraries, which provide a robust infrastructure for cryptocurrency trading. The API documentation can be found [here](https://binance-docs.github.io/apidocs/spot/en/#public-rest-api).
+
+- **Python AsyncIO**: The asynchronous architecture is powered by Python's AsyncIO framework, enabling efficient concurrent operations. Learn more about AsyncIO [here](https://docs.python.org/3/library/asyncio.html).
+
+Special thanks to all open-source contributors whose tools and libraries make projects like this possible.
+
 ## Contributing
+
 Contributions are welcome! Please fork the repository and submit a pull request with your changes. Ensure to follow the code style and include tests for new features. See [CONTRIBUTING.md](CONTRIBUTING.md) for more details.

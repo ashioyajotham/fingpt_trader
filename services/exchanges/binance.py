@@ -279,7 +279,15 @@ class BinanceClient:
     async def start_market_streams(self, symbols: List[str]) -> None:
         """Start real-time market data streams"""
         if not self.bsm:
-            self.bsm = BinanceSocketManager(self.client)
+            if self.testnet:
+                # Override the default WebSocket URL pattern
+                self.bsm = BinanceSocketManager(
+                    self.client,
+                    user_timeout=60,
+                    url="wss://stream.testnet.binance.vision/ws/"
+                )
+            else:
+                self.bsm = BinanceSocketManager(self.client)
             
         for symbol in symbols:
             # Start order book stream
@@ -482,66 +490,40 @@ class BinanceClient:
             return 0.0
 
     async def create_buy_order(self, symbol: str, amount: float, order_type: str = 'MARKET') -> Dict:
-        """Create a buy order with proper quantity formatting"""
+        """
+        Create buy order with enhanced validation
+        
+        Args:
+            symbol: Trading pair symbol (e.g., 'BTCUSDT')
+            amount: Order quantity in base currency
+            order_type: Order type ('MARKET', 'LIMIT', etc.)
+            
+        Returns:
+            Dict: Order response or error
+        """
         try:
-            # Get symbol info for precision
-            symbol_info = self.symbol_info.get(symbol)
-            if not symbol_info:
-                raise ValueError(f"Invalid symbol: {symbol}")
+            # Preemptive minimum size validation
+            min_qty = await self.get_min_quantity(symbol)
+            if amount < min_qty:
+                raise ValueError(f"Quantity {amount} below minimum {min_qty}")
             
-            # Get current price first
-            ticker = await self.get_ticker(symbol)
-            if not ticker or 'price' not in ticker:
-                raise ValueError(f"Could not get current price for {symbol}")
-                
-            current_price = ticker['price']
+            # Get symbol info for formatting
+            symbol_info = await self.get_symbol_info(symbol)
             
-            # Find MIN_NOTIONAL filter
-            min_notional = 10.0  # Default minimum 10 USDT
-            for f in symbol_info['filters']:
-                if f['filterType'] == 'MIN_NOTIONAL':
-                    min_notional = float(f['minNotional'])
-                    break
+            # Format quantity according to exchange rules
+            formatted_qty = self._format_quantity(amount, symbol_info)
             
-            # Pre-validate order value
-            order_value = amount * current_price
-            if order_value < min_notional:
-                logger.warning(f"Buy order failed: Final order value {order_value} USDT below minimum {min_notional} USDT")
-                raise ValueError(f"Order value {order_value:.2f} USDT below minimum {min_notional} USDT")
-            
-            # Calculate quantity from amount
-            quantity = amount / current_price
-            
-            # Format quantity with lot size rules
-            formatted_quantity = self._format_quantity(quantity, symbol_info)
-            
-            # Final value validation
-            final_value = float(formatted_quantity) * current_price
-            if final_value < min_notional:
-                logger.warning(f"Buy order failed: Final order value {final_value} USDT below minimum {min_notional} USDT")
-                raise ValueError(f"Final order value {final_value:.2f} USDT below minimum {min_notional} USDT")
-            
-            params = {
-                'symbol': symbol,
-                'side': 'BUY',
-                'type': order_type,
-                'quantity': formatted_quantity
-            }
-            
-            if order_type == 'LIMIT':
-                price = self._format_price(current_price, symbol_info)
-                params.update({
-                    'price': price,
-                    'timeInForce': 'GTC'
-                })
-            
-            logger.info(f"Creating buy order: {params}")
-            order = await self.client.create_order(**params)
-            logger.info(f"Buy order created: {order['orderId']} for {formatted_quantity} {symbol}")
-            return order
+            # Place the order
+            logger.info(f"Creating {order_type} BUY order for {symbol}: {formatted_qty}")
+            return await self.client.create_order(
+                symbol=symbol,
+                side="BUY",
+                type=order_type,
+                quantity=formatted_qty
+            )
             
         except ValueError as e:
-            logger.error(f"Buy order failed: {str(e)}")
+            logger.error(f"Buy order validation error: {str(e)}")
             raise
         except Exception as e:
             logger.error(f"Buy order failed: {str(e)}")
@@ -685,3 +667,54 @@ class BinanceClient:
         except Exception as e:
             logger.error(f"Failed to cancel order: {str(e)}")
             raise
+
+    async def get_symbol_info(self, symbol: str) -> Dict:
+        """
+        Get detailed information about a trading symbol
+        
+        Args:
+            symbol: Trading pair symbol (e.g., 'BTCUSDT')
+            
+        Returns:
+            Dict: Symbol information with filters and rules
+        """
+        try:
+            if not hasattr(self, 'exchange_info') or self.exchange_info is None:
+                self.exchange_info = await self.client.get_exchange_info()
+                
+            # Find the symbol in the exchange info
+            for sym_info in self.exchange_info.get('symbols', []):
+                if sym_info.get('symbol') == symbol:
+                    return sym_info
+                    
+            logger.warning(f"Symbol {symbol} not found in exchange info")
+            return {}
+            
+        except Exception as e:
+            logger.error(f"Failed to get symbol info: {str(e)}")
+            return {}
+
+    async def get_min_quantity(self, symbol: str) -> float:
+        """
+        Get minimum order quantity for a symbol
+        
+        Args:
+            symbol: Trading pair symbol (e.g., 'BTCUSDT')
+            
+        Returns:
+            float: Minimum allowed quantity
+        """
+        try:
+            symbol_info = await self.get_symbol_info(symbol)
+            
+            # Find the LOT_SIZE filter
+            for filter in symbol_info.get('filters', []):
+                if filter.get('filterType') == 'LOT_SIZE':
+                    return float(filter.get('minQty', 1e-5))
+                    
+            # Default minimum if not found
+            return 1e-5
+            
+        except Exception as e:
+            logger.error(f"Failed to get minimum quantity: {str(e)}")
+            return 1e-5  # Default fallback

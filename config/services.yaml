@@ -21,7 +21,9 @@ api:
     testnet: true
     endpoints:
       rest: "https://testnet.binance.vision/api/"
-      websocket: "wss://testnet.binance.vision/ws/"
+      websocket_api: "wss://testnet.binance.vision/ws-api/v3"
+      websocket_streams: "wss://stream.testnet.binance.vision/ws"
+      websocket_combined: "wss://stream.testnet.binance.vision/stream"
     rate_limits:
       orders: 10          # Orders per second
       data: 20            # Market data requests per second

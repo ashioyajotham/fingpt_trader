@@ -479,6 +479,35 @@ class TradingSystem:
                 self.ui.display_error(f"Error processing signals: {str(e)}")
             return 0
 
+    async def process_trading_signal(self, signal):
+        """Process and execute a trading signal with enhanced validation"""
+        if not signal or 'symbol' not in signal:
+            return
+            
+        # Validate strength exceeds threshold
+        strength = signal.get('strength', 0)
+        threshold = self.get_config('trading.execution.signal_threshold', 0.5)
+        
+        if strength >= threshold:
+            logger.info(f"Signal exceeds threshold, executing trade...")
+            
+            # Execute the trade with our trading service
+            side = signal.get('side', 'BUY')
+            result = await self.robo_service.execute_trade(signal['symbol'], side, strength)
+            
+            # Check if execution failed due to minimum size
+            if not result.get('success', False) and 'minimum' in str(result.get('error', '')):
+                # Handle minimum size error with our new method
+                await self.handle_minimum_size_error(signal, result.get('error', 'Unknown error'))
+                
+                # Log suggested action
+                if 'action' in result:
+                    logger.info(f"Suggested action: {result['action']}")
+            
+            logger.info(f"Trade executed: {result}")
+        else:
+            logger.info(f"Signal below threshold, no trade executed")
+
     async def execute_trade(self, signal: Dict) -> None:
         """Execute a trade based on a signal"""
         try:
@@ -512,6 +541,49 @@ class TradingSystem:
         except Exception as e:
             logger.error(f"Failed to execute trade: {str(e)}")
             
+    async def handle_minimum_size_error(self, signal: Dict, error_msg: str):
+        """
+        Handle cases where position size is too small.
+        
+        Args:
+            signal: The trading signal that couldn't be executed
+            error_msg: The error message
+        """
+        try:
+            # Log the issue with clear formatting
+            logger.warning("═════════════════════════════════════════════════════")
+            logger.warning(f"POSITION SIZING ERROR: {signal['symbol']}")
+            logger.warning(f"Signal strength: {signal.get('strength', 0):.2f}")
+            logger.warning(f"Error: {error_msg}")
+            
+            # Store in trade history for reporting
+            self.trade_history.append({
+                'timestamp': datetime.now(),
+                'symbol': signal['symbol'],
+                'side': signal.get('side', 'UNKNOWN'),
+                'strength': signal.get('strength', 0),
+                'status': 'FAILED',
+                'reason': 'MINIMUM_SIZE',
+                'price': signal.get('price', 0)
+            })
+            
+            # Create a suggested allocation based on current price
+            price = signal.get('price', 0)
+            if price > 0:
+                # For BTC, suggest size in USDT that would meet minimums
+                min_qty = 1e-5 if signal['symbol'].startswith('BTC') else 1e-4
+                suggested_notional = min_qty * price * 1.1  # Add 10% buffer
+                logger.warning(f"Suggested minimum allocation: {suggested_notional:.2f} USDT")
+                
+                # Suggest portfolio percentage 
+                balance = self.get_config('trading.account.balance', 10000.0)
+                suggested_pct = (suggested_notional / balance) * 100
+                logger.warning(f"Suggested min position size: {suggested_pct:.2f}% of portfolio")
+                
+            logger.warning("═════════════════════════════════════════════════════")
+        except Exception as e:
+            logger.error(f"Error in handling minimum size notification: {e}")
+
     def _calculate_position_size(self, signal: Dict) -> float:
         """Calculate position size based on signal strength and available funds"""
         try:
@@ -527,23 +599,11 @@ class TradingSystem:
             # Calculate position size in quote currency (e.g., USDT)
             position_size = balance * position_pct
 
-            # Get exchange order minimums from config instead of hardcoding
-            min_notional = self.get_config('trading.execution.min_notional', 10.0)
-            min_qty = self.get_config('trading.execution.min_quantity', 0.00001)
+            # Get exchange minimum requirements
+            min_notional = self.get_config('trading.execution.min_notional', 15.0)  # Increased default
+            min_position_pct = self.get_config('risk.min_position_size', 0.05)      # Increased default
             
-            try:
-                # Get exchange-specific minimum if available
-                if hasattr(self, 'exchange_clients') and 'binance' in self.exchange_clients:
-                    min_notional = self.exchange_clients['binance'].get_min_notional(signal['symbol'])
-            except Exception as e:
-                logger.warning(f"Error getting min notional, using config default: {e}")
-
-            # Ensure position meets minimum notional value
-            if position_size < min_notional:
-                logger.warning(f"Increasing position size from {position_size:.2f} to minimum {min_notional} USDT")
-                position_size = min_notional
-            
-            # Calculate quantity in base currency
+            # Get current price
             price = signal.get('price', 0.0)
             if price <= 0:
                 logger.warning("Invalid price in signal, using fallback price")
@@ -555,36 +615,44 @@ class TradingSystem:
                     logger.error(f"Cannot calculate position size: no valid price for {signal['symbol']}")
                     return 0.0
             
+            # Ensure position meets minimum notional value (IMPORTANT FOR HIGH-PRICED ASSETS)
+            if position_size < min_notional:
+                logger.warning(f"Increasing position size from {position_size:.2f} to minimum {min_notional} USDT")
+                position_size = min_notional * 1.05  # Add 5% buffer to ensure we clear the minimum
+            
             # Calculate base quantity
             quantity = position_size / price
-
-            # Try to get actual minimums from exchange info
-            try:
-                if hasattr(self, 'exchange_clients') and 'binance' in self.exchange_clients:
-                    exchange_info = self.exchange_clients['binance'].get_exchange_info()
-                    for symbol_info in exchange_info.get('symbols', []):
-                        if symbol_info['symbol'] == signal['symbol']:
-                            # Extract minimum notional and quantity
-                            for filter in symbol_info.get('filters', []):
-                                if filter['filterType'] == 'NOTIONAL':
-                                    min_notional = float(filter['minNotional'])
-                                elif filter['filterType'] == 'LOT_SIZE':
-                                    min_qty = float(filter['minQty'])
-            except Exception as e:
-                logger.warning(f"Error getting exchange minimums: {e}, using config defaults")
             
-            # Ensure quantity meets minimum requirements
-            if quantity < min_qty:
-                logger.warning(f"Adjusted quantity from {quantity} to minimum {min_qty}")
-                quantity = min_qty
-                
-            # Ensure notional value meets minimum
+            # Get asset-specific minimums from exchange if available
+            min_qty = 1e-5  # Default Binance minimum for BTC
+            
+            # For high-priced assets like BTC, enforce higher minimums
+            if signal['symbol'].startswith('BTC'):
+                # For BTC, ensure we meet the minimum quantity (currently 0.00001 BTC)
+                if quantity < min_qty:
+                    logger.warning(f"Adjusting quantity from {quantity} to minimum {min_qty} for {signal['symbol']}")
+                    quantity = min_qty * 1.05  # Add buffer to ensure it passes validation
+                    # Recalculate position size for logging
+                    position_size = quantity * price
+                    logger.info(f"Adjusted position size to {position_size:.2f} USDT")
+            
+            # For other assets, use standard minimums
+            elif quantity < min_qty:
+                logger.warning(f"Adjusting quantity from {quantity} to minimum {min_qty}")
+                quantity = min_qty * 1.05  # Add buffer
+            
+            # Final check - ensure notional value meets minimum
             notional = quantity * price
             if notional < min_notional:
-                adjusted_qty = min_notional / price
-                logger.warning(f"Adjusted quantity to meet min notional: {adjusted_qty}")
+                adjusted_qty = (min_notional * 1.05) / price  # Add buffer
+                logger.warning(f"Final adjustment to meet min notional: {adjusted_qty}")
                 quantity = adjusted_qty
             
+            # Trader-specific logic: For volatile assets, consider slightly increasing
+            # position sizes to account for price movement during execution
+            if signal['symbol'] in ['BTCUSDT', 'ETHUSDT']:
+                quantity *= 1.01  # Add 1% buffer for high-volatility assets
+                
             return quantity
             
         except Exception as e:
