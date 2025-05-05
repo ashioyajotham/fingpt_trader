@@ -364,7 +364,22 @@ Current development priorities:
 
 ## License
 
-MIT License - See LICENSE for details.
+MIT License - See [LICENSE](LICENSE) for details.
+
+## Acknowledgements
+
+This project builds on the foundation of several important open-source projects and research:
+
+- **FinGPT Research**: Core ideas on financial sentiment analysis and market prediction using large language models were inspired by research from the FinGPT paper. The paper can be found [here](https://arxiv.org/abs/2306.06031).
+
+- **llama.cpp**: Our inferencing pipeline leverages the efficient llama.cpp framework for running the language model with minimal computational resources, enabling local execution without cloud dependencies. Read more about it [here](https://github.com/ggml-org/llama.cpp)
+
+- **Binance API**: Trading functionality is built on the Binance exchange API and Python client libraries, which provide a robust infrastructure for cryptocurrency trading. The API documentation can be found [here](https://binance-docs.github.io/apidocs/spot/en/#public-rest-api).
+
+- **Python AsyncIO**: The asynchronous architecture is powered by Python's AsyncIO framework, enabling efficient concurrent operations. Learn more about AsyncIO [here](https://docs.python.org/3/library/asyncio.html).
+
+Special thanks to all open-source contributors whose tools and libraries make projects like this possible.
 
 ## Contributing
-Contributions are welcome! Please fork the repository and submit a pull request with your changes. Ensure to follow the code style and include tests for new features. See CONTRIBUTING.md for more details.
+
+Contributions are welcome! Please fork the repository and submit a pull request with your changes. Ensure to follow the code style and include tests for new features. See [CONTRIBUTING.md](CONTRIBUTING.md) for more details.
