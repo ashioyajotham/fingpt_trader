@@ -290,6 +290,130 @@ class RoboService(BaseService):
             logger.error(f"Position analysis failed: {str(e)}")
             return None
         
+    async def execute_trade(self, signal: Dict) -> Dict:
+        """
+        Execute a trade based on the provided signal.
+        
+        Args:
+            signal: Dictionary containing:
+                - symbol: Trading pair (e.g., 'BTCUSDT')
+                - direction: 'BUY' or 'SELL'
+                - strength: Signal strength (0.0-1.0)
+                - price: Current price
+                - metadata: Additional signal data
+                
+        Returns:
+            Dict: Trade execution result with:
+                - success: True if executed
+                - order_id: Exchange order ID
+                - quantity: Amount traded
+                - price: Execution price
+                - timestamp: Execution time
+        """
+        try:
+            symbol = signal.get('symbol')
+            direction = signal.get('direction')
+            strength = signal.get('strength', 0.0)
+            price = signal.get('price', 0.0)
+            
+            logger.info(f"Executing {direction} trade for {symbol} with strength {strength:.2f}")
+            
+            # Determine position size based on signal strength and account balance
+            # Use a percentage of the portfolio based on signal strength
+            account_value = self.portfolio.cash
+            max_position_pct = self.config.get('risk', {}).get('position_limit', 0.2)
+            
+            # Scale position by signal strength (stronger signals = larger positions)
+            position_pct = max_position_pct * min(strength * 1.5, 1.0)  # Cap at max position
+            position_value = account_value * position_pct
+            
+            # Calculate quantity based on current price
+            quantity = position_value / price if price > 0 else 0
+            
+            # If exchange clients are available, try to execute on exchange
+            if hasattr(self, 'exchange_clients') and self.exchange_clients:
+                # Default to first available exchange
+                exchange_name = list(self.exchange_clients.keys())[0]
+                exchange = self.exchange_clients[exchange_name]
+                
+                # Format quantity according to exchange rules
+                quantity = self._format_quantity(symbol, quantity)
+                
+                # Execute order on exchange
+                if direction.upper() == 'BUY':
+                    # Execute buy order
+                    order = await exchange.create_market_buy_order(symbol, quantity)
+                    # Update portfolio
+                    self.portfolio.add_position(symbol, quantity, price)
+                else:
+                    # Execute sell order
+                    order = await exchange.create_market_sell_order(symbol, quantity)
+                    # Update portfolio
+                    self.portfolio.reduce_position(symbol, quantity, price)
+                    
+                # Return trade details
+                return {
+                    'success': True,
+                    'order_id': order.get('id', 'mock-order'),
+                    'symbol': symbol,
+                    'direction': direction,
+                    'quantity': quantity,
+                    'price': price,
+                    'value': quantity * price,
+                    'timestamp': datetime.now().isoformat()
+                }
+            else:
+                # Simulation mode - update portfolio directly
+                if direction.upper() == 'BUY':
+                    self.portfolio.add_position(symbol, quantity, price)
+                else:
+                    self.portfolio.reduce_position(symbol, quantity, price)
+                    
+                # Return simulated trade
+                return {
+                    'success': True,
+                    'order_id': f'sim-{datetime.now().timestamp()}',
+                    'symbol': symbol,
+                    'direction': direction,
+                    'quantity': quantity,
+                    'price': price,
+                    'value': quantity * price,
+                    'timestamp': datetime.now().isoformat(),
+                    'simulated': True
+                }
+        
+        except Exception as e:
+            logger.error(f"Trade execution failed: {str(e)}")
+            return {
+                'success': False,
+                'symbol': signal.get('symbol'),
+                'error': str(e)
+            }
+            
+    def _format_quantity(self, symbol: str, quantity: float) -> float:
+        """Format quantity according to exchange rules"""
+        try:
+            # Default precision if not available
+            precision = 5
+            
+            # Get symbol info if available
+            if hasattr(self, 'exchange') and hasattr(self.exchange, 'get_symbol_info'):
+                symbol_info = self.exchange.get_symbol_info(symbol)
+                if symbol_info:
+                    # Get quantity precision
+                    precision = int(symbol_info.get('qty_precision', precision))
+                    
+                    # Get minimum quantity
+                    min_qty = float(symbol_info.get('min_qty', 0.00001))
+                    quantity = max(quantity, min_qty)
+            
+            # Round to appropriate precision
+            return round(quantity, precision)
+        except Exception as e:
+            logger.error(f"Error formatting quantity: {str(e)}")
+            # Return original as fallback
+            return quantity
+
     def get_positions(self):
         """
         Get current portfolio positions.

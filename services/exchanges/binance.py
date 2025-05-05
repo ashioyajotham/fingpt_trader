@@ -601,6 +601,14 @@ class BinanceClient:
             logger.error(f"Sell order failed: {str(e)}")
             raise
 
+    async def create_market_buy_order(self, symbol: str, quantity: float) -> Dict:
+        """Wrapper for create_buy_order with MARKET type"""
+        return await self.create_buy_order(symbol, quantity, "MARKET")
+    
+    async def create_market_sell_order(self, symbol: str, quantity: float) -> Dict:
+        """Wrapper for create_sell_order with MARKET type"""
+        return await self.create_sell_order(symbol, quantity, "MARKET")
+
     def _format_quantity(self, quantity: float, symbol_info: Dict) -> str:
         """
         Format order quantity according to exchange rules.
