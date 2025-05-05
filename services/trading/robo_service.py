@@ -290,6 +290,138 @@ class RoboService(BaseService):
             logger.error(f"Position analysis failed: {str(e)}")
             return None
         
+    async def execute_trade(self, signal: Dict) -> Dict:
+        """Execute a trade based on the provided signal."""
+        try:
+            symbol = signal.get('symbol')
+            direction = signal.get('direction')
+            strength = signal.get('strength', 0.0)
+            price = signal.get('price', 0.0)
+            
+            # Check for invalid price
+            if price <= 0:
+                logger.error(f"Invalid price {price} for {symbol}, cannot execute trade")
+                return {
+                    'success': False,
+                    'symbol': symbol,
+                    'error': f"Invalid price {price}"
+                }
+            
+            # Calculate minimum value based on exchange requirements
+            min_notional = 10.0  # Default Binance minimum (in USDT)
+            for exchange_name, exchange in self.exchange_clients.items():
+                if hasattr(exchange, 'get_symbol_info'):
+                    symbol_info = exchange.get_symbol_info(symbol)
+                    if symbol_info:
+                        for f in symbol_info.get('filters', []):
+                            if f.get('filterType') == 'MIN_NOTIONAL':
+                                min_notional = float(f.get('minNotional', min_notional))
+                                break
+            
+            logger.info(f"Executing {direction} trade for {symbol} with strength {strength:.2f}")
+            
+            # Determine position size based on signal strength and account balance
+            account_value = self.portfolio.cash
+            max_position_pct = self.config.get('risk', {}).get('position_limit', 0.2)
+            
+            # Scale position by signal strength
+            position_pct = max_position_pct * min(strength * 1.5, 1.0)
+            position_value = account_value * position_pct
+            
+            # IMPORTANT IMPROVEMENT: Ensure minimum order value
+            min_order_value = min_notional * 1.05  # Add 5% buffer
+            if position_value < min_order_value:
+                # Adjust position value to meet minimum requirement
+                logger.warning(f"Adjusting order value from {position_value:.2f} to minimum {min_order_value:.2f} USDT")
+                position_value = min_order_value
+            
+            # Calculate quantity based on current price
+            quantity = position_value / price if price > 0 else 0
+            
+            # If exchange clients are available, try to execute on exchange
+            if hasattr(self, 'exchange_clients') and self.exchange_clients:
+                # Default to first available exchange
+                exchange_name = list(self.exchange_clients.keys())[0]
+                exchange = self.exchange_clients[exchange_name]
+                
+                # Format quantity according to exchange rules
+                quantity = self._format_quantity(symbol, quantity)
+                
+                # Execute order on exchange
+                if direction.upper() == 'BUY':
+                    # Execute buy order
+                    order = await exchange.create_market_buy_order(symbol, quantity)
+                    # Update portfolio
+                    self.portfolio.add_position(symbol, quantity, price)
+                else:
+                    # Execute sell order
+                    order = await exchange.create_market_sell_order(symbol, quantity)
+                    # Update portfolio
+                    self.portfolio.reduce_position(symbol, quantity, price)
+                    
+                # Return trade details
+                return {
+                    'success': True,
+                    'order_id': order.get('id', 'mock-order'),
+                    'symbol': symbol,
+                    'direction': direction,
+                    'quantity': quantity,
+                    'price': price,
+                    'value': quantity * price,
+                    'timestamp': datetime.now().isoformat()
+                }
+            else:
+                # Simulation mode - update portfolio directly
+                if direction.upper() == 'BUY':
+                    self.portfolio.add_position(symbol, quantity, price)
+                else:
+                    self.portfolio.reduce_position(symbol, quantity, price)
+                    
+                # Return simulated trade
+                return {
+                    'success': True,
+                    'order_id': f'sim-{datetime.now().timestamp()}',
+                    'symbol': symbol,
+                    'direction': direction,
+                    'quantity': quantity,
+                    'price': price,
+                    'value': quantity * price,
+                    'timestamp': datetime.now().isoformat(),
+                    'simulated': True
+                }
+        
+        except Exception as e:
+            logger.error(f"Trade execution failed: {str(e)}")
+            return {
+                'success': False,
+                'symbol': signal.get('symbol'),
+                'error': str(e)
+            }
+            
+    def _format_quantity(self, symbol: str, quantity: float) -> float:
+        """Format quantity according to exchange rules"""
+        try:
+            # Default precision if not available
+            precision = 5
+            
+            # Get symbol info if available
+            if hasattr(self, 'exchange') and hasattr(self.exchange, 'get_symbol_info'):
+                symbol_info = self.exchange.get_symbol_info(symbol)
+                if symbol_info:
+                    # Get quantity precision
+                    precision = int(symbol_info.get('qty_precision', precision))
+                    
+                    # Get minimum quantity
+                    min_qty = float(symbol_info.get('min_qty', 0.00001))
+                    quantity = max(quantity, min_qty)
+            
+            # Round to appropriate precision
+            return round(quantity, precision)
+        except Exception as e:
+            logger.error(f"Error formatting quantity: {str(e)}")
+            # Return original as fallback
+            return quantity
+
     def get_positions(self):
         """
         Get current portfolio positions.

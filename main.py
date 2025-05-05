@@ -84,7 +84,7 @@ if sys.platform.startswith('win'):
 from typing import Dict, List, Optional, Any
 import numpy as np
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from utils.logging import LogManager
 from utils.config import ConfigManager
@@ -376,6 +376,9 @@ class TradingSystem:
                     # Get latest market data
                     await self.update_market_data()
                     
+                    # Update UI with latest data
+                    await self.update_ui()
+                    
                     # Update UI with latest prices if available
                     if hasattr(self, 'ui'):
                         for pair in self.market_data_service.get_watched_pairs():
@@ -510,21 +513,83 @@ class TradingSystem:
             logger.error(f"Failed to execute trade: {str(e)}")
             
     def _calculate_position_size(self, signal: Dict) -> float:
-        """Calculate appropriate position size based on signal and risk parameters"""
-        # Get account balance and position limits from config
-        account_value = self.get_config('trading.initial_balance')
-        position_limit = self.get_config('risk.position_limit')
-        
-        # Calculate max position size
-        max_position = account_value * position_limit
-        
-        # Scale by signal strength
-        position_size = max_position * signal['strength']
-        
-        # Convert to asset quantity based on current price
-        quantity = position_size / signal['price']
-        
-        return quantity
+        """Calculate position size based on signal strength and available funds"""
+        try:
+            # Get account balance
+            balance = self.get_config('trading.account.balance', 10000.0)
+            max_position_pct = self.get_config('trading.position_sizing.max_position_pct', 0.05)
+            base_position_pct = self.get_config('trading.position_sizing.base_position_pct', 0.01)
+            
+            # Scale position size based on signal strength (0.0-1.0)
+            strength_factor = min(signal.get('strength', 0.5), 1.0)
+            position_pct = base_position_pct + ((max_position_pct - base_position_pct) * strength_factor)
+            
+            # Calculate position size in quote currency (e.g., USDT)
+            position_size = balance * position_pct
+
+            # Get exchange order minimums from config instead of hardcoding
+            min_notional = self.get_config('trading.execution.min_notional', 10.0)
+            min_qty = self.get_config('trading.execution.min_quantity', 0.00001)
+            
+            try:
+                # Get exchange-specific minimum if available
+                if hasattr(self, 'exchange_clients') and 'binance' in self.exchange_clients:
+                    min_notional = self.exchange_clients['binance'].get_min_notional(signal['symbol'])
+            except Exception as e:
+                logger.warning(f"Error getting min notional, using config default: {e}")
+
+            # Ensure position meets minimum notional value
+            if position_size < min_notional:
+                logger.warning(f"Increasing position size from {position_size:.2f} to minimum {min_notional} USDT")
+                position_size = min_notional
+            
+            # Calculate quantity in base currency
+            price = signal.get('price', 0.0)
+            if price <= 0:
+                logger.warning("Invalid price in signal, using fallback price")
+                # Try to get current price from market data service
+                if hasattr(self, 'market_data_service'):
+                    price = self.market_data_service.get_latest_price(signal['symbol'])
+                
+                if price <= 0:
+                    logger.error(f"Cannot calculate position size: no valid price for {signal['symbol']}")
+                    return 0.0
+            
+            # Calculate base quantity
+            quantity = position_size / price
+
+            # Try to get actual minimums from exchange info
+            try:
+                if hasattr(self, 'exchange_clients') and 'binance' in self.exchange_clients:
+                    exchange_info = self.exchange_clients['binance'].get_exchange_info()
+                    for symbol_info in exchange_info.get('symbols', []):
+                        if symbol_info['symbol'] == signal['symbol']:
+                            # Extract minimum notional and quantity
+                            for filter in symbol_info.get('filters', []):
+                                if filter['filterType'] == 'NOTIONAL':
+                                    min_notional = float(filter['minNotional'])
+                                elif filter['filterType'] == 'LOT_SIZE':
+                                    min_qty = float(filter['minQty'])
+            except Exception as e:
+                logger.warning(f"Error getting exchange minimums: {e}, using config defaults")
+            
+            # Ensure quantity meets minimum requirements
+            if quantity < min_qty:
+                logger.warning(f"Adjusted quantity from {quantity} to minimum {min_qty}")
+                quantity = min_qty
+                
+            # Ensure notional value meets minimum
+            notional = quantity * price
+            if notional < min_notional:
+                adjusted_qty = min_notional / price
+                logger.warning(f"Adjusted quantity to meet min notional: {adjusted_qty}")
+                quantity = adjusted_qty
+            
+            return quantity
+            
+        except Exception as e:
+            logger.error(f"Error calculating position size: {e}")
+            return 0.0
 
     def _format_order_size(self, trade: Dict) -> float:
         """Format order size correctly for the exchange"""
@@ -641,22 +706,33 @@ class TradingSystem:
     async def update_market_data(self):
         """Fetch and process the latest market data"""
         try:
-            # Get the trading pairs from config
+            # Get trading pairs
             pairs = self.get_config('trading.pairs')
             
-            # Fetch latest data from the market data service
+            # Log request
+            logger.debug(f"Fetching market data for pairs: {pairs}")
+            
+            # Fetch market data
             market_data = await self.market_data_service.get_realtime_quote(pairs)
             
-            # Log summary of fetched data
-            prices = {symbol: data.get('price') for symbol, data in market_data.items()}
-            logger.debug(f"Updated market data: {prices}")
+            # Debug log the returned data structure
+            logger.debug(f"Market data response: {market_data}")
             
-            return market_data
+            # Check if data is valid and contains expected fields
+            for symbol, data in market_data.items():
+                price_fields_found = []
+                if isinstance(data, dict):
+                    for field in ['price', 'lastPrice', 'last', 'close']:
+                        if field in data:
+                            price_fields_found.append(f"{field}={data[field]}")
+                    logger.debug(f"{symbol} price fields: {', '.join(price_fields_found) or 'none'}")
+                else:
+                    logger.warning(f"Unexpected data format for {symbol}: {type(data)}")
+                
+            # Process the market data and update internal state
+            # ...
         except Exception as e:
             logger.error(f"Error updating market data: {str(e)}")
-            if hasattr(self, 'ui'):
-                self.ui.display_error(f"Market data error: {str(e)}")
-            return {}
 
     async def update_news_data(self):
         """Fetch and process the latest news data"""
@@ -700,12 +776,35 @@ class TradingSystem:
                 logger.warning("No news data available for sentiment analysis")
                 return signals
                 
-            # Get trading pairs
+            # Get trading pairs and current market prices
             pairs = self.get_config('trading.pairs')
             
+            # Get sentiment thresholds from config
+            detection_threshold = self.get_config('strategies.sentiment.detection_threshold', 0.3)
+            confidence_threshold = self.get_config('strategies.sentiment.min_confidence', 0.4)
+            
+            # First get current market prices for all pairs
+            current_prices = {}
+            for pair in pairs:
+                # Get latest price from market data service
+                if hasattr(self.market_data_service, 'get_latest_price'):
+                    price = self.market_data_service.get_latest_price(pair)
+                    current_prices[pair] = price
+                else:
+                    # Fallback if method doesn't exist
+                    current_prices[pair] = 0.0
+                        
             for pair in pairs:
                 # Skip if no news for this pair
                 if pair not in news_data or not news_data[pair]:
+                    continue
+                    
+                # Get current price for this pair
+                current_price = current_prices.get(pair, 0.0)
+                
+                # Skip if price is not available or None
+                if current_price is None or current_price <= 0:
+                    logger.warning(f"No valid price available for {pair}, skipping sentiment analysis")
                     continue
                     
                 # Analyze each news item
@@ -748,17 +847,16 @@ class TradingSystem:
                         else:
                             logger.info(f"Sentiment analysis: score=[yellow]{sentiment_score:.2f}[/yellow], confidence={confidence:.2f}")
                         
-                        # Generate signal if sentiment is strong enough
-                        threshold = self.get_config('strategies.sentiment.detection_threshold', 0.3)
-                        if abs(sentiment_score) > threshold and confidence > 0.4:
-                            logger.info(f"[bold]Strong sentiment signal detected![/bold] (threshold={threshold:.2f})")
+                        # Generate signal if sentiment is strong enough - using config thresholds
+                        if abs(sentiment_score) > detection_threshold and confidence > confidence_threshold:
+                            logger.info(f"[bold]Strong sentiment signal detected![/bold] (threshold={detection_threshold:.2f})")
                             
                             signals.append({
                                 'symbol': pair,
                                 'type': 'SENTIMENT',
                                 'direction': 'BUY' if sentiment_score > 0 else 'SELL',
                                 'strength': abs(sentiment_score) * confidence,
-                                'price': news.get('price', 0.0),
+                                'price': current_price,
                                 'timestamp': datetime.now(),
                                 'metadata': {
                                     'sentiment': sentiment_score,
@@ -767,8 +865,18 @@ class TradingSystem:
                                     'source': news.get('source')
                                 }
                             })
+                            
+                            # Update UI with new sentiment
+                            if hasattr(self, 'ui'):
+                                sentiment_text = self.ui._format_sentiment(sentiment_score)
+                                self.ui.update_sentiment(pair, sentiment_text)
                         else:
                             logger.info(f"Sentiment below thresholds, no signal generated")
+                        
+                        # After sentiment analysis, add:
+                        if hasattr(self, 'ui'):
+                            sentiment_display = self.ui._format_sentiment(sentiment_score)
+                            self.ui.update_sentiment(pair, sentiment_display)
                             
                     except Exception as e:
                         logger.error(f"Error analyzing news sentiment: {str(e)}")
@@ -777,6 +885,88 @@ class TradingSystem:
         except Exception as e:
             logger.error(f"Error in market sentiment analysis: {str(e)}")
             return []
+
+    async def update_ui(self):
+        """Update the UI with latest market data"""
+        try:
+            # Get trading pairs
+            pairs = self.get_config('trading.pairs')
+            
+            # Get sentiment thresholds from config for UI display
+            bullish_threshold = self.get_config('strategies.sentiment.detection_threshold', 0.3)
+            bearish_threshold = -1 * bullish_threshold
+            
+            for pair in pairs:
+                # Fetch price directly from cache where we know it's stored correctly
+                price = 0.0
+                if hasattr(self, 'market_data_service') and pair in self.market_data_service.cache:
+                    data = self.market_data_service.cache[pair]
+                    
+                    # Try different price fields
+                    for field in ['price', 'lastPrice', 'last', 'close']:
+                        if field in data and data[field]:
+                            try:
+                                price = float(data[field])
+                                if price > 0:
+                                    # Update UI with the valid price
+                                    if hasattr(self, 'ui'):
+                                        self.ui.update_price(pair, price)
+                                    break
+                            except (ValueError, TypeError):
+                                pass
+                
+                # Calculate 24h change if we have enough history data
+                change_pct = 0.0
+                if hasattr(self, 'market_data_service') and \
+                   hasattr(self.market_data_service, 'price_history') and \
+                   pair in self.market_data_service.price_history:
+                    
+                    history = self.market_data_service.price_history[pair]
+                    if len(history) >= 2:
+                        # Calculate change from oldest to newest price
+                        newest_price = history[-1]['price']
+                        # Find price closest to 24h ago
+                        day_ago = datetime.now() - timedelta(hours=24)
+                        closest_idx = 0
+                        for i, entry in enumerate(history):
+                            if abs((entry['timestamp'] - day_ago).total_seconds()) < \
+                               abs((history[closest_idx]['timestamp'] - day_ago).total_seconds()):
+                                closest_idx = i
+                        
+                        if closest_idx < len(history):
+                            old_price = history[closest_idx]['price']
+                            if old_price > 0:
+                                change_pct = ((newest_price - old_price) / old_price) * 100
+                                # Add UI method if it exists
+                                if hasattr(self, 'ui') and hasattr(self.ui, 'update_change'):
+                                    self.ui.update_change(pair, change_pct)
+            
+            # Update sentiment in UI using config thresholds
+            if hasattr(self, 'ui') and hasattr(self, 'recent_signals'):
+                for pair in pairs:
+                    # Find the most recent strong sentiment signal for this pair
+                    sentiment_value = "Neutral"
+                    sentiment_direction = "↔"
+                    
+                    # Check recent signals for sentiment data
+                    recent_signals = [s for s in self.recent_signals if s['symbol'] == pair]
+                    if recent_signals:
+                        # Get the most recent signal
+                        signal = max(recent_signals, key=lambda x: x['timestamp'])
+                        sentiment_score = signal['metadata'].get('sentiment', 0.0)
+                        
+                        if sentiment_score > bullish_threshold:
+                            sentiment_value = "Bullish"
+                            sentiment_direction = "↑"
+                        elif sentiment_score < bearish_threshold:
+                            sentiment_value = "Bearish"
+                            sentiment_direction = "↓"
+                        
+                    # Update UI with sentiment
+                    if hasattr(self.ui, 'update_sentiment'):
+                        self.ui.update_sentiment(pair, f"{sentiment_value} {sentiment_direction}")
+        except Exception as e:
+            logger.error(f"Error updating UI: {str(e)}")
 
 # Helper function to wait for shutdown signal
 async def wait_for_shutdown(shutdown_event):
