@@ -169,7 +169,13 @@ class SentimentAnalyzer:
                     confidence = result.get('confidence', 0.0)
                     
                     # Log detailed results
-                    logger.info(f"Sentiment analysis: score={sentiment_score:.2f}, confidence={confidence:.2f}")
+                    try:
+                        sentiment_score = float(sentiment_score)
+                        confidence = float(confidence)
+                        logger.info(f"Sentiment analysis: score={sentiment_score:.2f}, confidence={confidence:.2f}")
+                    except (ValueError, TypeError):
+                        logger.info(f"Sentiment analysis: score={sentiment_score} (invalid format), confidence={confidence}")
+                    
                     if abs(sentiment_score) >= self.detection_threshold and confidence >= self.confidence_threshold:
                         logger.info(f"Strong sentiment signal detected! (threshold={self.detection_threshold:.2f})")
                     else:

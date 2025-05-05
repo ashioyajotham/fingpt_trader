@@ -45,7 +45,7 @@ trading:
   execution:
     signal_threshold: 0.5  # Minimum signal strength to execute trades
     default_exchange: "binance"  # Default exchange for execution
-    min_notional: 10.0        # Minimum order value in USDT
+    min_notional: 15.0        # Minimum order value in USDT - INCREASED from 10.0
     min_quantity: 0.00001     # Minimum order quantity
     
   position_sizing:
@@ -79,7 +79,8 @@ risk:
   margin_minimum: 0.5       # Minimum margin requirement (50%)
   
   # Position controls
-  min_position_size: 0.01   # Minimum position size (% of portfolio)
+  min_position_size: 0.05   # Minimum position size (% of portfolio) - INCREASED from 0.01
+  min_nominal_value: 15.0   # Minimum trade value in USDT - NEW PARAMETER
   auto_stop_loss: true      # Automatically set stop losses
   trailing_stop: false      # Use trailing stops
   
