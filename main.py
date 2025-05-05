@@ -865,8 +865,18 @@ class TradingSystem:
                                     'source': news.get('source')
                                 }
                             })
+                            
+                            # Update UI with new sentiment
+                            if hasattr(self, 'ui'):
+                                sentiment_text = self.ui._format_sentiment(sentiment_score)
+                                self.ui.update_sentiment(pair, sentiment_text)
                         else:
                             logger.info(f"Sentiment below thresholds, no signal generated")
+                        
+                        # After sentiment analysis, add:
+                        if hasattr(self, 'ui'):
+                            sentiment_display = self.ui._format_sentiment(sentiment_score)
+                            self.ui.update_sentiment(pair, sentiment_display)
                             
                     except Exception as e:
                         logger.error(f"Error analyzing news sentiment: {str(e)}")
