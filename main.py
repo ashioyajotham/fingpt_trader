@@ -700,12 +700,31 @@ class TradingSystem:
                 logger.warning("No news data available for sentiment analysis")
                 return signals
                 
-            # Get trading pairs
+            # Get trading pairs and current market prices
             pairs = self.get_config('trading.pairs')
             
+            # First get current market prices for all pairs
+            current_prices = {}
+            for pair in pairs:
+                # Get latest price from market data service
+                if hasattr(self.market_data_service, 'get_latest_price'):
+                    price = self.market_data_service.get_latest_price(pair)
+                    current_prices[pair] = price
+                else:
+                    # Fallback if method doesn't exist
+                    current_prices[pair] = 0.0
+                        
             for pair in pairs:
                 # Skip if no news for this pair
                 if pair not in news_data or not news_data[pair]:
+                    continue
+                    
+                # Get current price for this pair
+                current_price = current_prices.get(pair, 0.0)
+                
+                # Skip if price is not available or None
+                if current_price is None or current_price <= 0:
+                    logger.warning(f"No valid price available for {pair}, skipping sentiment analysis")
                     continue
                     
                 # Analyze each news item
@@ -758,7 +777,7 @@ class TradingSystem:
                                 'type': 'SENTIMENT',
                                 'direction': 'BUY' if sentiment_score > 0 else 'SELL',
                                 'strength': abs(sentiment_score) * confidence,
-                                'price': news.get('price', 0.0),
+                                'price': current_price,  # Use current market price instead of 0.0
                                 'timestamp': datetime.now(),
                                 'metadata': {
                                     'sentiment': sentiment_score,

@@ -291,41 +291,49 @@ class RoboService(BaseService):
             return None
         
     async def execute_trade(self, signal: Dict) -> Dict:
-        """
-        Execute a trade based on the provided signal.
-        
-        Args:
-            signal: Dictionary containing:
-                - symbol: Trading pair (e.g., 'BTCUSDT')
-                - direction: 'BUY' or 'SELL'
-                - strength: Signal strength (0.0-1.0)
-                - price: Current price
-                - metadata: Additional signal data
-                
-        Returns:
-            Dict: Trade execution result with:
-                - success: True if executed
-                - order_id: Exchange order ID
-                - quantity: Amount traded
-                - price: Execution price
-                - timestamp: Execution time
-        """
+        """Execute a trade based on the provided signal."""
         try:
             symbol = signal.get('symbol')
             direction = signal.get('direction')
             strength = signal.get('strength', 0.0)
             price = signal.get('price', 0.0)
             
+            # Check for invalid price
+            if price <= 0:
+                logger.error(f"Invalid price {price} for {symbol}, cannot execute trade")
+                return {
+                    'success': False,
+                    'symbol': symbol,
+                    'error': f"Invalid price {price}"
+                }
+            
+            # Calculate minimum value based on exchange requirements
+            min_notional = 10.0  # Default Binance minimum (in USDT)
+            for exchange_name, exchange in self.exchange_clients.items():
+                if hasattr(exchange, 'get_symbol_info'):
+                    symbol_info = exchange.get_symbol_info(symbol)
+                    if symbol_info:
+                        for f in symbol_info.get('filters', []):
+                            if f.get('filterType') == 'MIN_NOTIONAL':
+                                min_notional = float(f.get('minNotional', min_notional))
+                                break
+            
             logger.info(f"Executing {direction} trade for {symbol} with strength {strength:.2f}")
             
             # Determine position size based on signal strength and account balance
-            # Use a percentage of the portfolio based on signal strength
             account_value = self.portfolio.cash
             max_position_pct = self.config.get('risk', {}).get('position_limit', 0.2)
             
-            # Scale position by signal strength (stronger signals = larger positions)
-            position_pct = max_position_pct * min(strength * 1.5, 1.0)  # Cap at max position
+            # Scale position by signal strength
+            position_pct = max_position_pct * min(strength * 1.5, 1.0)
             position_value = account_value * position_pct
+            
+            # IMPORTANT IMPROVEMENT: Ensure minimum order value
+            min_order_value = min_notional * 1.05  # Add 5% buffer
+            if position_value < min_order_value:
+                # Adjust position value to meet minimum requirement
+                logger.warning(f"Adjusting order value from {position_value:.2f} to minimum {min_order_value:.2f} USDT")
+                position_value = min_order_value
             
             # Calculate quantity based on current price
             quantity = position_value / price if price > 0 else 0

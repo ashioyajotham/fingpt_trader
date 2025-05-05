@@ -311,23 +311,25 @@ class MarketDataService(BaseService):
         """
         return self.config.get('pairs', [])
 
-    def get_latest_price(self, symbol):
-        """
-        Get latest price for a specific trading pair.
-        
-        Args:
-            symbol (str): Trading pair symbol (e.g. 'BTCUSDT')
-            
-        Returns:
-            float: Latest price or None if not available
-        """
+    def get_latest_price(self, symbol: str) -> float:
+        """Get the latest price for a trading pair."""
         try:
+            # Check if symbol exists in cache
             if symbol in self.cache:
-                return float(self.cache[symbol].get('price', 0))
-            return None
+                data = self.cache[symbol]
+                price = float(data.get('price', 0)) if data.get('price') else 0.0
+                return price
+                
+            # Try to get from price history if available
+            if symbol in self.price_history and self.price_history[symbol]:
+                # Return the most recent price
+                return float(self.price_history[symbol][-1])
+                
+            logger.debug(f"No price data available for {symbol}")
+            return 0.0  # Return 0.0 instead of None
         except Exception as e:
-            logger.error(f"Error getting price for {symbol}: {str(e)}")
-            return None
+            logger.error(f"Error retrieving latest price for {symbol}: {str(e)}")
+            return 0.0  # Return 0.0 instead of None
 
 class MarketDataFeed(BaseService):
     """Market data feed handler"""
@@ -393,6 +395,27 @@ class MarketDataFeed(BaseService):
                 await handler(event_type, data)
             except Exception as e:
                 logger.error(f"Handler error: {e}")
+
+    async def update_prices(self, pairs: List[str]) -> None:
+        """Update prices for the given trading pairs."""
+        current_prices = {}
+        # Add defensive coding
+        for pair in pairs:
+            try:
+                # Get latest price with additional logging
+                if hasattr(self.market_data_service, 'get_latest_price'):
+                    price = self.market_data_service.get_latest_price(pair)
+                    if price is None:
+                        logger.warning(f"get_latest_price for {pair} returned None")
+                    elif price <= 0:
+                        logger.warning(f"get_latest_price for {pair} returned invalid price: {price}")
+                    else:
+                        logger.debug(f"Got valid price for {pair}: {price}")
+                    current_prices[pair] = price
+                else:
+                    logger.warning("Market data service missing get_latest_price method")
+            except Exception as e:
+                logger.error(f"Error getting price for {pair}: {str(e)}")
 
 # Export both classes
 __all__ = ['MarketDataService', 'MarketDataFeed']
