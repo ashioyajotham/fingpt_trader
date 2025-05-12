@@ -306,7 +306,6 @@ class RoboService(BaseService):
                 # side and strength already provided as params
                 signal = {'symbol': symbol, 'side': side, 'strength': strength}
             
-            # After parameter extraction:
             # Calculate position size based on strength
             position_size = self._calculate_position_size(symbol, strength)
 
@@ -318,37 +317,124 @@ class RoboService(BaseService):
                     current_price = float(ticker['lastPrice'])
                 except Exception as e:
                     logger.error(f"Failed to get price for {symbol}: {e}")
+                    # Fallback prices
+                    if symbol == 'BTCUSDT':
+                        current_price = 100000
+                    elif symbol == 'ETHUSDT':
+                        current_price = 2500
+                    elif symbol == 'BNBUSDT':
+                        current_price = 600
 
-            # Minimum requirements for order
+            # Check minimum requirements
             min_notional = 15.0  # Minimum USD value
             min_qty = 0.00001 if symbol.startswith('BTC') else 0.001  # Default minimums
+            if position_size * current_price < min_notional:
+                logger.warning(f"Order too small: {position_size} {symbol} @ {current_price} = ${position_size * current_price:.2f} < ${min_notional}")
+                return {'success': False, 'symbol': symbol, 'error': f"Order size too small (min ${min_notional})"}
 
-            # Execute appropriate order based on signal
+            # Execute order based on side
             if side.upper() == 'BUY':
-                logger.info(f"Executing BUY for {symbol} with quantity {position_size}")
-                if 'binance' in self.exchange_clients:
-                    try:
-                        result = await self.exchange_clients['binance'].create_market_buy_order(symbol, position_size)
-                        return {'success': True, 'symbol': symbol, 'side': 'BUY', 'quantity': position_size, 'details': result}
-                    except Exception as e:
-                        logger.error(f"Buy order failed: {e}")
-                        return {'success': False, 'symbol': symbol, 'error': str(e)}
-                        
+                return await self._execute_buy(symbol, position_size, current_price)
             elif side.upper() == 'SELL':
-                logger.info(f"Executing SELL for {symbol} with quantity {position_size}")
-                if 'binance' in self.exchange_clients:
-                    try:
-                        result = await self.exchange_clients['binance'].create_market_sell_order(symbol, position_size)
-                        return {'success': True, 'symbol': symbol, 'side': 'SELL', 'quantity': position_size, 'details': result}
-                    except Exception as e:
-                        logger.error(f"Sell order failed: {e}")
-                        return {'success': False, 'symbol': symbol, 'error': str(e)}
-
-            # Return failure if side is invalid or exchange not available
-            return {'success': False, 'symbol': symbol, 'error': 'Invalid side or exchange not available'}
+                return await self._execute_sell(symbol, position_size, current_price)
+            else:
+                return {'success': False, 'symbol': symbol, 'error': f"Invalid side: {side}"}
+                
         except Exception as e:
             logger.error(f"Trade execution failed: {str(e)}")
-            raise  # Re-raise to ensure proper error handling
+            return {'success': False, 'symbol': signal_or_symbol if isinstance(signal_or_symbol, str) else signal_or_symbol.get('symbol', 'UNKNOWN'), 'error': str(e)}
+
+    async def _execute_buy(self, symbol, position_size, current_price):
+        """Execute a buy order and update portfolio"""
+        logger.info(f"Executing BUY for {symbol} with quantity {position_size}")
+        try:
+            if 'binance' not in self.exchange_clients:
+                return {'success': False, 'symbol': symbol, 'error': "Binance client not available"}
+                
+            # Execute order
+            result = await self.exchange_clients['binance'].create_market_buy_order(symbol, position_size)
+            
+            # Update portfolio if order successful
+            if result:
+                # Get actual execution price and quantity
+                fills = result.get('details', {}).get('fills', [{'price': current_price}])
+                actual_price = float(fills[0]['price']) if fills else current_price
+                
+                # Calculate total cost including commission
+                commission = result.get('details', {}).get('cummulativeQuoteQty', position_size * actual_price)
+                
+                # Update portfolio tracking
+                if hasattr(self, 'portfolio'):
+                    portfolio_updated = await self.portfolio.add_position(symbol, position_size, actual_price, commission)
+                    if portfolio_updated:
+                        logger.info(f"Portfolio updated: Added {position_size} {symbol} @ {actual_price}")
+                    else:
+                        logger.warning(f"Portfolio update failed for {symbol}")
+                
+                # Calculate performance metrics
+                self._calculate_performance_metrics()
+                
+                return {'success': True, 'symbol': symbol, 'side': 'BUY', 
+                        'quantity': position_size, 'price': actual_price, 
+                        'details': result}
+        except Exception as e:
+            logger.error(f"Buy order failed: {e}")
+            return {'success': False, 'symbol': symbol, 'error': str(e)}
+
+    async def _execute_sell(self, symbol, position_size, current_price):
+        """Execute a sell order and update portfolio"""
+        logger.info(f"Executing SELL for {symbol} with quantity {position_size}")
+        try:
+            if 'binance' not in self.exchange_clients:
+                return {'success': False, 'symbol': symbol, 'error': "Binance client not available"}
+                
+            # Execute order
+            result = await self.exchange_clients['binance'].create_market_sell_order(symbol, position_size)
+            
+            # Update portfolio if order successful
+            if result:
+                # Get actual execution price
+                fills = result.get('details', {}).get('fills', [{'price': current_price}])
+                actual_price = float(fills[0]['price']) if fills else current_price
+                
+                # Update portfolio tracking
+                if hasattr(self, 'portfolio'):
+                    portfolio_updated = await self.portfolio.reduce_position(symbol, position_size, actual_price)
+                    if portfolio_updated:
+                        logger.info(f"Portfolio updated: Removed {position_size} {symbol} @ {actual_price}")
+                    else:
+                        logger.warning(f"Portfolio update failed for {symbol}")
+                
+                # Calculate performance metrics
+                self._calculate_performance_metrics()
+                
+                return {'success': True, 'symbol': symbol, 'side': 'SELL', 
+                        'quantity': position_size, 'price': actual_price, 
+                        'details': result}
+        except Exception as e:
+            logger.error(f"Sell order failed: {e}")
+            return {'success': False, 'symbol': symbol, 'error': str(e)}
+
+    def _calculate_performance_metrics(self):
+        """Calculate and log portfolio performance metrics"""
+        if not hasattr(self, 'portfolio') or not self.portfolio.portfolio_history:
+            return
+            
+        try:
+            # Calculate metrics only if we have history
+            if len(self.portfolio.portfolio_history) >= 2:
+                # Calculate return
+                current_value = self.portfolio.portfolio_history[-1]['total_value']
+                initial_value = self.portfolio.portfolio_history[0]['total_value']
+                total_return = (current_value - initial_value) / initial_value
+                
+                # Calculate drawdown
+                peak_value = max(h['total_value'] for h in self.portfolio.portfolio_history)
+                current_drawdown = (peak_value - current_value) / peak_value if peak_value > 0 else 0
+                
+                logger.info(f"Portfolio metrics - Value: ${current_value:.2f}, Return: {total_return:.2%}, Drawdown: {current_drawdown:.2%}")
+        except Exception as e:
+            logger.error(f"Error calculating performance metrics: {e}")
 
     def _calculate_position_size(self, symbol, strength):
         """Calculate position size based on symbol and signal strength"""
@@ -410,3 +496,108 @@ class RoboService(BaseService):
         if hasattr(self, 'portfolio'):
             return self.portfolio.cash  # Use 'cash' instead of 'balance'
         return 0.0
+
+    async def update_portfolio_prices(self):
+        """Update portfolio with latest market prices"""
+        if not hasattr(self, 'portfolio'):
+            return
+            
+        try:
+            if 'binance' in self.exchange_clients:
+                # Get prices for all positions
+                positions = self.portfolio.positions
+                if not positions:
+                    return
+                    
+                # Get current prices
+                price_data = {}
+                for symbol in positions.keys():
+                    try:
+                        ticker = await self.exchange_clients['binance'].get_ticker(symbol)
+                        price = float(ticker.get('lastPrice', ticker.get('price', 0)))
+                        if price > 0:
+                            price_data[symbol] = {'price': price}
+                    except Exception as e:
+                        logger.warning(f"Failed to get price for {symbol}: {e}")
+                
+                # Update portfolio with new prices
+                if price_data:
+                    self.portfolio.update_prices(price_data)
+                    logger.info(f"Updated prices for {len(price_data)} positions")
+                    
+                    # Record updated portfolio state
+                    self.portfolio._record_portfolio_state()
+        except Exception as e:
+            logger.error(f"Error updating portfolio prices: {e}")
+
+    def get_portfolio_summary(self) -> Dict:
+        """Get a comprehensive summary of the current portfolio
+        
+        Returns:
+            Dict containing:
+                - cash: Available cash balance
+                - positions: Current positions dict
+                - total_value: Total portfolio value
+                - returns: Dict of return metrics
+                - risk: Dict of risk metrics
+        """
+        summary = {
+            'cash': 0.0,
+            'positions': {},
+            'position_values': {},
+            'total_value': 0.0,
+            'returns': {
+                'total': 0.0,
+                'daily': 0.0
+            },
+            'risk': {
+                'drawdown': 0.0,
+                'volatility': 0.0
+            }
+        }
+        
+        if not hasattr(self, 'portfolio'):
+            return summary
+            
+        try:
+            # Get basic portfolio data
+            summary['cash'] = self.portfolio.cash
+            summary['positions'] = self.portfolio.positions.copy()
+            
+            # Calculate position values and total value
+            total_value = summary['cash']
+            for symbol, size in summary['positions'].items():
+                price = self.portfolio.last_prices.get(symbol, 0)
+                position_value = size * price
+                summary['position_values'][symbol] = position_value
+                total_value += position_value
+            
+            summary['total_value'] = total_value
+            
+            # Calculate returns if we have history
+            if len(self.portfolio.portfolio_history) >= 2:
+                initial_value = self.portfolio.portfolio_history[0]['total_value']
+                summary['returns']['total'] = (total_value - initial_value) / initial_value
+                
+                # Calculate daily return if we have recent history
+                if len(self.portfolio.portfolio_history) >= 2:
+                    yesterday = self.portfolio.portfolio_history[-2]['total_value']
+                    if yesterday > 0:
+                        summary['returns']['daily'] = (total_value - yesterday) / yesterday
+            
+            # Calculate risk metrics
+            if len(self.portfolio.portfolio_history) >= 2:
+                values = [h['total_value'] for h in self.portfolio.portfolio_history]
+                peak = max(values)
+                summary['risk']['drawdown'] = (peak - total_value) / peak if peak > 0 else 0
+                
+                # Calculate volatility if we have enough data
+                if len(values) >= 10:
+                    returns = [(values[i] / values[i-1]) - 1 for i in range(1, len(values))]
+                    summary['risk']['volatility'] = np.std(returns) * np.sqrt(252)  # Annualized
+                    
+            return summary
+        
+        except Exception as e:
+            logger.error(f"Error generating portfolio summary: {e}")
+            return summary

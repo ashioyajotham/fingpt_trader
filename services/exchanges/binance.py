@@ -454,21 +454,31 @@ class BinanceClient:
             return []
 
     async def get_ticker(self, symbol: str) -> Dict:
-        """Get ticker data for symbol"""
+        """Get ticker data with format handling for testnet differences"""
         try:
             ticker = await self.client.get_ticker(symbol=symbol)
+            
+            # Handle different response formats between live and testnet
+            if isinstance(ticker, list):  # Testnet often returns list
+                ticker = ticker[0] if ticker else {}
+                
+            # Try different field names that Binance might use
+            price = None
+            for price_field in ['lastPrice', 'price', 'closetPrice', 'close']:
+                if price_field in ticker:
+                    price = ticker[price_field]
+                    break
+                    
             return {
-                'price': float(ticker['lastPrice']),
-                'volume': float(ticker['volume']),
-                'high': float(ticker['highPrice']),
-                'low': float(ticker['lowPrice'])
+                'lastPrice': float(price) if price else 0,
+                'price': float(price) if price else 0,
+                'volume': float(ticker.get('volume', 0)),
+                'high': float(ticker.get('highPrice', 0)),
+                'low': float(ticker.get('lowPrice', 0))
             }
-        except asyncio.TimeoutError:
-            logger.error(f"Timeout error fetching ticker for {symbol} - connection may be slow")
-            return {}
         except Exception as e:
-            logger.error(f"Error fetching ticker for {symbol}: {type(e).__name__}: {str(e)}")
-            return {}
+            logger.error(f"Error in get_ticker for {symbol}: {type(e).__name__}: {str(e)}")
+            return {'price': 0, 'lastPrice': 0, 'volume': 0, 'high': 0, 'low': 0}
 
     async def has_symbol(self, symbol: str) -> bool:
         """Check if symbol is valid"""

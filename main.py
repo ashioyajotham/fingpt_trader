@@ -408,8 +408,26 @@ class TradingSystem:
                         logger.info(f"Balance: {balance:.2f} USDT")
                         
                         # Update UI with portfolio information if available
-                        if hasattr(self, 'ui'):
-                            self.ui.display_portfolio(balance, positions)
+                        try:
+                            if hasattr(self, 'ui'):
+                                self.ui.display_portfolio(balance, positions)
+                        except Exception as e:
+                            logger.error(f"UI error displaying portfolio: {e}")
+                    
+                    # Update portfolio with latest prices
+                    await self.robo_service.update_portfolio_prices()
+
+                    # Get and display portfolio summary
+                    portfolio_summary = self.robo_service.get_portfolio_summary()
+                    logger.info(f"Portfolio Summary - Value: ${portfolio_summary['total_value']:.2f}, "
+                                f"Return: {portfolio_summary['returns']['total']:.2%}, "
+                                f"Drawdown: {portfolio_summary['risk']['drawdown']:.2%}")
+
+                    if hasattr(self, 'ui') and self.ui and hasattr(self.ui, 'display_portfolio'):
+                        self.ui.display_portfolio(
+                            balance=portfolio_summary['cash'],
+                            positions={s: sz for s, sz in portfolio_summary['positions'].items() if sz > 0}
+                        )
                     
                 except Exception as e:
                     logger.error(f"Error in trading loop: {str(e)}")
@@ -446,7 +464,16 @@ class TradingSystem:
                     logger.info(f"Multiple signals detected for {symbol}, boosting strength")
                     strength = min(strength * 1.25, 1.0)  # Boost by 25% but cap at 1.0
                     signal['strength'] = strength
-                
+                    
+                    # Multiple signals for same asset - dynamic threshold adjustment
+                    logger.info(f"Multiple signals detected for {symbol}, adjusting threshold")
+                    # More aggressive threshold when multiple signals confirm the same direction
+                    dynamic_threshold = self.get_config('trading.execution.signal_threshold', 0.5) * 0.8
+                    
+                    if strength >= dynamic_threshold:
+                        logger.info(f"Signal exceeds dynamic threshold ({dynamic_threshold:.2f}), executing trade...")
+                        trade_result = await self.robo_service.execute_trade(signal)
+
                 # Get threshold from config
                 threshold = self.get_config('trading.execution_threshold', 0.5)
                 
@@ -811,7 +838,7 @@ class TradingSystem:
                 price_fields_found = []
                 if isinstance(data, dict):
                     for field in ['price', 'lastPrice', 'last', 'close']:
-                        if field in data:
+                        if field in data and data[field]:
                             price_fields_found.append(f"{field}={data[field]}")
                     logger.debug(f"{symbol} price fields: {', '.join(price_fields_found) or 'none'}")
                 else:
@@ -1176,10 +1203,10 @@ async def main():
         
         # Add UI instance to trading system if available
         if not args.silent and not args.quiet:
-            system.ui = ui
+            system.ui = ConsoleUI.get_instance()
             
             # Show progress bar for model loading
-            with ui.create_progress_bar("Loading trading model")[0] as progress:
+            with system.ui.create_progress_bar("Loading trading model")[0] as progress:
                 # Update progress as initialization proceeds
                 await system.initialize(progress_callback=lambda p: progress.update(task_id=0, completed=p))
         else:
