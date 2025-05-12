@@ -179,7 +179,7 @@ class SentimentAnalyzer:
                     if abs(sentiment_score) >= self.detection_threshold and confidence >= self.confidence_threshold:
                         logger.info(f"Strong sentiment signal detected! (threshold={self.detection_threshold:.2f})")
                     else:
-                        logger.info(f"Sentiment below thresholds, no signal generated")
+                        logger.info(f"Sentiment below thresholds (sentiment threshold={self.detection_threshold:.2f}, confidence threshold={self.confidence_threshold:.2f}), no signal generated")
                     
                     return result
             except Exception as json_error:

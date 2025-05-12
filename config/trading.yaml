@@ -43,7 +43,8 @@ trading:
   
   # Execution parameters
   execution:
-    signal_threshold: 0.5  # Minimum signal strength to execute trades
+    signal_threshold: 0.3  # Minimum signal strength to execute trades
+    order_type: "market"   # Order type for execution (market, limit, etc.)
     default_exchange: "binance"  # Default exchange for execution
     min_notional: 15.0        # Minimum order value in USDT - INCREASED from 10.0
     min_quantity: 0.00001     # Minimum order quantity
