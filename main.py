@@ -440,6 +440,13 @@ class TradingSystem:
                 strength = signal.get('strength', 0.0)
                 price = signal.get('price', 0.0)
                 
+                # Boost signal strength when multiple indicators align
+                if any(s['symbol'] == symbol and s != signal for s in signals):
+                    # Multiple signals for same asset - confirmation boost
+                    logger.info(f"Multiple signals detected for {symbol}, boosting strength")
+                    strength = min(strength * 1.25, 1.0)  # Boost by 25% but cap at 1.0
+                    signal['strength'] = strength
+                
                 # Get threshold from config
                 threshold = self.get_config('trading.execution_threshold', 0.5)
                 
@@ -595,6 +602,19 @@ class TradingSystem:
             # Scale position size based on signal strength (0.0-1.0)
             strength_factor = min(signal.get('strength', 0.5), 1.0)
             position_pct = base_position_pct + ((max_position_pct - base_position_pct) * strength_factor)
+            
+            # Forex trader logic: When market is trending, increase position size
+            symbol = signal['symbol']
+            if symbol in self.price_history:
+                prices = [p['price'] for p in self.price_history[symbol]]
+                if len(prices) >= 3:
+                    # Check for momentum
+                    if prices[-1] > prices[-2] > prices[-3] and signal.get('side') == 'BUY':
+                        logger.info(f"Upward momentum detected for {symbol}, increasing position size")
+                        position_pct *= 1.2  # 20% larger position on momentum
+                    elif prices[-1] < prices[-2] < prices[-3] and signal.get('side') == 'SELL':
+                        logger.info(f"Downward momentum detected for {symbol}, increasing position size")
+                        position_pct *= 1.2  # 20% larger position on momentum
             
             # Calculate position size in quote currency (e.g., USDT)
             position_size = balance * position_pct

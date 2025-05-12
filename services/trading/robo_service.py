@@ -290,17 +290,104 @@ class RoboService(BaseService):
             logger.error(f"Position analysis failed: {str(e)}")
             return None
         
-    async def execute_trade(self, signal):
+    async def execute_trade(self, signal_or_symbol, side=None, strength=None):
         """Execute a trade with proper validation and error handling"""
         try:
-            symbol = signal.get('symbol')
-            side = signal.get('direction', signal.get('side', 'BUY'))  # Support both keys
-            strength = signal.get('strength', 0.5)
+            # Support both calling conventions
+            if isinstance(signal_or_symbol, dict):
+                # Called with signal object
+                signal = signal_or_symbol
+                symbol = signal.get('symbol')
+                side = signal.get('direction', signal.get('side', 'BUY'))
+                strength = signal.get('strength', 0.5)
+            else:
+                # Called with individual parameters
+                symbol = signal_or_symbol
+                # side and strength already provided as params
+                signal = {'symbol': symbol, 'side': side, 'strength': strength}
             
-            # Calculate position size with strength factor
+            # After parameter extraction:
+            # Calculate position size based on strength
+            position_size = self._calculate_position_size(symbol, strength)
+
+            # Get current price for the symbol
+            current_price = 0
+            if symbol in self.trading_pairs and 'binance' in self.exchange_clients:
+                try:
+                    ticker = await self.exchange_clients['binance'].get_ticker(symbol)
+                    current_price = float(ticker['lastPrice'])
+                except Exception as e:
+                    logger.error(f"Failed to get price for {symbol}: {e}")
+
+            # Minimum requirements for order
+            min_notional = 15.0  # Minimum USD value
+            min_qty = 0.00001 if symbol.startswith('BTC') else 0.001  # Default minimums
+
+            # Execute appropriate order based on signal
+            if side.upper() == 'BUY':
+                logger.info(f"Executing BUY for {symbol} with quantity {position_size}")
+                if 'binance' in self.exchange_clients:
+                    try:
+                        result = await self.exchange_clients['binance'].create_market_buy_order(symbol, position_size)
+                        return {'success': True, 'symbol': symbol, 'side': 'BUY', 'quantity': position_size, 'details': result}
+                    except Exception as e:
+                        logger.error(f"Buy order failed: {e}")
+                        return {'success': False, 'symbol': symbol, 'error': str(e)}
+                        
+            elif side.upper() == 'SELL':
+                logger.info(f"Executing SELL for {symbol} with quantity {position_size}")
+                if 'binance' in self.exchange_clients:
+                    try:
+                        result = await self.exchange_clients['binance'].create_market_sell_order(symbol, position_size)
+                        return {'success': True, 'symbol': symbol, 'side': 'SELL', 'quantity': position_size, 'details': result}
+                    except Exception as e:
+                        logger.error(f"Sell order failed: {e}")
+                        return {'success': False, 'symbol': symbol, 'error': str(e)}
+
+            # Return failure if side is invalid or exchange not available
+            return {'success': False, 'symbol': symbol, 'error': 'Invalid side or exchange not available'}
         except Exception as e:
             logger.error(f"Trade execution failed: {str(e)}")
             raise  # Re-raise to ensure proper error handling
+
+    def _calculate_position_size(self, symbol, strength):
+        """Calculate position size based on symbol and signal strength"""
+        # Get balance and config values with defaults
+        balance = self.get_balance()
+        base_position = 0.01  # Base position size (1%)
+        max_position = 0.05   # Maximum position size (5%)
+        
+        # Scale position size based on signal strength
+        position_pct = base_position + ((max_position - base_position) * strength)
+        position_value = balance * position_pct
+        
+        # Get current price to convert to quantity
+        price = 0
+        try:
+            if 'binance' in self.exchange_clients:
+                ticker = self.exchange_clients['binance'].get_ticker_sync(symbol)
+                price = float(ticker['lastPrice'])
+        except:
+            # Fallback prices for testing
+            if symbol == 'BTCUSDT':
+                price = 100000
+            elif symbol == 'ETHUSDT':
+                price = 2500
+            elif symbol == 'BNBUSDT':
+                price = 600
+        
+        # Calculate quantity
+        if price > 0:
+            quantity = position_value / price
+            
+            # Apply minimum quantity check
+            min_qty = 0.00001 if symbol.startswith('BTC') else 0.001
+            if quantity < min_qty:
+                quantity = min_qty
+        else:
+            quantity = 0
+            
+        return quantity
 
     def get_positions(self):
         """
