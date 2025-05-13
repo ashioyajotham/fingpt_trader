@@ -110,6 +110,7 @@ class RoboService(BaseService):
         self.initial_balance = initial_balance
         
         # Call the private setup method with the stored parameters
+        await self.sync_exchange_balances()
         return await self._setup()
 
     async def _setup(self):
@@ -324,6 +325,28 @@ class RoboService(BaseService):
                         current_price = 2500
                     elif symbol == 'BNBUSDT':
                         current_price = 600
+
+            # NEW: Verify available balance before trading
+            if side.upper() == 'BUY':
+                # Check if we have enough quote currency (USDT)
+                quote_currency = symbol.replace('BTC', '').replace('ETH', '').replace('BNB', '')
+                required_balance = position_size * current_price * 1.01  # Add 1% buffer for fees
+                
+                # Get actual balance from exchange instead of internal tracking
+                account_info = await self.exchange_clients['binance'].client.get_account()
+                balances = account_info['balances']
+                
+                available_balance = 0
+                for balance in balances:
+                    if balance['asset'] == quote_currency:
+                        available_balance = float(balance['free'])
+                        break
+                
+                logger.info(f"Required balance: {required_balance} {quote_currency}, Available: {available_balance} {quote_currency}")
+                
+                if available_balance < required_balance:
+                    logger.warning(f"Insufficient balance: {available_balance} < {required_balance} {quote_currency}")
+                    return {'success': False, 'symbol': symbol, 'error': f"Insufficient balance for trade"}
 
             # Check minimum requirements
             min_notional = 15.0  # Minimum USD value
@@ -601,3 +624,49 @@ class RoboService(BaseService):
         except Exception as e:
             logger.error(f"Error generating portfolio summary: {e}")
             return summary
+
+    async def sync_exchange_balances(self):
+        """Synchronize internal portfolio tracking with actual exchange balances"""
+        try:
+            if 'binance' not in self.exchange_clients:
+                logger.error("Binance client not available")
+                return False
+                
+            # Get account information from exchange
+            account_info = await self.exchange_clients['binance'].client.get_account()
+            
+            # Clear existing cash balance and update with actual exchange balance
+            if hasattr(self, 'portfolio'):
+                # Update cash (USDT) balance
+                for balance in account_info['balances']:
+                    if balance['asset'] == 'USDT':
+                        self.portfolio.cash = float(balance['free'])
+                        logger.info(f"Updated portfolio cash to {self.portfolio.cash} USDT from exchange")
+                    
+                    # Update crypto positions
+                    asset = balance['asset']
+                    if asset in ['BTC', 'ETH', 'BNB'] and float(balance['free']) > 0:
+                        symbol = f"{asset}USDT"
+                        self.portfolio.positions[symbol] = float(balance['free'])
+                        logger.info(f"Updated portfolio position: {symbol} = {float(balance['free'])}")
+                
+                return True
+        except Exception as e:
+            logger.error(f"Error syncing exchange balances: {e}")
+            return False
+
+    async def run(self):
+        """Main run loop for the RoboService"""
+        cycle_count = 0
+        while True:
+            try:
+                # Add to run loop (periodic updates)
+                if cycle_count % 10 == 0:  # Every 10 cycles
+                    await self.sync_exchange_balances()
+
+                # Perform other periodic tasks here
+                await asyncio.sleep(1)
+                cycle_count += 1
+            except Exception as e:
+                logger.error(f"Error in run loop: {e}")
+                break
