@@ -192,9 +192,14 @@ class TradingSystem:
         # Default setting for model verbosity
         self.model_quiet = False
         
-        # Initialize FinGPT model using model config
-        # Will be configured with model_quiet during initialize()
-        self.fingpt_model = None
+        # Initialize FinGPT model with verbosity setting
+        self.fingpt_model = FinGPT(self.model_config.get('fingpt', {}))
+
+        # Initialize sentiment analyzer with model
+        self.sentiment_analyzer = SentimentAnalyzer({
+            'model': self.fingpt_model,  # Pass model instance explicitly
+            'model_config': self.strategies_config.get('sentiment', {})
+        })
 
     def get_config(self, path: str, default=None):
         """
@@ -1111,7 +1116,10 @@ if __name__ == "__main__":
     from utils.console_ui import ConsoleUI
     trading_system.ui = ConsoleUI.get_instance()
     trading_system.ui.set_verbose(args.verbose)
-    trading_system.ui.display_header()
+
+    # Initialize UI with trading pairs from config
+    pairs = trading_system.get_config('trading.pairs', [])
+    trading_system.ui.setup(watched_pairs=pairs, display_header=True)
     
     # Run the event loop
     loop = asyncio.new_event_loop()

@@ -14,9 +14,15 @@ logger = logging.getLogger(__name__)
 
 class SentimentAnalyzer:
     def __init__(self, config):
-        # Initialize FinGPT model from config
-        fingpt_config = config.get('model_config', {})
-        self.fingpt = FinGPT(fingpt_config)  # Create the model instance
+        # Check if model is already provided
+        if 'model' in config and config['model'] is not None:
+            self.fingpt = config['model']  # Use the provided model instance
+            logger.info("Using provided FinGPT model instance")
+        else:
+            # Fall back to creating a new instance
+            fingpt_config = config.get('model_config', {})
+            self.fingpt = FinGPT(fingpt_config)
+            logger.info("Creating new FinGPT model instance")
         
         # Initialize data feeds
         market_feed_config = {

@@ -93,9 +93,14 @@ class ConsoleUI:
             value = position * price if price else 0
             total_value += value
             
-            # Get 24h change (placeholder - would need actual data)
-            change = 0  # This would come from market data
-            change_str = self._format_change(change)
+            # Get 24h change from market data service if available
+            change_pct = 0.0
+            
+            # Try to get the change from market_data dictionary
+            if symbol in self.market_data:
+                change_pct = self.market_data[symbol].get('change', 0.0)
+            
+            change_str = self._format_change(change_pct)
             
             table.add_row(
                 symbol.replace("USDT", ""),

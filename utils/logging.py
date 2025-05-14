@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any
+from rich.logging import RichHandler
 
 class LogManager:
     """Manages logging with different verbosity levels and file separation"""
@@ -45,6 +46,11 @@ class LogManager:
         console.setLevel(level)
         console.setFormatter(console_formatter)
 
+        # Add Rich handler for console output
+        console_handler = RichHandler(rich_tracebacks=True)
+        console_handler.setFormatter(logging.Formatter('%(message)s'))
+        console_handler.setLevel(level)
+
         # Setup main log file - use specific file if provided in config
         if "log_file" in self.config:
             main_log = Path(self.config["log_file"])
@@ -64,6 +70,7 @@ class LogManager:
         
         # Add handlers
         root_logger.addHandler(console)
+        root_logger.addHandler(console_handler)
         root_logger.addHandler(file_handler)
         
         # Set third-party loggers to WARNING unless in DEBUG mode
