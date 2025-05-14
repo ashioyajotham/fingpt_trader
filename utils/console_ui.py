@@ -43,7 +43,7 @@ class ConsoleUI:
         """Control whether to show detailed information"""
         self.verbose = verbose
 
-    def setup(self, watched_pairs: List[str] = None):
+    def setup(self, watched_pairs: List[str] = None, display_header: bool = True):
         """Initialize the console UI with specific watched pairs."""
         self.watched_pairs = watched_pairs or []
         
@@ -58,8 +58,9 @@ class ConsoleUI:
         
         self.setup_complete = True
         
-        # Display initial header
-        self.display_header()
+        # Display initial header if requested
+        if display_header:
+            self.display_header()
     
     def display_header(self):
         """Display a header with the application name and version."""
@@ -250,6 +251,40 @@ class ConsoleUI:
         )
         task = progress.add_task(description, total=100)
         return progress, task
+    
+    def display_pending_orders(self, pending_orders: Dict[str, Dict]):
+        """Display orders that are being accumulated until they reach minimum size"""
+        if not pending_orders:
+            return
+            
+        table = Table(title="[bold yellow]Pending Orders (Accumulating)[/bold yellow]")
+        table.add_column("Symbol", style="cyan")
+        table.add_column("Side", style="")
+        table.add_column("Accumulated", style="yellow")
+        table.add_column("Value (USDT)", style="green")
+        table.add_column("Last Update", style="")
+        
+        for symbol, order in pending_orders.items():
+            # Get last price if available
+            price = self.last_prices.get(symbol, 0)
+            value = order['amount'] * price if price else 0
+            
+            # Format time since last update
+            time_since = datetime.now() - order['last_update']
+            time_str = f"{time_since.seconds // 60}m {time_since.seconds % 60}s ago"
+            
+            # Color based on side
+            side_color = "green" if order['side'].upper() == "BUY" else "red"
+            
+            table.add_row(
+                symbol,
+                f"[{side_color}]{order['side']}[/{side_color}]",
+                f"{order['amount']:.8f}",
+                f"${value:.2f}",
+                time_str
+            )
+        
+        self.console.print(table)
     
     def _format_change(self, change_pct: float) -> str:
         """Format price change with color."""

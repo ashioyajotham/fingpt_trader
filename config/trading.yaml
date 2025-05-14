@@ -65,6 +65,12 @@ trading:
     fee_rate: 0.001
     min_trade_size: 15.0
 
+  # Minimum size handling
+  minimum_size_handling:
+    mode: "ACCUMULATE"  # Options: IGNORE, FLOOR, ACCUMULATE
+    confidence_threshold: 0.7  # Only floor if confidence exceeds this value
+    expiration_time: 86400  # How long to keep accumulating orders (in seconds)
+
 # =====================================================================
 # RISK MANAGEMENT
 # =====================================================================
