@@ -434,6 +434,10 @@ class TradingSystem:
                             positions={s: sz for s, sz in portfolio_summary['positions'].items() if sz > 0}
                         )
                     
+                    # Clean up expired pending orders every 10 cycles
+                    if cycle_count % 10 == 0 and hasattr(self.robo_service, 'cleanup_expired_orders'):
+                        await self.robo_service.cleanup_expired_orders()
+
                 except Exception as e:
                     logger.error(f"Error in trading loop: {str(e)}")
                     

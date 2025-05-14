@@ -2,7 +2,7 @@ import logging
 import time
 from typing import Dict, List, Any, Optional, Union
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from rich.console import Console
 from rich.table import Table
@@ -262,7 +262,8 @@ class ConsoleUI:
         table.add_column("Side", style="")
         table.add_column("Accumulated", style="yellow")
         table.add_column("Value (USDT)", style="green")
-        table.add_column("Last Update", style="")
+        table.add_column("Progress", style="")
+        table.add_column("Time Left", style="")
         
         for symbol, order in pending_orders.items():
             # Get last price if available
@@ -276,16 +277,43 @@ class ConsoleUI:
             # Color based on side
             side_color = "green" if order['side'].upper() == "BUY" else "red"
             
+            # Calculate progress towards minimum order size (default 15.0 USD)
+            min_notional = 15.0  # Default
+            progress_pct = min(100, (value / min_notional) * 100)
+            progress_bar = self._create_progress_bar(progress_pct)
+            
+            # Calculate time remaining before expiry (assuming 24h default)
+            if 'created_at' in order:
+                expiry_hours = 24  # Default expiration time in hours
+                elapsed = datetime.now() - order['created_at']
+                remaining = timedelta(hours=expiry_hours) - elapsed
+                
+                if remaining.total_seconds() <= 0:
+                    time_left = "[red]Expiring[/red]"
+                else:
+                    hours = remaining.seconds // 3600
+                    minutes = (remaining.seconds % 3600) // 60
+                    time_left = f"{hours}h {minutes}m"
+            else:
+                time_left = "Unknown"
+            
             table.add_row(
                 symbol,
                 f"[{side_color}]{order['side']}[/{side_color}]",
                 f"{order['amount']:.8f}",
                 f"${value:.2f}",
-                time_str
+                progress_bar,
+                time_left
             )
         
         self.console.print(table)
     
+    def _create_progress_bar(self, percentage: float) -> str:
+        """Create a text-based progress bar"""
+        filled = int(percentage / 10)
+        empty = 10 - filled
+        return f"[{'■' * filled}{'□' * empty}] {percentage:.0f}%"
+
     def _format_change(self, change_pct: float) -> str:
         """Format price change with color."""
         if change_pct > 0:

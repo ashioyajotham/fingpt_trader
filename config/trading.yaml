@@ -70,6 +70,8 @@ trading:
     mode: "ACCUMULATE"  # Options: IGNORE, FLOOR, ACCUMULATE
     confidence_threshold: 0.7  # Only floor if confidence exceeds this value
     expiration_time: 86400  # How long to keep accumulating orders (in seconds)
+    accumulation_strategy: "weighted"  # Options: simple, weighted
+    min_notional_buffer: 1.05  # Buffer multiplier for minimum notional (5% above min)
 
 # =====================================================================
 # RISK MANAGEMENT
