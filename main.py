@@ -1083,149 +1083,50 @@ class TradingSystem:
         except Exception as e:
             logger.error(f"Error updating UI: {str(e)}")
 
-# Helper function to wait for shutdown signal
-async def wait_for_shutdown(shutdown_event):
-    await shutdown_event.wait()
-    logger.info("Shutdown event triggered")
-
-def configure_logging(args):
-    """Configure logging based on verbosity level arguments."""
-    # Create logs directory if it doesn't exist
-    if not os.path.exists("logs"):
-        os.makedirs("logs")
-    
-    # Determine appropriate logging level
-    if args.quiet:
-        level = logging.WARNING
-    elif args.verbose:
-        level = logging.DEBUG
-    else:
-        level = logging.INFO
-    
-    # Use Rich-compatible logging if not in silent mode
-    if not args.silent:
-        from utils.logging import LogManager
-        log_manager = LogManager({
-            "log_dir": "logs",
-            "log_file": args.log_file if hasattr(args, 'log_file') else None
-        })
-        log_manager.setup_rich_logging(level)
-    else:
-        # Silent mode - only log to file, not console
-        # Get the root logger and remove any existing handlers
-        root_logger = logging.getLogger()
-        root_logger.handlers.clear()
-        
-        # Set up file logging if requested
-        if hasattr(args, 'log_file') and args.log_file:
-            file_handler = logging.FileHandler(args.log_file, encoding='utf-8')
-            file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-            file_handler.setFormatter(file_formatter)
-            file_handler.setLevel(logging.DEBUG)
-            root_logger.addHandler(file_handler)
-            root_logger.setLevel(logging.DEBUG)
-    
-    return level
-
-def parse_arguments():
-    """Parse command line arguments for the FinGPT Trader application."""
-    parser = argparse.ArgumentParser(description='FinGPT Trader - AI-powered trading system')
-    
-    # Verbosity control arguments (mutually exclusive)
-    verbosity_group = parser.add_mutually_exclusive_group()
-    verbosity_group.add_argument('--quiet', '-q', action='store_true', 
-                    help='Show only essential information (trades, major events)')
-    verbosity_group.add_argument('--verbose', '-v', action='store_true', 
-                    help='Show full debugging output')
-    
-    # Log file option
-    parser.add_argument('--log-file', '-l', type=str, metavar='FILE',
-                    default='logs/fingpt_trader.log',
-                    help='Write detailed logs to specified file')
-    
-    # Add model output suppression (can be used with any verbosity level)
-    parser.add_argument('--model-quiet', '-mq', action='store_true',
-                    help='Suppress model technical output')
-    
-    parser.add_argument('--silent', '-s', action='store_true',
-                help='Silent mode - suppress all output (equivalent to -q -mq)')
-    
-    return parser.parse_args()
-
-async def main():
-    """Main entry point for the FinGPT Trader application."""
-    # Parse command line arguments
-    args = parse_arguments()
-    
-    # Import verbosity manager here to avoid circular imports
-    from utils.verbosity import VerbosityManager
-    vm = VerbosityManager.get_instance()
-    
-    # Set verbosity level
-    if args.quiet:
-        vm.set_level(VerbosityManager.QUIET)
-    elif args.verbose:
-        vm.set_level(VerbosityManager.VERBOSE)
-    else:
-        vm.set_level(VerbosityManager.NORMAL)
-    
-    # Control model output separately if requested
-    vm.set_suppress_model_output(args.model_quiet)
-    
-    # Add handling for the --silent flag
-    if args.silent:
-        vm.silence_all()
-
-    # Configure logging based on verbosity arguments
-    logging_level = configure_logging(args)
-    
-    # Initialize rich console UI if not in silent mode
-    if not args.silent and not args.quiet:
-        from utils.console_ui import ConsoleUI
-        ui = ConsoleUI.get_instance()
-        ui.setup(watched_pairs=["BTCUSDT", "ETHUSDT", "BNBUSDT"])
-        
-        # Set verbosity level for UI too
-        ui.set_verbose(args.verbose)
-
-    # Log startup information
-    logging.info("Starting FinGPT Trader")
-    logging.debug(f"Verbosity level: {logging.getLevelName(logging_level)}")
-    
-    # Continue with existing initialization code
-    system = None
-    try:
-        # Create and initialize using ConfigManager
-        system = TradingSystem()
-        
-        # Pass verbosity information to TradingSystem
-        system.verbosity_manager = vm
-        
-        # Add UI instance to trading system if available
-        if not args.silent and not args.quiet:
-            system.ui = ConsoleUI.get_instance()
-            
-            # Show progress bar for model loading
-            with system.ui.create_progress_bar("Loading trading model")[0] as progress:
-                # Update progress as initialization proceeds
-                await system.initialize(progress_callback=lambda p: progress.update(task_id=0, completed=p))
-        else:
-            await system.initialize()
-            
-        # Run the main system loop
-        await system.run()
-        
-    except Exception as e:
-        logging.error(f"Fatal error: {str(e)}")
-        if not args.silent and not args.quiet and 'ui' in locals():
-            ui.display_error(f"Fatal error: {str(e)}")
-    finally:
-        # Ensure proper cleanup even if there's an error
-        if system:
-            await system.shutdown()
-        
-        # Clean up verbosity manager
-        vm.cleanup()
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    import asyncio
+    
+    # Parse command line arguments
+    import argparse
+    parser = argparse.ArgumentParser(description="FinGPT Trader")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output")
+    parser.add_argument("-q", "--quiet", action="store_true", help="Minimize console output")
+    parser.add_argument("-mq", "--model-quiet", action="store_true", help="Suppress model initialization output")
+    args = parser.parse_args()
+    
+    # Create and run the trading system
+    trading_system = TradingSystem()
+    
+    # Set verbosity based on arguments
+    if args.verbose:
+        trading_system.model_quiet = False
+        logger.setLevel(logging.DEBUG)
+    elif args.quiet:
+        trading_system.model_quiet = True
+        logger.setLevel(logging.WARNING)
+    elif args.model_quiet:
+        trading_system.model_quiet = True
+    
+    # Create console UI
+    from utils.console_ui import ConsoleUI
+    trading_system.ui = ConsoleUI.get_instance()
+    trading_system.ui.set_verbose(args.verbose)
+    trading_system.ui.display_header()
+    
+    # Run the event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    try:
+        # Initialize and run the trading system
+        loop.run_until_complete(trading_system.initialize())
+        loop.run_until_complete(trading_system.run())
+    except KeyboardInterrupt:
+        logger.info("Shutting down gracefully...")
+        # Cleanup resources
+        loop.run_until_complete(trading_system.shutdown())
+    except Exception as e:
+        logger.error(f"Fatal error: {str(e)}")
+        trading_system.ui.display_error(f"Fatal error: {str(e)}")
+    finally:
+        loop.close()

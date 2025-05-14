@@ -662,7 +662,7 @@ class RoboService(BaseService):
             try:
                 # Add to run loop (periodic updates)
                 if cycle_count % 10 == 0:  # Every 10 cycles
-                    await self.sync_exchange_balances()
+                    await self.sync_exchange_balances()  # Make sure this is awaited
 
                 # Perform other periodic tasks here
                 await asyncio.sleep(1)
