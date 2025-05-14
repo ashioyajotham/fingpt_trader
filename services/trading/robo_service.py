@@ -292,80 +292,139 @@ class RoboService(BaseService):
             return None
         
     async def execute_trade(self, signal_or_symbol, side=None, strength=None):
-        """Execute a trade with proper validation and error handling"""
+        """Execute a trade based on a signal or symbol"""
         try:
-            # Support both calling conventions
+            # Handle both signal dict and individual parameters
             if isinstance(signal_or_symbol, dict):
-                # Called with signal object
                 signal = signal_or_symbol
                 symbol = signal.get('symbol')
-                side = signal.get('direction', signal.get('side', 'BUY'))
+                side = signal.get('side', signal.get('direction', 'BUY'))
                 strength = signal.get('strength', 0.5)
             else:
-                # Called with individual parameters
                 symbol = signal_or_symbol
-                # side and strength already provided as params
                 signal = {'symbol': symbol, 'side': side, 'strength': strength}
             
-            # Calculate position size based on strength
+            # Validate required parameters
+            if not symbol:
+                logger.error("Missing symbol for trade execution")
+                return {'success': False, 'error': 'Missing symbol'}
+                
+            if not side:
+                logger.error("Missing side (BUY/SELL) for trade execution")
+                return {'success': False, 'error': 'Missing side'}
+            
+            # Get current price
+            current_price = await self._get_current_price(symbol)
+            if not current_price:
+                logger.error(f"Could not get current price for {symbol}")
+                return {'success': False, 'error': 'Price unavailable'}
+                
+            # Calculate position size based on signal strength
             position_size = self._calculate_position_size(symbol, strength)
-
-            # Get current price for the symbol
-            current_price = 0
-            if symbol in self.trading_pairs and 'binance' in self.exchange_clients:
-                try:
-                    ticker = await self.exchange_clients['binance'].get_ticker(symbol)
-                    current_price = float(ticker['lastPrice'])
-                except Exception as e:
-                    logger.error(f"Failed to get price for {symbol}: {e}")
-                    # Fallback prices
-                    if symbol == 'BTCUSDT':
-                        current_price = 100000
-                    elif symbol == 'ETHUSDT':
-                        current_price = 2500
-                    elif symbol == 'BNBUSDT':
-                        current_price = 600
-
-            # NEW: Verify available balance before trading
-            if side.upper() == 'BUY':
-                # Check if we have enough quote currency (USDT)
-                quote_currency = symbol.replace('BTC', '').replace('ETH', '').replace('BNB', '')
-                required_balance = position_size * current_price * 1.01  # Add 1% buffer for fees
-                
-                # Get actual balance from exchange instead of internal tracking
-                account_info = await self.exchange_clients['binance'].client.get_account()
-                balances = account_info['balances']
-                
-                available_balance = 0
-                for balance in balances:
-                    if balance['asset'] == quote_currency:
-                        available_balance = float(balance['free'])
-                        break
-                
-                logger.info(f"Required balance: {required_balance} {quote_currency}, Available: {available_balance} {quote_currency}")
-                
-                if available_balance < required_balance:
-                    logger.warning(f"Insufficient balance: {available_balance} < {required_balance} {quote_currency}")
-                    return {'success': False, 'symbol': symbol, 'error': f"Insufficient balance for trade"}
-
-            # Check minimum requirements
-            min_notional = 15.0  # Minimum USD value
-            min_qty = 0.00001 if symbol.startswith('BTC') else 0.001  # Default minimums
+            
+            # Get minimum requirements from exchange
+            min_requirements = await self.get_exchange_minimum_requirements(symbol)
+            min_notional = min_requirements['min_notional']
+            min_qty = min_requirements['min_qty']
+            
+            # Check if position size meets minimum notional value
             if position_size * current_price < min_notional:
-                logger.warning(f"Order too small: {position_size} {symbol} @ {current_price} = ${position_size * current_price:.2f} < ${min_notional}")
-                return {'success': False, 'symbol': symbol, 'error': f"Order size too small (min ${min_notional})"}
-
-            # Execute order based on side
+                # Get trading mode from config
+                min_size_mode = self.config.get('trading', {}).get(
+                    'minimum_size_handling', {}).get('mode', 'ACCUMULATE')
+                
+                # Handle based on configured mode
+                if min_size_mode == 'ACCUMULATE':
+                    # Initialize pending orders dict if it doesn't exist
+                    if not hasattr(self, 'pending_orders'):
+                        self.pending_orders = {}
+                        
+                    if symbol not in self.pending_orders:
+                        self.pending_orders[symbol] = {
+                            'amount': position_size,
+                            'signals': [{'side': side, 'strength': strength}],
+                            'last_update': datetime.now(),
+                            'side': side
+                        }
+                        logger.warning(f"Order too small: {position_size} {symbol} @ {current_price} = ${position_size * current_price:.2f} < ${min_notional}")
+                        logger.info(f"Started accumulating orders for {symbol}. Current: {position_size:.8f} (${position_size * current_price:.2f})")
+                    else:
+                        # Only accumulate if same direction
+                        if self.pending_orders[symbol]['side'] == side:
+                            self.pending_orders[symbol]['amount'] += position_size
+                            self.pending_orders[symbol]['signals'].append({'side': side, 'strength': strength})
+                            self.pending_orders[symbol]['last_update'] = datetime.now()
+                            
+                            # Check if we now have enough for an order
+                            accumulated = self.pending_orders[symbol]['amount']
+                            if accumulated * current_price >= min_notional:
+                                logger.info(f"Accumulated sufficient order size for {symbol}: {accumulated:.8f} @ {current_price} = ${accumulated * current_price:.2f}")
+                                
+                                # Execute the accumulated order
+                                result = None
+                                if side.upper() == 'BUY':
+                                    result = await self._execute_buy(symbol, accumulated, current_price)
+                                elif side.upper() == 'SELL':
+                                    result = await self._execute_sell(symbol, accumulated, current_price)
+                                
+                                # Clear the pending order if executed
+                                if result and result.get('success', False):
+                                    del self.pending_orders[symbol]
+                                
+                                return result
+                            else:
+                                logger.info(f"Accumulating orders for {symbol}. Current: {accumulated:.8f} (${accumulated * current_price:.2f})")
+                        else:
+                            # Signal changed direction, reset accumulation
+                            logger.info(f"Signal direction changed for {symbol}, resetting accumulation")
+                            self.pending_orders[symbol] = {
+                                'amount': position_size,
+                                'signals': [{'side': side, 'strength': strength}],
+                                'last_update': datetime.now(),
+                                'side': side
+                            }
+                        
+                    return {
+                        'success': False, 
+                        'symbol': symbol, 
+                        'error': f"Order size too small (min ${min_notional})", 
+                        'action': 'ACCUMULATING',
+                        'accumulated': self.pending_orders[symbol]['amount'],
+                        'accumulated_value': self.pending_orders[symbol]['amount'] * current_price
+                    }
+                elif min_size_mode == 'FLOOR':
+                    # Get confidence threshold from config
+                    confidence_threshold = self.config.get('trading', {}).get(
+                        'minimum_size_handling', {}).get('confidence_threshold', 0.7)
+                    
+                    # Check if signal confidence is high enough
+                    confidence = signal.get('confidence', signal.get('metadata', {}).get('confidence', 0.5))
+                    
+                    if confidence >= confidence_threshold:
+                        logger.info(f"Signal confidence ({confidence:.2f}) exceeds threshold ({confidence_threshold:.2f}), flooring to minimum size")
+                        position_size = (min_notional / current_price) * 1.05  # Add 5% buffer
+                    else:
+                        logger.warning(f"Order too small and confidence ({confidence:.2f}) below threshold ({confidence_threshold:.2f})")
+                        return {'success': False, 'symbol': symbol, 'error': f"Order size too small (min ${min_notional})"}
+                else:
+                    # Default IGNORE mode
+                    logger.warning(f"Order too small: {position_size} {symbol} @ {current_price} = ${position_size * current_price:.2f} < ${min_notional}")
+                    return {'success': False, 'symbol': symbol, 'error': f"Order size too small (min ${min_notional})"}
+            
+            # Continue with standard execution if size requirements are met
+            logger.info(f"Executing {side} order for {position_size} {symbol} @ {current_price}")
+            
+            # Execute based on side
             if side.upper() == 'BUY':
                 return await self._execute_buy(symbol, position_size, current_price)
             elif side.upper() == 'SELL':
                 return await self._execute_sell(symbol, position_size, current_price)
             else:
-                return {'success': False, 'symbol': symbol, 'error': f"Invalid side: {side}"}
-                
+                logger.error(f"Invalid side: {side}. Must be BUY or SELL.")
+                return {'success': False, 'error': f"Invalid side: {side}"}
         except Exception as e:
-            logger.error(f"Trade execution failed: {str(e)}")
-            return {'success': False, 'symbol': signal_or_symbol if isinstance(signal_or_symbol, str) else signal_or_symbol.get('symbol', 'UNKNOWN'), 'error': str(e)}
+            logger.error(f"Error executing trade: {e}")
+            return {'success': False, 'error': str(e)}
 
     async def _execute_buy(self, symbol, position_size, current_price):
         """Execute a buy order and update portfolio"""
@@ -654,6 +713,67 @@ class RoboService(BaseService):
         except Exception as e:
             logger.error(f"Error syncing exchange balances: {e}")
             return False
+
+    async def get_exchange_minimum_requirements(self, symbol: str) -> Dict:
+        """
+        Dynamically fetch minimum order requirements from the exchange
+        
+        Returns:
+            Dict with min_qty, min_notional, and other requirements
+        """
+        try:
+            if 'binance' not in self.exchange_clients:
+                logger.warning("Binance client not initialized, using default minimums")
+                return {
+                    'min_qty': 0.00001,  # Default minimum quantity
+                    'min_notional': 15.0  # Default minimum notional value
+                }
+            
+            # Get exchange info from Binance
+            exchange_info = await self.exchange_clients['binance'].client.get_exchange_info()
+            
+            # Find the symbol info
+            symbol_info = None
+            for s in exchange_info['symbols']:
+                if s['symbol'] == symbol:
+                    symbol_info = s
+                    break
+            
+            if not symbol_info:
+                logger.warning(f"Symbol {symbol} not found in exchange info, using defaults")
+                return {
+                    'min_qty': 0.00001,
+                    'min_notional': 15.0
+                }
+            
+            # Extract minimum quantity and notional value
+            min_qty = None
+            min_notional = None
+            
+            # Process filters to find minQty and minNotional
+            for f in symbol_info.get('filters', []):
+                if f.get('filterType') == 'LOT_SIZE':
+                    min_qty = float(f.get('minQty', 0.00001))
+                elif f.get('filterType') == 'MIN_NOTIONAL':
+                    min_notional = float(f.get('minNotional', 15.0))
+            
+            # Use defaults if not found
+            if min_qty is None:
+                min_qty = 0.00001
+            if min_notional is None:
+                min_notional = 15.0
+                
+            logger.info(f"Exchange requirements for {symbol}: min_qty={min_qty}, min_notional={min_notional}")
+            return {
+                'min_qty': min_qty,
+                'min_notional': min_notional
+            }
+        except Exception as e:
+            logger.error(f"Error fetching exchange minimums: {e}")
+            return {
+                'min_qty': 0.00001,
+                'min_notional': 15.0
+            }
 
     async def run(self):
         """Main run loop for the RoboService"""

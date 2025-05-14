@@ -15,68 +15,47 @@ class LogManager:
         
     def setup_basic_logging(self, verbosity: str = "INFO") -> None:
         """
-        Setup logging with configurable verbosity
-        
-        Args:
-            verbosity: Logging level ("DEBUG", "INFO", "WARNING", "ERROR")
+        Configure basic logging with console and file handlers
         """
-        self.log_dir.mkdir(exist_ok=True)
+        level = getattr(logging, verbosity.upper(), logging.INFO)
         
-        # Map verbosity to logging level
-        level_map = {
-            "DEBUG": logging.DEBUG,
-            "INFO": logging.INFO,
-            "WARNING": logging.WARNING,
-            "ERROR": logging.ERROR
-        }
-        level = level_map.get(verbosity.upper(), logging.WARNING)
+        # Configure root logger
+        logger = logging.getLogger()
+        logger.setLevel(level)
         
-        # Create formatters
-        console_formatter = logging.Formatter(
-            '%(asctime)s [%(levelname)s] %(message)s',
-            datefmt='%H:%M:%S'
-        )
+        # Clear any existing handlers to prevent duplicates
+        logger.handlers.clear()
         
+        # Create formatter for file logs (detailed)
         file_formatter = logging.Formatter(
-            '%(asctime)s [%(levelname)s] %(name)s - %(message)s'
+            "[%(asctime)s] %(levelname)-8s %(message)-80s %(name)s:%(lineno)d",
+            "%Y-%m-%d %H:%M:%S"
         )
-
-        # Setup console handler
-        console = logging.StreamHandler(sys.stdout)
-        console.setLevel(level)
-        console.setFormatter(console_formatter)
-
-        # Add Rich handler for console output
-        console_handler = RichHandler(rich_tracebacks=True)
-        console_handler.setFormatter(logging.Formatter('%(message)s'))
-        console_handler.setLevel(level)
-
-        # Setup main log file - use specific file if provided in config
-        if "log_file" in self.config:
-            main_log = Path(self.config["log_file"])
-        else:
-            main_log = self.log_dir / f"trading_{self.timestamp}.log"
-            
-        file_handler = logging.FileHandler(main_log)
+        
+        log_dir = self.log_dir  # Changed from self.base_dir
+        log_dir.mkdir(exist_ok=True)
+        log_file = log_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(level)
         file_handler.setFormatter(file_formatter)
-
-        # Configure root logger
-        root_logger = logging.getLogger()
-        root_logger.setLevel(level)
         
-        # Remove any existing handlers
-        root_logger.handlers.clear()
+        # Add Rich handler for console (with rich formatting support)
+        from rich.logging import RichHandler
+        console_handler = RichHandler(
+            rich_tracebacks=True, 
+            markup=True,  # Enable Rich markup parsing
+            show_path=True
+        )
+        console_handler.setFormatter(logging.Formatter("%(message)s"))
+        console_handler.setLevel(level)
         
         # Add handlers
-        root_logger.addHandler(console)
-        root_logger.addHandler(console_handler)
-        root_logger.addHandler(file_handler)
+        logger.addHandler(console_handler)  # Only one console handler with Rich support
+        logger.addHandler(file_handler)
         
-        # Set third-party loggers to WARNING unless in DEBUG mode
-        if verbosity.upper() != "DEBUG":
-            for logger_name in ["urllib3", "binance", "asyncio"]:
-                logging.getLogger(logger_name).setLevel(logging.WARNING)
+        # Log initial setup information
+        logger.info(f"Logging initialized at level {verbosity}")
+        logger.info(f"Logs will be saved to: {log_file}")
         
     def setup_rich_logging(self, level=logging.INFO):
         """Set up Rich-compatible logging"""
@@ -156,3 +135,24 @@ def warning(message: str, context: Dict[str, Any] = None):
 def error(message: str, context: Dict[str, Any] = None):
     """Log an error message with optional context."""
     log_with_context(logging.ERROR, message, context)
+
+def setup_rich_logging():
+    # Remove default handlers
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    # Add Rich handler
+    rich_handler = RichHandler(markup=True)  # Enable markup parsing
+    rich_handler.setFormatter(logging.Formatter("%(message)s"))
+    root_logger.addHandler(rich_handler)
+    root_logger.setLevel(logging.INFO)
+
+def setup_logging():
+    # Remove or reconfigure one of these handlers
+    # Option 1: Keep only the Rich handler
+    logging.basicConfig(handlers=[], level=logging.INFO)  # Empty the default handlers
+    
+    # Option 2: Make the handlers handle different log levels
+    # console_handler.setLevel(logging.WARNING)  # Only show warnings and above in console
+    # rich_handler.setLevel(logging.INFO)  # Show all info in Rich format

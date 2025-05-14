@@ -532,20 +532,26 @@ class TradingSystem:
             
             # Execute the trade with our trading service
             side = signal.get('side', 'BUY')
-            result = await self.robo_service.execute_trade(signal['symbol'], side, strength)
+            result = await self.robo_service.execute_trade(signal)
             
-            # Check if execution failed due to minimum size
-            if not result.get('success', False) and 'minimum' in str(result.get('error', '')):
-                # Handle minimum size error with our new method
-                await self.handle_minimum_size_error(signal, result.get('error', 'Unknown error'))
+            # Handle accumulating orders
+            if not result.get('success', False) and result.get('action') == 'ACCUMULATING':
+                # Log accumulation status
+                symbol = signal.get('symbol')
+                accumulated = result.get('accumulated', 0)
+                value = result.get('accumulated_value', 0)
                 
-                # Log suggested action
-                if 'action' in result:
-                    logger.info(f"Suggested action: {result['action']}")
+                # Display accumulation status
+                logger.info(f"Accumulating orders for {symbol}: {accumulated:.8f} (${value:.2f})")
+                
+                # Update UI if needed
+                if hasattr(self, 'ui') and hasattr(self.ui, 'display_pending_orders') and hasattr(self.robo_service, 'pending_orders'):
+                    self.ui.display_pending_orders(self.robo_service.pending_orders)
             
-            logger.info(f"Trade executed: {result}")
+            return result
         else:
-            logger.info(f"Signal below threshold, no trade executed")
+            logger.info(f"Signal below threshold ({threshold:.2f}), no trade executed")
+            return None
 
     async def execute_trade(self, signal: Dict) -> None:
         """Execute a trade based on a signal"""
@@ -1085,6 +1091,11 @@ class TradingSystem:
                     # Update UI with sentiment
                     if hasattr(self.ui, 'update_sentiment'):
                         self.ui.update_sentiment(pair, f"{sentiment_value} {sentiment_direction}")
+
+            # Add: Display pending orders if available
+            if hasattr(self.robo_service, 'pending_orders') and self.robo_service.pending_orders:
+                if hasattr(self.ui, 'display_pending_orders'):
+                    self.ui.display_pending_orders(self.robo_service.pending_orders)
         except Exception as e:
             logger.error(f"Error updating UI: {str(e)}")
 
