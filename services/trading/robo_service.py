@@ -344,15 +344,20 @@ class RoboService(BaseService):
                             'amount': position_size,
                             'signals': [{'side': side, 'strength': strength}],
                             'last_update': datetime.now(),
-                            'side': side
+                            'side': side,
+                            'created_at': datetime.now()  # Add creation timestamp
                         }
                         logger.warning(f"Order too small: {position_size} {symbol} @ {current_price} = ${position_size * current_price:.2f} < ${min_notional}")
                         logger.info(f"Started accumulating orders for {symbol}. Current: {position_size:.8f} (${position_size * current_price:.2f})")
                     else:
                         # Only accumulate if same direction
                         if self.pending_orders[symbol]['side'] == side:
-                            self.pending_orders[symbol]['amount'] += position_size
+                            # Add new signal to history
                             self.pending_orders[symbol]['signals'].append({'side': side, 'strength': strength})
+                            
+                            # Update accumulated amount using weighted strategy
+                            self.pending_orders[symbol]['amount'] = self._update_accumulated_amount(
+                                symbol, position_size, strength)
                             self.pending_orders[symbol]['last_update'] = datetime.now()
                             
                             # Check if we now have enough for an order
@@ -370,6 +375,9 @@ class RoboService(BaseService):
                                 # Clear the pending order if executed
                                 if result and result.get('success', False):
                                     del self.pending_orders[symbol]
+                                    
+                                    # Ensure portfolio is updated with the trade result
+                                    await self.update_portfolio_with_trade_result(result)
                                 
                                 return result
                             else:
@@ -381,7 +389,8 @@ class RoboService(BaseService):
                                 'amount': position_size,
                                 'signals': [{'side': side, 'strength': strength}],
                                 'last_update': datetime.now(),
-                                'side': side
+                                'side': side,
+                                'created_at': datetime.now()  # Add creation timestamp
                             }
                         
                     return {
@@ -425,6 +434,23 @@ class RoboService(BaseService):
         except Exception as e:
             logger.error(f"Error executing trade: {e}")
             return {'success': False, 'error': str(e)}
+
+    def _update_accumulated_amount(self, symbol: str, new_amount: float, new_strength: float):
+        """Update accumulated amount using weighted strategy based on signal strength"""
+        current_order = self.pending_orders[symbol]
+        current_amount = current_order['amount']
+        
+        # Calculate total strength from previous signals
+        total_strength = sum(s['strength'] for s in current_order['signals'])
+        
+        # Add new signal's strength
+        total_strength += new_strength
+        
+        # Calculate weighted average
+        weighted_amount = ((current_amount * (total_strength - new_strength)) + 
+                         (new_amount * new_strength)) / total_strength
+        
+        return weighted_amount
 
     async def _execute_buy(self, symbol, position_size, current_price):
         """Execute a buy order and update portfolio"""
@@ -556,6 +582,34 @@ class RoboService(BaseService):
             quantity = 0
             
         return quantity
+
+    async def _get_current_price(self, symbol: str) -> float:
+        """Get current price for a trading pair
+        
+        Args:
+            symbol: Trading pair symbol (e.g. 'BTCUSDT')
+            
+        Returns:
+            float: Current price or 0 if unavailable
+        """
+        if 'binance' not in self.exchange_clients:
+            return 0.0
+            
+        try:
+            ticker = await self.exchange_clients['binance'].get_ticker(symbol)
+            if ticker and 'lastPrice' in ticker:
+                return float(ticker['lastPrice'])
+            return 0.0
+        except Exception as e:
+            logger.error(f"Error getting price for {symbol}: {e}")
+            # Fallback prices for common pairs
+            if symbol == 'BTCUSDT':
+                return 100000.0
+            elif symbol == 'ETHUSDT':
+                return 2500.0
+            elif symbol == 'BNBUSDT':
+                return 600.0
+            return 0.0
 
     def get_positions(self):
         """
@@ -774,6 +828,29 @@ class RoboService(BaseService):
                 'min_qty': 0.00001,
                 'min_notional': 15.0
             }
+
+    async def cleanup_expired_orders(self):
+        """Remove pending orders that have expired"""
+        if not hasattr(self, 'pending_orders'):
+            return
+        
+        now = datetime.now()
+        # Get expiration time from config (default 24 hours)
+        expiration_seconds = self.config.get('trading', {}).get(
+            'minimum_size_handling', {}).get('expiration_time', 86400)
+    
+        expired_symbols = []
+        for symbol, order in self.pending_orders.items():
+            if (now - order['created_at']).total_seconds() > expiration_seconds:
+                expired_symbols.append(symbol)
+                logger.warning(f"Order accumulation for {symbol} expired after {expiration_seconds/3600:.1f} hours")
+    
+        # Remove expired orders
+        for symbol in expired_symbols:
+            del self.pending_orders[symbol]
+        
+        if expired_symbols:
+            logger.info(f"Cleaned up {len(expired_symbols)} expired order accumulations")
 
     async def run(self):
         """Main run loop for the RoboService"""
