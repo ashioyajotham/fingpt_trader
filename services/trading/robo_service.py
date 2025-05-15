@@ -364,6 +364,11 @@ class RoboService(BaseService):
                 
                 # Handle based on configured mode
                 if min_size_mode == 'ACCUMULATE':
+                    # Only start accumulating if we have a valid position size
+                    if position_size <= 0:
+                        logger.warning(f"Cannot accumulate with position size of {position_size}")
+                        return {'success': False, 'symbol': symbol, 'error': 'Invalid position size'}
+                        
                     # Initialize pending orders dict if it doesn't exist
                     if not hasattr(self, 'pending_orders'):
                         self.pending_orders = {}
@@ -597,17 +602,13 @@ class RoboService(BaseService):
             
             # Adjust position size based on regime
             if regime == "high_volatility":
-                market_regime_factor = 0.7  # Reduce position size in volatile markets
-                logger.info(f"High volatility detected, reducing position size by 30%")
+                market_regime_factor = 0.7
             elif regime == "low_volatility":
-                market_regime_factor = 1.2  # Increase position in calm markets
-                logger.info(f"Low volatility detected, increasing position size by 20%")
+                market_regime_factor = 1.2
             elif regime == "trending":
-                market_regime_factor = 1.1  # Slightly increase in trending markets
-                logger.info(f"Trending market detected, increasing position size by 10%")
+                market_regime_factor = 1.1
             elif regime == "crisis":
-                market_regime_factor = 0.3  # Significantly reduce in crisis
-                logger.warning(f"Crisis regime detected, reducing position size by 70%")
+                market_regime_factor = 0.3
         
         # Scale position size based on signal strength
         position_pct = base_position + ((max_position - base_position) * strength)
@@ -621,16 +622,15 @@ class RoboService(BaseService):
         price = 0
         try:
             if 'binance' in self.exchange_clients:
-                ticker = self.exchange_clients['binance'].get_ticker_sync(symbol)
-                price = float(ticker['lastPrice'])
-        except:
-            # Fallback prices for testing
-            if symbol == 'BTCUSDT':
-                price = 100000
-            elif symbol == 'ETHUSDT':
-                price = 2500
-            elif symbol == 'BNBUSDT':
-                price = 600
+                # async method in an async context or fetch price from market data service
+                price = self.market_data_service.get_latest_price(symbol) if hasattr(self, 'market_data_service') else 0
+                
+                # If market data service didn't provide a price, try fallback
+                if price <= 0 and hasattr(self, 'portfolio') and hasattr(self.portfolio, 'last_prices'):
+                    price = self.portfolio.last_prices.get(symbol, 0)
+        except Exception as e:
+            logger.error(f"Error getting price for position calculation: {e}")
+            return 0  # Return 0 quantity if no price is available
         
         # Calculate quantity
         if price > 0:
@@ -641,8 +641,9 @@ class RoboService(BaseService):
             if quantity < min_qty:
                 quantity = min_qty
         else:
+            logger.warning(f"Invalid price (0) for {symbol}, cannot calculate position size")
             quantity = 0
-            
+                
         return quantity
 
     async def _get_current_price(self, symbol: str) -> float:
@@ -655,22 +656,17 @@ class RoboService(BaseService):
             float: Current price or 0 if unavailable
         """
         if 'binance' not in self.exchange_clients:
+            logger.error("Binance client not available")
             return 0.0
             
         try:
             ticker = await self.exchange_clients['binance'].get_ticker(symbol)
             if ticker and 'lastPrice' in ticker:
                 return float(ticker['lastPrice'])
+            logger.warning(f"No price data available from exchange for {symbol}")
             return 0.0
         except Exception as e:
             logger.error(f"Error getting price for {symbol}: {e}")
-            # Fallback prices for common pairs
-            if symbol == 'BTCUSDT':
-                return 100000.0
-            elif symbol == 'ETHUSDT':
-                return 2500.0
-            elif symbol == 'BNBUSDT':
-                return 600.0
             return 0.0
 
     def get_positions(self):
@@ -699,16 +695,18 @@ class RoboService(BaseService):
         """Update portfolio with latest market prices"""
         if not hasattr(self, 'portfolio'):
             return
-            
+        
         try:
-            if 'binance' in self.exchange_clients:
-                # Get prices for all positions
-                positions = self.portfolio.positions
-                if not positions:
-                    return
-                    
-                # Get current prices
-                price_data = {}
+            # Get positions
+            positions = self.portfolio.positions
+            if not positions:
+                return
+                
+            # Get current prices
+            price_data = {}
+        
+            # Get prices from exchange clients
+            if hasattr(self, 'exchange_clients') and 'binance' in self.exchange_clients:
                 for symbol in positions.keys():
                     try:
                         ticker = await self.exchange_clients['binance'].get_ticker(symbol)
@@ -717,14 +715,17 @@ class RoboService(BaseService):
                             price_data[symbol] = {'price': price}
                     except Exception as e:
                         logger.warning(f"Failed to get price for {symbol}: {e}")
+        
+            # Update portfolio with whatever prices we could get
+            if price_data:
+                self.portfolio.update_prices(price_data)
+                logger.info(f"Updated prices for {len(price_data)} positions")
                 
-                # Update portfolio with new prices
-                if price_data:
-                    self.portfolio.update_prices(price_data)
-                    logger.info(f"Updated prices for {len(price_data)} positions")
-                    
-                    # Record updated portfolio state
-                    self.portfolio._record_portfolio_state()
+                # Record updated portfolio state
+                self.portfolio._record_portfolio_state()
+            else:
+                logger.warning("No price data available to update portfolio")
+    
         except Exception as e:
             logger.error(f"Error updating portfolio prices: {e}")
 

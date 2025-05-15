@@ -458,10 +458,17 @@ class TradingSystem:
                             except Exception as e:
                                 logger.error(f"Error displaying performance metrics: {e}")
                     
-                    # After updating all components
-                    if hasattr(self, 'ui') and hasattr(self.ui, 'display_trader_dashboard'):
+                    # After all data is updated
+                    if hasattr(self, 'ui'):
+                        # Store cycle number
                         self.ui.current_cycle = cycle_count
-                        self.ui.display_trader_dashboard()
+                        
+                        # Display the complete dashboard instead of individual sections
+                        if hasattr(self.ui, 'display_trader_dashboard'):
+                            self.ui.display_trader_dashboard()
+                        else:
+                            # Fallback to older update method
+                            await self.update_ui()
                     
                     # Sleep before next cycle
                     await asyncio.sleep(self.config.get('trading.loop_interval', 60))
@@ -901,6 +908,10 @@ class TradingSystem:
             # Fetch market data
             market_data = await self.market_data_service.get_realtime_quote(pairs)
             
+            # Force sync from cache to market_data
+            if hasattr(self.market_data_service, '_sync_market_data_from_cache'):
+                self.market_data_service._sync_market_data_from_cache()
+            
             # Process the market data and update UI and portfolio
             for symbol, data in market_data.items():
                 if isinstance(data, dict):
@@ -908,9 +919,12 @@ class TradingSystem:
                     price = None
                     for field in ['price', 'lastPrice', 'last', 'close']:
                         if field in data and data[field]:
-                            price = float(data[field])
-                            break
-                            
+                            try:
+                                price = float(data[field])
+                                break
+                            except (ValueError, TypeError):
+                                continue
+                                
                     if price:
                         # Update UI with new price
                         if hasattr(self, 'ui'):
@@ -924,14 +938,14 @@ class TradingSystem:
                         if 'change' in data and hasattr(self, 'ui'):
                             self.ui.update_change(symbol, data['change'])
             
-            # Force portfolio value recalculation
-            if hasattr(self, 'robo_service') and hasattr(self.robo_service, 'portfolio'):
-                await self.robo_service.update_portfolio_prices()
-            
-            # Update market data in UI
+            # Calculate price changes
+            changes = self.market_data_service.calculate_price_changes()
+
+            # Update UI with price changes
             if hasattr(self, 'ui'):
-                self.ui.market_data = market_data
-                
+                for symbol, change in changes.items():
+                    self.ui.update_change(symbol, change)
+                    
         except Exception as e:
             logger.error(f"Error updating market data: {str(e)}")
 
@@ -1112,9 +1126,12 @@ class TradingSystem:
                 
                 # Get entry prices from portfolio
                 entry_prices = {}
-                if hasattr(portfolio, 'position_entries'):
-                    entry_prices = portfolio.position_entries
-                
+                if hasattr(self.robo_service.portfolio, 'position_entries'):
+                    entry_prices = self.robo_service.portfolio.position_entries
+
+                # Make sure to log entry prices for debugging
+                logger.debug(f"Entry prices: {entry_prices}")
+
                 # Get current prices for each position
                 current_prices = {}
                 for symbol in positions.keys():

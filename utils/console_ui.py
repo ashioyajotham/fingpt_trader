@@ -106,8 +106,15 @@ class ConsoleUI:
             price = 0.0
             if current_prices and symbol in current_prices:
                 price = current_prices[symbol]
-            value = position * price
-            total_value += value
+            
+            # If we don't have a price, mark it clearly
+            if price <= 0:
+                price_str = "N/A"
+                value = 0
+            else:
+                price_str = f"{price:.2f}"
+                value = position * price
+                total_value += value
             
             # Get entry price if available
             entry_price = ""
@@ -127,12 +134,9 @@ class ConsoleUI:
                 position_str = f"{position:.6f}"
             else:
                 position_str = f"{position:.6f}"
-                
-            # Format current price
-            price_str = f"{price:.2f}" if price else ""
             
             # Get 24h change if available
-            change = "0.00%"
+            change = "N/A"
             if hasattr(self, 'price_changes') and symbol in self.price_changes:
                 change_value = self.price_changes[symbol]
                 change_color = "green" if change_value >= 0 else "red"
@@ -142,14 +146,14 @@ class ConsoleUI:
             table.add_row(
                 base_asset, 
                 position_str, 
-                f"{value:.2f}", 
+                f"{value:.2f}" if price > 0 else "N/A", 
                 entry_price, 
                 price_str, 
                 f"[{pnl_color}]{pnl}[/{pnl_color}]",
                 change
             )
         
-        # Add total row
+        # Add total row (only counting known values)
         table.add_row(
             "TOTAL", 
             "", 
@@ -176,15 +180,18 @@ class ConsoleUI:
         table.add_column("24h Change", style="")
         table.add_column("Sentiment", style="")
         
+        # Use current_prices if available, which has actual price data
+        current_prices = getattr(self, 'current_prices', {})
+        
         # Add rows for each symbol
         for symbol, data in market_data.items():
-            # Format price
-            price = data.get('price', 0.0)
+            # Format price - first check current_prices which is more reliable
+            price = current_prices.get(symbol, 0.0) if current_prices else data.get('price', 0.0)
             price_str = f"{price:.2f}" if price else "N/A"
             
             # Format change
             change = data.get('change', 0.0)
-            change_str = f"{change:.2f}%" if change else "0.00%"
+            change_str = f"{change:.2f}%" if isinstance(change, (int, float)) else "0.00%"
             change_color = "green" if change > 0 else ("red" if change < 0 else "white")
             change_display = f"[{change_color}]{change_str}[/{change_color}]"
             
@@ -203,7 +210,7 @@ class ConsoleUI:
                     sentiment_color = "yellow"
             else:
                 # Use text sentiment as-is
-                sentiment_color = "green" if "bull" in sentiment.lower() else ("red" if "bear" in sentiment.lower() else "yellow")
+                sentiment_color = "green" if "bull" in str(sentiment).lower() else ("red" if "bear" in str(sentiment).lower() else "yellow")
             
             sentiment_display = f"[{sentiment_color}]{sentiment}[/{sentiment_color}]"
             
@@ -589,28 +596,90 @@ class ConsoleUI:
         if not self.setup_complete:
             return
         
-        # Create dashboard layout
+        # Clear screen for a fresh dashboard
         self.console.clear()
         
-        # 1. Display portfolio summary
-        if hasattr(self, 'portfolio_positions'):
-            self.display_portfolio(self.portfolio_cash, self.portfolio_positions, 
-                                  self.position_entries, self.current_prices)
-        
-        # 2. Display market data
+        # 1. MARKET OVERVIEW - First thing traders want to see
         if hasattr(self, 'market_data'):
             self.display_market_data(self.market_data)
-        
-        # 3. Display recent signals
+            
+        # 2. ACTIVE SIGNALS - Second most important for decision making
         if hasattr(self, 'recent_signals') and self.recent_signals:
             self.display_signals(self.recent_signals)
-        
-        # 4. Display performance metrics
+            
+        # 3. PORTFOLIO STATUS - After market view, see your positions
+        if hasattr(self, 'portfolio_positions'):
+            self.display_portfolio(self.portfolio_cash, self.portfolio_positions, 
+                                 self.position_entries, self.current_prices)
+
+        # 4. PERFORMANCE METRICS - At the bottom for reference
         if hasattr(self, 'performance_metrics'):
             self.display_performance_metrics(self.performance_metrics)
         
-        # 5. Display system status
-        status_panel = Panel(f"[bold green]System Status:[/bold green] Running\n" +
-                          f"Cycle: {self.current_cycle if hasattr(self, 'current_cycle') else 'N/A'}\n" +
-                          f"Last Update: {datetime.now().strftime('%H:%M:%S')}")
+        # 5. SYSTEM STATUS - Always good to know
+        status_panel = Panel(
+            f"[bold green]System Status:[/bold green] Running\n" +
+            f"Cycle: {self.current_cycle if hasattr(self, 'current_cycle') else 'N/A'}\n" +
+            f"Last Update: {datetime.now().strftime('%H:%M:%S')}"
+        )
         self.console.print(status_panel)
+    
+    def display_signals(self, signals: List[Dict]):
+        """Display active trading signals"""
+        if not signals:
+            return
+            
+        table = Table(title="[bold]Trading Signals[/bold]")
+        table.add_column("Symbol", style="cyan")
+        table.add_column("Direction", style="")
+        table.add_column("Strength", style="")
+        table.add_column("Price", style="yellow")
+        table.add_column("Source", style="")
+        table.add_column("Time", style="")
+        
+        # Get current time for age calculation
+        now = datetime.now()
+        
+        for signal in signals:
+            # Extract values with defaults
+            symbol = signal.get('symbol', 'UNKNOWN')
+            direction = signal.get('direction', 'UNKNOWN')
+            strength = signal.get('strength', 0.0)
+            price = signal.get('price', 0.0)
+            source = signal.get('type', 'UNKNOWN')
+            timestamp = signal.get('timestamp', now)
+            
+            # Format direction with color
+            direction_color = "green" if direction.upper() == 'BUY' else "red"
+            direction_display = f"[{direction_color}]{direction}[/{direction_color}]"
+            
+            # Format strength as visual bar
+            strength_bar = self._format_strength_bar(strength)
+            
+            # Format price
+            price_str = f"{price:.2f}" if price else "N/A"
+            
+            # Format signal age
+            if isinstance(timestamp, datetime):
+                age = now - timestamp
+                if age.total_seconds() < 60:
+                    age_str = "Just now"
+                elif age.total_seconds() < 3600:
+                    age_str = f"{int(age.total_seconds() / 60)}m ago"
+                else:
+                    age_str = f"{int(age.total_seconds() / 3600)}h ago"
+            else:
+                age_str = "N/A"
+            
+            # Add row to table
+            table.add_row(
+                symbol.replace('USDT', ''),
+                direction_display,
+                strength_bar,
+                price_str,
+                source,
+                age_str
+            )
+        
+        # Print the table
+        self.console.print(table)

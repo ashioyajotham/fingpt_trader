@@ -157,9 +157,14 @@ class MarketDataService(BaseService):
                             data['price'] = data[field]
                             logger.debug(f"Normalized price field from '{field}' for {symbol}")
                             break
-                            
+                        
                     # Store in cache
                     self.cache[symbol] = data
+                    
+                    # CRITICAL FIX: Also store in market_data for get_latest_price and get_latest_data
+                    if not hasattr(self, 'market_data'):
+                        self.market_data = {}
+                    self.market_data[symbol] = data
                     
                     # Also update price history for tracking
                     if 'price' in data and data['price']:
@@ -352,60 +357,39 @@ class MarketDataService(BaseService):
         return self.config.get('pairs', [])
 
     def get_latest_price(self, symbol: str) -> float:
-        """Get the latest price for a trading pair with improved error handling."""
+        """Get the latest price for a symbol"""
         try:
-            # First check the cache
-            if symbol in self.cache:
-                data = self.cache[symbol]
-                logger.debug(f"Cache data for {symbol}: {data}")
-                
-                # Try standard price fields
-                for price_field in ['price', 'lastPrice', 'last', 'close']:
-                    if price_field in data and data[price_field]:
+            # Ensure market_data is populated from cache first
+            self._sync_market_data_from_cache()
+            
+            # Check if we have market data for this symbol
+            if hasattr(self, 'market_data') and symbol in self.market_data:
+                # Try different price field names
+                for field in ['price', 'lastPrice', 'last', 'close']:
+                    if field in self.market_data[symbol] and self.market_data[symbol][field]:
                         try:
-                            price = float(data[price_field])
-                            if price > 0:
-                                return price
+                            return float(self.market_data[symbol][field])
                         except (ValueError, TypeError):
-                            continue
+                            pass
+                        
+            # Check cache directly
+            if hasattr(self, 'cache') and symbol in self.cache:
+                for field in ['price', 'lastPrice', 'last', 'close']:
+                    if field in self.cache[symbol] and self.cache[symbol][field]:
+                        try:
+                            return float(self.cache[symbol][field])
+                        except (ValueError, TypeError):
+                            pass
+                        
+            # Check recent tickers
+            if hasattr(self, 'ticker_data') and symbol in self.ticker_data:
+                return float(self.ticker_data[symbol]['lastPrice'])
                 
-                # If we get here, no valid price field was found
-                logger.warning(f"No valid price field found in cache for {symbol}")
-            
-            # Try price history as fallback
-            if hasattr(self, 'price_history') and symbol in self.price_history and self.price_history[symbol]:
-                # Get most recent price
-                try:
-                    latest = self.price_history[symbol][-1]
-                    price = float(latest['price'])
-                    if price > 0:
-                        logger.debug(f"Using history price for {symbol}: {price}")
-                        return price
-                except (IndexError, ValueError, KeyError):
-                    logger.warning(f"Failed to get price from history for {symbol}")
-            
-            # Final fallback - try direct API call 
-            try:
-                ticker = self.exchange.get_ticker(symbol=symbol)
-                if ticker and isinstance(ticker, dict):
-                    # Try different price fields
-                    for field in ['price', 'lastPrice', 'last', 'close']:
-                        if field in ticker and ticker[field]:
-                            try:
-                                price = float(ticker[field])
-                                if price > 0:
-                                    return price
-                            except (ValueError, TypeError):
-                                continue
-            except Exception as e:
-                logger.error(f"Direct API call for price failed: {e}")
-            
-            # If all attempts failed
-            logger.warning(f"All attempts to get price for {symbol} failed")
+            # Log the issue instead of using fallbacks
+            logger.warning(f"No price data available for {symbol}")
             return 0.0
-            
         except Exception as e:
-            logger.error(f"Error in get_latest_price for {symbol}: {str(e)}")
+            logger.error(f"Error getting price for {symbol}: {e}")
             return 0.0
 
     def get_latest_data(self, symbol: str) -> Dict:
@@ -458,6 +442,124 @@ class MarketDataService(BaseService):
                     pass
         
         return result
+
+    def update_symbol_data(self, symbol: str, data: Dict) -> None:
+        """Update symbol-specific data in the market data store"""
+        if not hasattr(self, 'market_data'):
+            self.market_data = {}
+        
+        # If symbol isn't in market_data yet, initialize it
+        if symbol not in self.market_data:
+            self.market_data[symbol] = {}
+        
+        # Update the data
+        self.market_data[symbol].update(data)
+        
+        # Update last updated timestamp
+        self.market_data[symbol]['last_updated'] = datetime.now()
+        
+        # Log the update for debugging
+        logger.debug(f"Updated market data for {symbol}: {data}")
+
+    def _sync_market_data_from_cache(self):
+        """Ensure market_data has all the data from cache for consistency"""
+        if not hasattr(self, 'cache'):
+            self.cache = {}
+            
+        if not hasattr(self, 'market_data'):
+            self.market_data = {}
+            
+        # Transfer all cache data to market_data
+        for symbol, data in self.cache.items():
+            if isinstance(data, dict):
+                if symbol not in self.market_data:
+                    self.market_data[symbol] = {}
+                self.market_data[symbol].update(data)
+
+    def check_data_quality(self):
+        """Check the quality of available market data"""
+        if not hasattr(self, 'market_data'):
+            logger.error("No market data available")
+            return False
+            
+        missing_prices = []
+        zero_prices = []
+        
+        for symbol, data in self.market_data.items():
+            price = None
+            for field in ['price', 'lastPrice', 'last', 'close']:
+                if field in data and data[field]:
+                    try:
+                        price = float(data[field])
+                        break
+                    except (ValueError, TypeError):
+                        pass
+            
+            if price is None:
+                missing_prices.append(symbol)
+            elif price <= 0:
+                zero_prices.append(symbol)
+        
+        if missing_prices:
+            logger.warning(f"Missing price data for: {', '.join(missing_prices)}")
+            
+        if zero_prices:
+            logger.warning(f"Zero or invalid prices for: {', '.join(zero_prices)}")
+        
+        return not (missing_prices or zero_prices)
+
+    def calculate_price_changes(self):
+        """Calculate price changes since last update"""
+        if not hasattr(self, 'price_history'):
+            self.price_history = {}
+            
+        changes = {}
+        
+        for symbol, data in self.market_data.items():
+            # Get current price
+            current_price = self.get_latest_price(symbol)
+            
+            # Initialize price history for this symbol if needed
+            if symbol not in self.price_history:
+                self.price_history[symbol] = []
+                
+            # Check if we have historical data
+            if len(self.price_history[symbol]) > 0:
+                # Get price from 24h ago or oldest available
+                reference_price = None
+                now = datetime.now()
+                target_time = now - timedelta(hours=24)
+                
+                # Find closest price point to 24h ago
+                for point in self.price_history[symbol]:
+                    if point['timestamp'] <= target_time:
+                        if reference_price is None or (target_time - point['timestamp']).total_seconds() < (target_time - reference_price['timestamp']).total_seconds():
+                            reference_price = point
+                
+                # If we don't have data from 24h ago, use the oldest available
+                if reference_price is None and self.price_history[symbol]:
+                    reference_price = self.price_history[symbol][0]
+                    
+                # Calculate change percentage
+                if reference_price and reference_price['price'] > 0:
+                    change_pct = ((current_price - reference_price['price']) / reference_price['price']) * 100
+                    changes[symbol] = round(change_pct, 2)
+                else:
+                    changes[symbol] = 0.0
+            else:
+                changes[symbol] = 0.0
+                
+            # Record current price in history
+            self.price_history[symbol].append({
+                'price': current_price,
+                'timestamp': datetime.now()
+            })
+            
+            # Limit history size to avoid memory issues
+            if len(self.price_history[symbol]) > 1000:
+                self.price_history[symbol] = self.price_history[symbol][-1000:]
+                
+        return changes
 
 class MarketDataFeed(BaseService):
     """Market data feed handler"""

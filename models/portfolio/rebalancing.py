@@ -77,59 +77,56 @@ class Portfolio:
             })
             self.total_trades += 1
 
-    async def add_position(self, symbol: str, size: float, price: float, cost: float = None):
-        """Add a new position or increase an existing one"""
-        try:
-            # Calculate cost if not provided
-            if cost is None:
-                cost = size * price
+    async def add_position(self, symbol: str, quantity: float, price: float, commission: float = 0.0) -> bool:
+        """Add to a position or create a new one
+        
+        Args:
+            symbol: Trading pair symbol
+            quantity: Quantity to add
+            price: Purchase price
+            commission: Transaction fee
             
-            # Subtract cost from cash balance
-            if cost <= self.cash:
-                self.cash -= cost
+        Returns:
+            bool: Success indicator
+        """
+        try:
+            # Add position
+            if symbol not in self.positions:
+                self.positions[symbol] = 0.0
                 
-                # If position already exists, calculate weighted average entry price
-                if symbol in self.positions and self.positions[symbol] > 0:
-                    # Get current size and entry price
-                    current_size = self.positions[symbol]
-                    current_entry = self.position_entries.get(symbol, price)
-                    
-                    # Calculate new weighted average entry price
-                    total_size = current_size + size
-                    new_entry_price = ((current_size * current_entry) + (size * price)) / total_size
-                    
-                    # Update position and entry price
-                    self.positions[symbol] = total_size
-                    self.position_entries[symbol] = new_entry_price
-                else:
-                    # New position, just set size and entry price
-                    self.positions[symbol] = size
-                    self.position_entries[symbol] = price
-                
-                # Record the trade
-                self.trades.append({
-                    'type': 'BUY',
-                    'symbol': symbol,
-                    'size': size,
-                    'price': price,
-                    'cost': cost,
-                    'entry_price': self.position_entries[symbol],
-                    'timestamp': datetime.now()
-                })
-                
-                # Update last known price
-                self.last_prices[symbol] = price
-                
-                # Record portfolio state
-                self._record_portfolio_state()
-                
-                logger.info(f"Position added: {size} {symbol} @ {price} (Cost: {cost:.2f}, Entry: {self.position_entries[symbol]:.2f})")
-                return True
+            self.positions[symbol] += quantity
+            
+            # Record entry price if new position or adjust avg price if adding
+            if symbol not in self.position_entries:
+                self.position_entries[symbol] = price
             else:
-                logger.warning(f"Insufficient cash: {self.cash} < {cost}")
-                return False
+                # Calculate new average entry price if adding to position
+                current_quantity = self.positions[symbol] - quantity
+                current_entry = self.position_entries[symbol]
+                
+                # Weighted average for entry price
+                if current_quantity > 0:
+                    self.position_entries[symbol] = (
+                        (current_quantity * current_entry) + (quantity * price)
+                    ) / self.positions[symbol]
+                else:
+                    self.position_entries[symbol] = price
+                    
+            # Update last known price
+            self.last_prices[symbol] = price
+            
+            # Deduct from cash (price * quantity + commission)
+            cost = price * quantity + commission
+            self.cash -= cost
+            
+            # Record history
+            self._record_trade(symbol, "BUY", quantity, price, commission)
+            self._record_portfolio_state()
+            
+            return True
+            
         except Exception as e:
-            logger.error(f"Error adding position: {e}")
+            logger.error(f"Error adding position: {str(e)}")
             return False
 
     async def reduce_position(self, symbol: str, size: float, price: float):
