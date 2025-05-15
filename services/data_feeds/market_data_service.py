@@ -98,41 +98,36 @@ class MarketDataService(BaseService):
             logger.error(f"Market data service initialization failed: {str(e)}")
             raise  # Re-raise to ensure caller knows initialization failed
 
-    async def setup(self, exchange_clients=None):
-        """Set up with existing exchange clients or create new ones"""
+    async def setup(self, exchange_clients):
+        """Set up the market data service with exchange clients"""
         try:
-            # Use provided clients if available
-            if exchange_clients and 'binance' in exchange_clients:
-                self.exchange = exchange_clients['binance']
-                logger.info("Using shared Binance client instance")
+            # Store the Binance client specifically
+            if 'binance' in exchange_clients:
+                self.exchange_client = exchange_clients['binance']
+                logger.info("MarketDataService initialized with Binance client")
             else:
-                    # Initialize own client as fallback
-                    self.api_key = self.config.get('api_key') or os.getenv("BINANCE_API_KEY")
-                    self.api_secret = self.config.get('api_secret') or os.getenv("BINANCE_API_SECRET")
-                    
-                    if not self.api_key or not self.api_secret:
-                        logger.error("Exchange API credentials not configured")
-                        raise ValueError("API credentials missing")
-                    
-                    # Initialize exchange client
-                    from services.exchanges.binance import BinanceClient
-                    self.exchange = await BinanceClient.get_instance({
-                        'api_key': self.api_key,
-                        'api_secret': self.api_secret,
-                        'test_mode': self.config.get('test_mode', True)
-                    })
+                logger.warning("Binance client not provided to MarketDataService")
                 
-                # Initialize tracking structures
-            self.cache = {}
+            # Initialize data containers
+            self._market_data = {}
             self.price_history = {}
             
-            for pair in self.config.get('pairs', []):
-                self.price_history[pair] = []
-                
-            logger.info("Market data service initialized with event tracking")
+            # Set up initial price caches for configured pairs
+            pairs = self.config.get('pairs', [])
+            for pair in pairs:
+                if pair not in self._market_data:
+                    self._market_data[pair] = {
+                        'price': None,
+                        'timestamp': None,
+                        'change': 0.0
+                    }
+                    self.price_history[pair] = []
+                    
+            logger.info(f"MarketDataService setup complete for {len(pairs)} pairs")
+            return True
         except Exception as e:
-            logger.error(f"Failed to initialize market data service: {str(e)}")
-            raise
+            logger.error(f"Error setting up MarketDataService: {e}")
+            return False
 
     async def _cleanup(self) -> None:
         """Cleanup resources"""
@@ -141,69 +136,112 @@ class MarketDataService(BaseService):
         self.cache.clear()
 
     async def get_realtime_quote(self, symbols):
-        """Get realtime quotes for multiple symbols"""
-        results = {}
+        """Get real-time quotes for multiple symbols with enhanced error handling"""
+        quotes = {}
+        
         for symbol in symbols:
             try:
-                # Try primary exchange first
-                data = await self._fetch_with_retry(symbol)
-                
-                # Ensure data is properly formatted
-                if isinstance(data, dict):
-                    # Normalize price field if needed
-                    for field in ['lastPrice', 'close', 'last']:
-                        if field in data and field != 'price' and data[field] is not None:
-                            # Copy value to 'price' field
-                            data['price'] = data[field]
-                            logger.debug(f"Normalized price field from '{field}' for {symbol}")
-                            break
-                        
-                    # Store in cache
-                    self.cache[symbol] = data
+                # Check if exchange_client exists
+                if not hasattr(self, 'exchange_client') or self.exchange_client is None:
+                    logger.error(f"No exchange client available for {symbol}")
+                    continue
                     
-                    # CRITICAL FIX: Also store in market_data for get_latest_price and get_latest_data
-                    if not hasattr(self, 'market_data'):
-                        self.market_data = {}
-                    self.market_data[symbol] = data
+                # Get quote from exchange
+                quote = await self.exchange_client.get_ticker(symbol)
+                
+                if quote:
+                    price = None
+                    # Try different field names that might contain price
+                    for field in ['lastPrice', 'price', 'last', 'close']:
+                        if field in quote and quote[field]:
+                            try:
+                                price = float(quote[field])
+                                if price > 0:
+                                    break
+                            except (ValueError, TypeError):
+                                pass
                     
-                    # Also update price history for tracking
-                    if 'price' in data and data['price']:
-                        price = float(data['price'])
-                        if price > 0:
-                            if symbol not in self.price_history:
-                                self.price_history[symbol] = []
-                            self.price_history[symbol].append({
-                                'price': price,
-                                'timestamp': datetime.now()
-                            })
-                            logger.debug(f"Updated price history for {symbol}: {price}")
-                
-                results[symbol] = data
-                
-            except Exception as e:
-                logger.error(f"Error fetching {symbol}: {str(e)}")
-                # Try fallback exchanges if available
-                try:
-                    fallback_data = await self._try_fallback_exchanges(symbol)
-                    if fallback_data:
-                        self.cache[symbol] = fallback_data
-                        results[symbol] = fallback_data
-                    else:
-                        results[symbol] = {
-                            "symbol": symbol,
-                            "price": None,
-                            "error": str(e),
-                            "timestamp": datetime.now().timestamp()
+                    if price and price > 0:
+                        # Store in market data cache
+                        if not hasattr(self, '_market_data'):
+                            self._market_data = {}
+                        self._market_data[symbol] = {
+                            'price': price,
+                            'timestamp': datetime.now()
                         }
-                except Exception as fallback_error:
-                    logger.error(f"Fallback fetch also failed for {symbol}: {str(fallback_error)}")
-                    results[symbol] = {
-                        "symbol": symbol,
-                        "price": None,
-                        "error": f"All fetch attempts failed: {str(e)}",
-                        "timestamp": datetime.now().timestamp()
-                    }
-        return results
+                        quotes[symbol] = price
+                        
+                        # Update price history for 24h change calculation
+                        self.update_price_history(symbol, price)
+                        
+                        # Log success
+                        logger.info(f"Fetched price for {symbol}: {price}")
+                    else:
+                        logger.warning(f"Invalid price data for {symbol}: {quote}")
+                else:
+                    logger.warning(f"Empty quote data for {symbol}")
+                    
+            except Exception as e:
+                logger.error(f"Error getting quote for {symbol}: {e}")
+                # Print detailed exception for debugging
+                import traceback
+                logger.error(traceback.format_exc())
+        
+        return quotes
+
+    async def fetch_prices_directly(self, symbols):
+        """Fetch prices directly from Binance REST API as a fallback"""
+        quotes = {}
+        try:
+            # Use context manager for automatic connection cleanup
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
+                for symbol in symbols:
+                    try:
+                        # Use Binance public API with retries and rate limiting
+                        for attempt in range(3):  # 3 retries
+                            url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
+                            try:
+                                async with session.get(url) as response:
+                                    if response.status == 200:
+                                        data = await response.json()
+                                        if 'price' in data:
+                                            price = float(data['price'])
+                                            if price > 0:
+                                                logger.info(f"Fetched price directly for {symbol}: {price}")
+                                                quotes[symbol] = price
+                                                
+                                                # Update internal tracking
+                                                if not hasattr(self, '_market_data'):
+                                                    self._market_data = {}
+                                                self._market_data[symbol] = {
+                                                    'price': price,
+                                                    'timestamp': datetime.now(),
+                                                    'source': 'direct_api'
+                                                }
+                                                self.update_price_history(symbol, price)
+                                                # Successful fetch, break retry loop
+                                                break
+                                    elif response.status == 429:
+                                        # Rate limit hit - exponential backoff
+                                        backoff = (2 ** attempt) * 0.1
+                                        logger.warning(f"Rate limit hit, backing off for {backoff}s")
+                                        await asyncio.sleep(backoff)
+                                        continue
+                                    else:
+                                        logger.warning(f"Failed to fetch price for {symbol}: HTTP {response.status}")
+                                        if attempt < 2:  # Don't sleep on last attempt
+                                            await asyncio.sleep(0.5)
+                            except aiohttp.ClientError as ce:
+                                logger.error(f"Connection error for {symbol}: {ce}")
+                                if attempt < 2:
+                                    await asyncio.sleep(1)
+                    except Exception as e:
+                        logger.error(f"Error fetching direct price for {symbol}: {e}")
+                
+                return quotes
+        except Exception as e:
+            logger.error(f"Critical error in direct price fetching: {e}")
+            return {}
 
     async def _fetch_with_retry(self, symbol: str) -> Dict:
         """Fetch market data with retry logic"""
@@ -359,32 +397,29 @@ class MarketDataService(BaseService):
     def get_latest_price(self, symbol: str) -> float:
         """Get the latest price for a symbol"""
         try:
-            # Ensure market_data is populated from cache first
-            self._sync_market_data_from_cache()
-            
-            # Check if we have market data for this symbol
+            # First check portfolio last_prices as it's more reliable
+            if hasattr(self, 'last_prices') and symbol in self.last_prices:
+                return float(self.last_prices[symbol])
+                
+            # Then try market_data
+            if hasattr(self, '_market_data') and symbol in self._market_data:
+                if 'price' in self._market_data[symbol]:
+                    return float(self._market_data[symbol]['price'])
+                    
+            # Check alternate structures
             if hasattr(self, 'market_data') and symbol in self.market_data:
-                # Try different price field names
-                for field in ['price', 'lastPrice', 'last', 'close']:
-                    if field in self.market_data[symbol] and self.market_data[symbol][field]:
-                        try:
-                            return float(self.market_data[symbol][field])
-                        except (ValueError, TypeError):
-                            pass
-                        
-            # Check cache directly
+                if 'price' in self.market_data[symbol]:
+                    return float(self.market_data[symbol]['price'])
+                    
+            # Check cache
             if hasattr(self, 'cache') and symbol in self.cache:
                 for field in ['price', 'lastPrice', 'last', 'close']:
-                    if field in self.cache[symbol] and self.cache[symbol][field]:
+                    if field in self.cache[symbol]:
                         try:
                             return float(self.cache[symbol][field])
                         except (ValueError, TypeError):
                             pass
-                        
-            # Check recent tickers
-            if hasattr(self, 'ticker_data') and symbol in self.ticker_data:
-                return float(self.ticker_data[symbol]['lastPrice'])
-                
+                            
             # Log the issue instead of using fallbacks
             logger.warning(f"No price data available for {symbol}")
             return 0.0
@@ -508,58 +543,88 @@ class MarketDataService(BaseService):
         
         return not (missing_prices or zero_prices)
 
-    def calculate_price_changes(self):
-        """Calculate price changes since last update"""
-        if not hasattr(self, 'price_history'):
-            self.price_history = {}
-            
+    def calculate_price_changes(self) -> Dict[str, float]:
+        """Calculate 24h price changes for all watched pairs"""
         changes = {}
+        current_time = datetime.now()
         
-        for symbol, data in self.market_data.items():
+        for symbol, data in self.price_history.items():
+            if not data:
+                changes[symbol] = 0.0
+                logger.debug(f"No price history for {symbol}")
+                continue
+                
             # Get current price
             current_price = self.get_latest_price(symbol)
+            if not current_price:
+                changes[symbol] = 0.0
+                continue
+                
+            # Find price closest to 24h ago
+            yesterday = current_time - timedelta(hours=24)
+            closest_point = None
+            closest_diff = timedelta(days=100)
             
-            # Initialize price history for this symbol if needed
-            if symbol not in self.price_history:
-                self.price_history[symbol] = []
-                
-            # Check if we have historical data
-            if len(self.price_history[symbol]) > 0:
-                # Get price from 24h ago or oldest available
-                reference_price = None
-                now = datetime.now()
-                target_time = now - timedelta(hours=24)
-                
-                # Find closest price point to 24h ago
-                for point in self.price_history[symbol]:
-                    if point['timestamp'] <= target_time:
-                        if reference_price is None or (target_time - point['timestamp']).total_seconds() < (target_time - reference_price['timestamp']).total_seconds():
-                            reference_price = point
-                
-                # If we don't have data from 24h ago, use the oldest available
-                if reference_price is None and self.price_history[symbol]:
-                    reference_price = self.price_history[symbol][0]
-                    
-                # Calculate change percentage
-                if reference_price and reference_price['price'] > 0:
-                    change_pct = ((current_price - reference_price['price']) / reference_price['price']) * 100
-                    changes[symbol] = round(change_pct, 2)
+            for point in data:
+                if 'timestamp' in point:
+                    time_diff = abs(point['timestamp'] - yesterday)
+                    if time_diff < closest_diff:
+                        closest_diff = time_diff
+                        closest_point = point
+            
+            # If we found a point and it's within reasonable range (36h)
+            if closest_point and closest_diff < timedelta(hours=36):
+                old_price = closest_point.get('price', 0)
+                if old_price > 0:
+                    change = ((current_price - old_price) / old_price) * 100
+                    changes[symbol] = round(change, 2)
                 else:
                     changes[symbol] = 0.0
             else:
-                changes[symbol] = 0.0
-                
-            # Record current price in history
-            self.price_history[symbol].append({
-                'price': current_price,
-                'timestamp': datetime.now()
-            })
+                # New fallback: if we have at least 2 data points in history, show short-term change
+                if len(data) >= 2:
+                    oldest = data[0].get('price', 0)
+                    if oldest > 0:
+                        short_change = ((current_price - oldest) / oldest) * 100
+                        changes[symbol] = round(short_change, 2)
+                        logger.info(f"Using short-term change for {symbol}: {short_change:.2f}% (insufficient history)")
+                    else:
+                        changes[symbol] = 0.0
+                else:
+                    # No historical data point found
+                    changes[symbol] = 0.0
+                    logger.debug(f"Insufficient price history for {symbol} change calculation")
             
-            # Limit history size to avoid memory issues
-            if len(self.price_history[symbol]) > 1000:
-                self.price_history[symbol] = self.price_history[symbol][-1000:]
-                
         return changes
+
+    def update_price_history(self, symbol: str, price: float):
+        """Update price history for a symbol"""
+        if not hasattr(self, 'price_history'):
+            self.price_history = {}
+        
+        if symbol not in self.price_history:
+            self.price_history[symbol] = []
+        
+        # Add new price data point with timestamp
+        self.price_history[symbol].append({
+            'price': price,
+            'timestamp': datetime.now()
+        })
+        
+        # Limit history size (keep 24h worth of data assuming 1 update per minute)
+        max_history = 24 * 60  # 24 hours of minute data
+        if len(self.price_history[symbol]) > max_history:
+            self.price_history[symbol] = self.price_history[symbol][-max_history:]
+            
+        # Also update the market_data store - THIS IS KEY
+        if not hasattr(self, '_market_data'):
+            self._market_data = {}
+        
+        if symbol not in self._market_data:
+            self._market_data[symbol] = {}
+            
+        self._market_data[symbol]['price'] = price
+        self._market_data[symbol]['timestamp'] = datetime.now()
 
 class MarketDataFeed(BaseService):
     """Market data feed handler"""

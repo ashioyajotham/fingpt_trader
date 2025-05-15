@@ -700,92 +700,90 @@ class TradingSystem:
             logger.error(f"Error in handling minimum size notification: {e}")
 
     def _calculate_position_size(self, signal: Dict) -> float:
-        """Calculate position size based on signal strength and available funds"""
+        """Calculate position size based on signal strength and portfolio value"""
         try:
-            # Get account balance
-            balance = self.get_config('trading.account.balance', 10000.0)
-            max_position_pct = self.get_config('trading.position_sizing.max_position_pct', 0.05)
-            base_position_pct = self.get_config('trading.position_sizing.base_position_pct', 0.01)
+            # Get trading pair symbol and signal strength
+            symbol = signal.get('symbol', '')
+            strength = signal.get('strength', 0.5)
+            confidence = signal.get('confidence', 0.5)
             
-            # Scale position size based on signal strength (0.0-1.0)
-            strength_factor = min(signal.get('strength', 0.5), 1.0)
-            position_pct = base_position_pct + ((max_position_pct - base_position_pct) * strength_factor)
+            # Get portfolio value
+            portfolio_value = 0
+            if hasattr(self, 'robo_service') and hasattr(self.robo_service, 'portfolio'):
+                portfolio = self.robo_service.portfolio
+                portfolio_value = portfolio.total_value()
             
-            # Forex trader logic: When market is trending, increase position size
-            symbol = signal['symbol']
-            if symbol in self.price_history:
-                prices = [p['price'] for p in self.price_history[symbol]]
-                if len(prices) >= 3:
-                    # Check for momentum
-                    if prices[-1] > prices[-2] > prices[-3] and signal.get('side') == 'BUY':
-                        logger.info(f"Upward momentum detected for {symbol}, increasing position size")
-                        position_pct *= 1.2  # 20% larger position on momentum
-                    elif prices[-1] < prices[-2] < prices[-3] and signal.get('side') == 'SELL':
-                        logger.info(f"Downward momentum detected for {symbol}, increasing position size")
-                        position_pct *= 1.2  # 20% larger position on momentum
-            
-            # Calculate position size in quote currency (e.g., USDT)
-            position_size = balance * position_pct
-
-            # Get exchange minimum requirements
-            min_notional = self.get_config('trading.execution.min_notional', 15.0)  # Increased default
-            min_position_pct = self.get_config('risk.min_position_size', 0.05)      # Increased default
+            # Default to small position if we can't get portfolio value
+            if portfolio_value <= 0:
+                portfolio_value = 10000  # Assume default $10K
             
             # Get current price
-            price = signal.get('price', 0.0)
+            price = signal.get('price', 0)
+            if price <= 0 and hasattr(self, 'market_data_service'):
+                price = self.market_data_service.get_latest_price(symbol)
+            
             if price <= 0:
-                logger.warning("Invalid price in signal, using fallback price")
-                # Try to get current price from market data service
-                if hasattr(self, 'market_data_service'):
-                    price = self.market_data_service.get_latest_price(signal['symbol'])
+                logger.error(f"Cannot calculate position size: no price for {symbol}")
+                return 0
                 
-                if price <= 0:
-                    logger.error(f"Cannot calculate position size: no valid price for {signal['symbol']}")
-                    return 0.0
+            # Get position sizing settings
+            base_position = self.get_config('trading.position_sizing.base', 0.01)  # Default 1%
+            max_position = self.get_config('trading.position_sizing.max', 0.1)    # Default 10%
             
-            # Ensure position meets minimum notional value (IMPORTANT FOR HIGH-PRICED ASSETS)
-            if position_size < min_notional:
-                logger.warning(f"Increasing position size from {position_size:.2f} to minimum {min_notional} USDT")
-                position_size = min_notional * 1.05  # Add 5% buffer to ensure we clear the minimum
+            # Calculate scaled position size based on strength and confidence
+            confidence_factor = confidence if confidence > 0.3 else 0.3
+            combined_signal = strength * confidence_factor
             
-            # Calculate base quantity
-            quantity = position_size / price
+            # Scale position between base and max
+            position_pct = base_position + (combined_signal * (max_position - base_position))
             
-            # Get asset-specific minimums from exchange if available
-            min_qty = 1e-5  # Default Binance minimum for BTC
+            # Check for momentum
+            prices = []
+            if hasattr(self, 'market_data_service'):
+                prices = self.market_data_service.get_recent_prices(symbol, limit=3)
             
-            # For high-priced assets like BTC, enforce higher minimums
-            if signal['symbol'].startswith('BTC'):
-                # For BTC, ensure we meet the minimum quantity (currently 0.00001 BTC)
-                if quantity < min_qty:
-                    logger.warning(f"Adjusting quantity from {quantity} to minimum {min_qty} for {signal['symbol']}")
-                    quantity = min_qty * 1.05  # Add buffer to ensure it passes validation
-                    # Recalculate position size for logging
-                    position_size = quantity * price
-                    logger.info(f"Adjusted position size to {position_size:.2f} USDT")
+            # Adjust position size based on momentum
+            if len(prices) >= 3:
+                if prices[-1] > prices[-2] > prices[-3] and signal.get('side') == 'BUY':
+                    logger.info(f"Upward momentum detected for {symbol}, increasing position size")
+                    position_pct *= 1.2  # 20% larger position on momentum
+                elif prices[-1] < prices[-2] < prices[-3] and signal.get('side') == 'SELL':
+                    logger.info(f"Downward momentum detected for {symbol}, increasing position size")
+                    position_pct *= 1.2  # 20% larger position on momentum
             
-            # For other assets, use standard minimums
-            elif quantity < min_qty:
-                logger.warning(f"Adjusting quantity from {quantity} to minimum {min_qty}")
-                quantity = min_qty * 1.05  # Add buffer
+            # Calculate position value
+            position_value = portfolio_value * position_pct
             
-            # Final check - ensure notional value meets minimum
-            notional = quantity * price
-            if notional < min_notional:
-                adjusted_qty = (min_notional * 1.05) / price  # Add buffer
-                logger.warning(f"Final adjustment to meet min notional: {adjusted_qty}")
-                quantity = adjusted_qty
+            # Convert to quantity based on current price
+            quantity = position_value / price
             
-            # Trader-specific logic: For volatile assets, consider slightly increasing
-            # position sizes to account for price movement during execution
-            if signal['symbol'] in ['BTCUSDT', 'ETHUSDT']:
-                quantity *= 1.01  # Add 1% buffer for high-volatility assets
-                
+            # Fix: Get exchange minimum requirements
+            min_qty = 0.0001  # Default minimum quantity
+            min_notional = 15.0  # Default minimum notional value ($15)
+            
+            # Get exchange-specific requirements if robo_service is available
+            if hasattr(self, 'robo_service') and hasattr(self.robo_service, 'get_exchange_minimum_requirements'):
+                # Since we're in a non-async context, we need to use a synchronous alternative
+                # or call this earlier in an async context
+                symbol_info = self.get_config(f'exchange.minimum_requirements.{symbol}', {})
+                min_qty = symbol_info.get('min_qty', min_qty)
+                min_notional = symbol_info.get('min_notional', min_notional)
+            
+            # Fix: Ensure position meets minimum requirements
+            if quantity * price < min_notional:
+                # Adjust to meet minimum notional value
+                logger.info(f"Adjusting position size to meet minimum notional of ${min_notional}")
+                quantity = (min_notional * 1.01) / price  # Add 1% buffer
+            
+            if quantity < min_qty:
+                # Adjust to meet minimum quantity
+                logger.info(f"Adjusting position size to meet minimum quantity of {min_qty}")
+                quantity = min_qty * 1.01  # Add 1% buffer
+            
             return quantity
-            
         except Exception as e:
-            logger.error(f"Error calculating position size: {e}")
-            return 0.0
+            logger.error(f"Error calculating position size: {str(e)}")
+            return 0
 
     def _format_order_size(self, trade: Dict) -> float:
         """Format order size correctly for the exchange"""
@@ -900,54 +898,62 @@ class TradingSystem:
             logger.error(f"Error during shutdown: {e}")
 
     async def update_market_data(self):
-        """Fetch and process the latest market data"""
+        """Fetch and process the latest market data with enhanced reliability"""
         try:
             # Get trading pairs
             pairs = self.get_config('trading.pairs')
             
-            # Fetch market data
+            # Fetch market data with primary method
             market_data = await self.market_data_service.get_realtime_quote(pairs)
             
-            # Force sync from cache to market_data
+            # If no data received, try direct Binance API fallback
+            if not market_data or len(market_data) < len(pairs):
+                missing_pairs = [p for p in pairs if p not in market_data]
+                if missing_pairs:
+                    logger.warning(f"Missing data for {', '.join(missing_pairs)}, using direct API fallback")
+                    direct_data = await self.market_data_service.fetch_prices_directly(missing_pairs)
+                    
+                    # Merge results
+                    if direct_data:
+                        market_data.update(direct_data)
+            
+            # Ensure market_data is properly synced
             if hasattr(self.market_data_service, '_sync_market_data_from_cache'):
                 self.market_data_service._sync_market_data_from_cache()
             
-            # Process the market data and update UI and portfolio
-            for symbol, data in market_data.items():
-                if isinstance(data, dict):
-                    # Extract price from any available field
-                    price = None
-                    for field in ['price', 'lastPrice', 'last', 'close']:
-                        if field in data and data[field]:
-                            try:
-                                price = float(data[field])
-                                break
-                            except (ValueError, TypeError):
-                                continue
-                                
-                    if price:
-                        # Update UI with new price
-                        if hasattr(self, 'ui'):
-                            self.ui.update_price(symbol, price)
-                        
-                        # Update portfolio prices if available
-                        if hasattr(self, 'robo_service') and hasattr(self.robo_service, 'portfolio'):
-                            self.robo_service.portfolio.last_prices[symbol] = price
-                        
-                        # Update 24h change if available
-                        if 'change' in data and hasattr(self, 'ui'):
-                            self.ui.update_change(symbol, data['change'])
+            # Log success/failure with pricing information
+            if market_data:
+                prices_str = ", ".join([f"{s}: {p:.2f}" for s, p in market_data.items()])
+                logger.info(f"Fetched prices: {prices_str}")
+            else:
+                logger.warning("Failed to fetch any market data after all attempts")
+                return
             
-            # Calculate price changes
-            changes = self.market_data_service.calculate_price_changes()
-
-            # Update UI with price changes
-            if hasattr(self, 'ui'):
-                for symbol, change in changes.items():
-                    self.ui.update_change(symbol, change)
-                    
+            # Update UI and portfolio with the new prices
+            for symbol, price in market_data.items():
+                # Update UI with new price
+                if hasattr(self, 'ui'):
+                    self.ui.update_price(symbol, price)
+                
+                # Update portfolio prices
+                if hasattr(self, 'robo_service') and hasattr(self.robo_service, 'portfolio'):
+                    if not hasattr(self.robo_service.portfolio, 'last_prices'):
+                        self.robo_service.portfolio.last_prices = {}
+                    self.robo_service.portfolio.last_prices[symbol] = price
+            
+            # Calculate and update 24h changes
+            if hasattr(self.market_data_service, 'calculate_price_changes'):
+                changes = self.market_data_service.calculate_price_changes()
+                
+                # Update UI with price changes
+                if hasattr(self, 'ui'):
+                    for symbol, change in changes.items():
+                        self.ui.update_change(symbol, change)
+            
         except Exception as e:
             logger.error(f"Error updating market data: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
 
     async def update_news_data(self):
         """Fetch and process the latest news data"""

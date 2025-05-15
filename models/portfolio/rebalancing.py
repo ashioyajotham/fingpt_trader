@@ -20,6 +20,23 @@ class Portfolio:
         self.portfolio_history = []
         self.last_prices = {}  # Track last known prices
 
+    def initialize_with_positions(self, positions: Dict[str, float], prices: Dict[str, float]):
+        """Initialize portfolio with positions and their current prices"""
+        for symbol, position_size in positions.items():
+            # Get price for this symbol
+            price = prices.get(symbol, 0)
+            if price <= 0:
+                logger.warning(f"No valid price for {symbol}, using 0")
+                
+            # Add position with entry price tracking
+            self.positions[symbol] = position_size
+            self.position_entries[symbol] = price  # Store entry price
+            
+            # Update last known price
+            self.last_prices[symbol] = price
+        
+        logger.info(f"Portfolio initialized with positions: {positions}")
+
     def update_prices(self, market_data: Dict[str, Dict[str, float]]) -> None:
         """Update last known prices for all assets
         
@@ -77,56 +94,52 @@ class Portfolio:
             })
             self.total_trades += 1
 
-    async def add_position(self, symbol: str, quantity: float, price: float, commission: float = 0.0) -> bool:
-        """Add to a position or create a new one
-        
-        Args:
-            symbol: Trading pair symbol
-            quantity: Quantity to add
-            price: Purchase price
-            commission: Transaction fee
-            
-        Returns:
-            bool: Success indicator
-        """
+    async def add_position(self, symbol: str, size: float, price: float, cost: float = None):
+        """Add or increase a position"""
         try:
-            # Add position
-            if symbol not in self.positions:
-                self.positions[symbol] = 0.0
+            # Initialize position_entries if it doesn't exist
+            if not hasattr(self, 'position_entries'):
+                self.position_entries = {}
                 
-            self.positions[symbol] += quantity
+            # Calculate cost if not provided
+            if cost is None:
+                cost = size * price
+                
+            # Add to position
+            current_position = self.positions.get(symbol, 0)
+            self.positions[symbol] = current_position + size
             
-            # Record entry price if new position or adjust avg price if adding
+            # Track entry price using weighted average
             if symbol not in self.position_entries:
+                # First position - simple entry price
                 self.position_entries[symbol] = price
             else:
-                # Calculate new average entry price if adding to position
-                current_quantity = self.positions[symbol] - quantity
-                current_entry = self.position_entries[symbol]
+                # Calculate weighted average for entry price
+                old_size = current_position
+                old_price = self.position_entries[symbol]
+                total_size = old_size + size
                 
-                # Weighted average for entry price
-                if current_quantity > 0:
-                    self.position_entries[symbol] = (
-                        (current_quantity * current_entry) + (quantity * price)
-                    ) / self.positions[symbol]
-                else:
-                    self.position_entries[symbol] = price
-                    
-            # Update last known price
-            self.last_prices[symbol] = price
+                # Weighted average calculation for entry price
+                if total_size > 0:  # Prevent division by zero
+                    self.position_entries[symbol] = ((old_size * old_price) + (size * price)) / total_size
             
-            # Deduct from cash (price * quantity + commission)
-            cost = price * quantity + commission
+            # Reduce cash
             self.cash -= cost
             
-            # Record history
-            self._record_trade(symbol, "BUY", quantity, price, commission)
+            # Update last known price
+            if not hasattr(self, 'last_prices'):
+                self.last_prices = {}
+            self.last_prices[symbol] = price
+            
+            # Log for debugging
+            logger.info(f"Position added: {size} {symbol} @ {price} (Entry price: {self.position_entries[symbol]})")
+            
+            # Record portfolio state
             self._record_portfolio_state()
             
             return True
-            
         except Exception as e:
-            logger.error(f"Error adding position: {str(e)}")
+            logger.error(f"Error adding position: {e}")
             return False
 
     async def reduce_position(self, symbol: str, size: float, price: float):

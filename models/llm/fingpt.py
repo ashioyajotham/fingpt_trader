@@ -107,14 +107,27 @@ class FinGPT(BaseLLM):
             raise
 
     async def cleanup(self):
-        """Cleanup FinGPT resources"""
-        try:
-            if self.model:
-                self.model.close()
+        """Release model resources"""
+        if hasattr(self, 'model') and self.model is not None:
+            try:
+                # Release CUDA memory if available
+                if hasattr(self.model, 'cleanup'):
+                    self.model.cleanup()
+                
+                # Set model to None to help garbage collection
                 self.model = None
-            logger.info("FinGPT resources cleaned up")
-        except Exception as e:
-            logger.error(f"FinGPT cleanup failed: {str(e)}")
+                
+                # Try to release cached tensors in PyTorch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                
+                # Try explicit garbage collection
+                import gc
+                gc.collect()
+                
+                logger.info("Model resources released")
+            except Exception as e:
+                logger.error(f"Error releasing model resources: {e}")
 
     def _load_model(self):
         """Initialize and load the FinGPT model"""
@@ -190,13 +203,17 @@ class FinGPT(BaseLLM):
             # Use context manager to suppress console output if needed
             from utils.verbosity import VerbosityManager
             vm = VerbosityManager.get_instance()
+            
+            # Fix: Use lower memory model settings
             with vm.suppress_output(vm._suppress_model_output):
                 self.model = Llama(
                     model_path=str(gguf_path),
                     n_ctx=self.n_ctx,
                     n_threads=self.n_threads,
                     n_gpu_layers=self.n_gpu_layers,
-                    verbose=self.config.get("verbose", not vm._suppress_model_output)
+                    verbose=self.config.get("verbose", not vm._suppress_model_output),
+                    offload_kqv=True,  # Offload key/query/value tensors to CPU
+                    use_mlock=False    # Don't lock memory
                 )
             logger.info("Model loaded successfully")
                 

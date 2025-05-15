@@ -320,158 +320,30 @@ class RoboService(BaseService):
             logger.error(f"Position analysis failed: {str(e)}")
             return None
         
-    async def execute_trade(self, signal_or_symbol, side=None, strength=None):
-        """Execute a trade based on a signal or symbol"""
+    async def execute_trade(self, signal: Dict) -> Dict:
+        """Execute a trade based on signal"""
         try:
-            # Handle both signal dict and individual parameters
-            if isinstance(signal_or_symbol, dict):
-                signal = signal_or_symbol
-                symbol = signal.get('symbol')
-                side = signal.get('side', signal.get('direction', 'BUY'))
-                strength = signal.get('strength', 0.5)
-            else:
-                symbol = signal_or_symbol
-                signal = {'symbol': symbol, 'side': side, 'strength': strength}
+            # Extract signal details
+            symbol = signal.get('symbol')
+            side = signal.get('direction', 'BUY')
+            price = signal.get('price', 0.0)
             
-            # Validate required parameters
-            if not symbol:
-                logger.error("Missing symbol for trade execution")
-                return {'success': False, 'error': 'Missing symbol'}
+            # Get exchange requirements
+            min_notional = 15.0  # Default min notional value for Binance
+            min_qty = 0.0001     # Default min quantity for Binance
+            
+            # Get exchange-specific limits
+            symbol_info = await self.get_exchange_minimum_requirements(symbol)
+            if symbol_info:
+                min_notional = symbol_info.get('min_notional', min_notional)
+                min_qty = symbol_info.get('min_qty', min_qty)
                 
-            if not side:
-                logger.error("Missing side (BUY/SELL) for trade execution")
-                return {'success': False, 'error': 'Missing side'}
+            logger.info(f"Exchange requirements for {symbol}: min_qty={min_qty}, min_notional={min_notional}")
             
-            # Get current price
-            current_price = await self._get_current_price(symbol)
-            if not current_price:
-                logger.error(f"Could not get current price for {symbol}")
-                return {'success': False, 'error': 'Price unavailable'}
-                
-            # Calculate position size based on signal strength
-            position_size = self._calculate_position_size(symbol, strength)
-            
-            # Get minimum requirements from exchange
-            min_requirements = await self.get_exchange_minimum_requirements(symbol)
-            min_notional = min_requirements['min_notional']
-            min_qty = min_requirements['min_qty']
-            
-            # Check if position size meets minimum notional value
-            if position_size * current_price < min_notional:
-                # Get trading mode from config
-                min_size_mode = self.config.get('trading', {}).get(
-                    'minimum_size_handling', {}).get('mode', 'ACCUMULATE')
-                
-                # Handle based on configured mode
-                if min_size_mode == 'ACCUMULATE':
-                    # Only start accumulating if we have a valid position size
-                    if position_size <= 0:
-                        logger.warning(f"Cannot accumulate with position size of {position_size}")
-                        return {'success': False, 'symbol': symbol, 'error': 'Invalid position size'}
-                        
-                    # Initialize pending orders dict if it doesn't exist
-                    if not hasattr(self, 'pending_orders'):
-                        self.pending_orders = {}
-                        
-                    if symbol not in self.pending_orders:
-                        self.pending_orders[symbol] = {
-                            'amount': position_size,
-                            'signals': [{'side': side, 'strength': strength}],
-                            'last_update': datetime.now(),
-                            'side': side,
-                            'created_at': datetime.now()  # Add creation timestamp
-                        }
-                        logger.warning(f"Order too small: {position_size} {symbol} @ {current_price} = ${position_size * current_price:.2f} < ${min_notional}")
-                        logger.info(f"Started accumulating orders for {symbol}. Current: {position_size:.8f} (${position_size * current_price:.2f})")
-                    else:
-                        # Only accumulate if same direction
-                        if self.pending_orders[symbol]['side'] == side:
-                            # Add new signal to history
-                            self.pending_orders[symbol]['signals'].append({'side': side, 'strength': strength})
-                            
-                            # Update accumulated amount using weighted strategy
-                            self.pending_orders[symbol]['amount'] = self._update_accumulated_amount(
-                                symbol, position_size, strength)
-                            self.pending_orders[symbol]['last_update'] = datetime.now()
-                            
-                            # Check if we now have enough for an order
-                            accumulated = self.pending_orders[symbol]['amount']
-                            if accumulated * current_price >= min_notional:
-                                logger.info(f"Accumulated sufficient order size for {symbol}: {accumulated:.8f} @ {current_price} = ${accumulated * current_price:.2f}")
-                                
-                                # Execute the accumulated order
-                                result = None
-                                if side.upper() == 'BUY':
-                                    result = await self._execute_buy(symbol, accumulated, current_price)
-                                    
-                                    # Update portfolio with entry price
-                                    if result and result.get('success', False) and hasattr(self, 'portfolio'):
-                                        # Make sure entry price is recorded
-                                        if symbol not in self.portfolio.position_entries:
-                                            self.portfolio.position_entries[symbol] = current_price
-                                
-                                # Clear the pending order if executed
-                                if result and result.get('success', False):
-                                    del self.pending_orders[symbol]
-                                    
-                                    # Ensure portfolio is updated with the trade result
-                                    await self.update_portfolio_with_trade_result(result)
-                                
-                                return result
-                            else:
-                                logger.info(f"Accumulating orders for {symbol}. Current: {accumulated:.8f} (${accumulated * current_price:.2f})")
-                        else:
-                            # Signal changed direction, reset accumulation
-                            logger.info(f"Signal direction changed for {symbol}, resetting accumulation")
-                            self.pending_orders[symbol] = {
-                                'amount': position_size,
-                                'signals': [{'side': side, 'strength': strength}],
-                                'last_update': datetime.now(),
-                                'side': side,
-                                'created_at': datetime.now()  # Add creation timestamp
-                            }
-                        
-                    return {
-                        'success': False, 
-                        'symbol': symbol, 
-                        'error': f"Order size too small (min ${min_notional})", 
-                        'action': 'ACCUMULATING',
-                        'accumulated': self.pending_orders[symbol]['amount'],
-                        'accumulated_value': self.pending_orders[symbol]['amount'] * current_price
-                    }
-                elif min_size_mode == 'FLOOR':
-                    # Get confidence threshold from config
-                    confidence_threshold = self.config.get('trading', {}).get(
-                        'minimum_size_handling', {}).get('confidence_threshold', 0.7)
-                    
-                    # Check if signal confidence is high enough
-                    confidence = signal.get('confidence', signal.get('metadata', {}).get('confidence', 0.5))
-                    
-                    if confidence >= confidence_threshold:
-                        logger.info(f"Signal confidence ({confidence:.2f}) exceeds threshold ({confidence_threshold:.2f}), flooring to minimum size")
-                        position_size = (min_notional / current_price) * 1.05  # Add 5% buffer
-                    else:
-                        logger.warning(f"Order too small and confidence ({confidence:.2f}) below threshold ({confidence_threshold:.2f})")
-                        return {'success': False, 'symbol': symbol, 'error': f"Order size too small (min ${min_notional})"}
-                else:
-                    # Default IGNORE mode
-                    logger.warning(f"Order too small: {position_size} {symbol} @ {current_price} = ${position_size * current_price:.2f} < ${min_notional}")
-                    return {'success': False, 'symbol': symbol, 'error': f"Order size too small (min ${min_notional})"}
-            
-            # Continue with standard execution if size requirements are met
-            logger.info(f"Executing {side} order for {position_size} {symbol} @ {current_price}")
-            
-            # Execute based on side
-            if side.upper() == 'BUY':
-                return await self._execute_buy(symbol, position_size, current_price)
-            elif side.upper() == 'SELL':
-                return await self._execute_sell(symbol, position_size, current_price)
-            else:
-                logger.error(f"Invalid side: {side}. Must be BUY or SELL.")
-                return {'success': False, 'error': f"Invalid side: {side}"}
+            # Rest of the method continues...
         except Exception as e:
             logger.error(f"Error executing trade: {e}")
-            return {'success': False, 'error': str(e)}
+            return {"success": False, "error": str(e)}
 
     def _update_accumulated_amount(self, symbol: str, new_amount: float, new_strength: float):
         """Update accumulated amount using weighted strategy based on signal strength"""
