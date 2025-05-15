@@ -12,12 +12,30 @@ class Portfolio:
     """Portfolio management class for tracking positions and performance"""
     
     def __init__(self, initial_balance: float):
-        self.cash = initial_balance  # Uses 'cash', not 'balance'
+        self.cash = initial_balance
         self.positions = {}
+        self.position_entries = {}  # Track entry prices
         self.trades = []
         self.total_trades = 0
         self.portfolio_history = []
         self.last_prices = {}  # Track last known prices
+
+    def initialize_with_positions(self, positions: Dict[str, float], prices: Dict[str, float]):
+        """Initialize portfolio with positions and their current prices"""
+        for symbol, position_size in positions.items():
+            # Get price for this symbol
+            price = prices.get(symbol, 0)
+            if price <= 0:
+                logger.warning(f"No valid price for {symbol}, using 0")
+                
+            # Add position with entry price tracking
+            self.positions[symbol] = position_size
+            self.position_entries[symbol] = price  # Store entry price
+            
+            # Update last known price
+            self.last_prices[symbol] = price
+        
+        logger.info(f"Portfolio initialized with positions: {positions}")
 
     def update_prices(self, market_data: Dict[str, Dict[str, float]]) -> None:
         """Update last known prices for all assets
@@ -41,6 +59,7 @@ class Portfolio:
         """Cleanup portfolio resources"""
         # Clear positions and state
         self.positions.clear()
+        self.position_entries.clear()
         self.last_prices.clear()
         self.trades.clear()
         self.portfolio_history.clear()
@@ -76,88 +95,92 @@ class Portfolio:
             self.total_trades += 1
 
     async def add_position(self, symbol: str, size: float, price: float, cost: float = None):
-        """Add a new position or increase an existing one
-        
-        Args:
-            symbol: Trading pair symbol
-            size: Position size to add
-            price: Current market price
-            cost: Total cost (with fees) - if None, calculated from size*price
-        """
+        """Add or increase a position"""
         try:
+            # Initialize position_entries if it doesn't exist
+            if not hasattr(self, 'position_entries'):
+                self.position_entries = {}
+                
             # Calculate cost if not provided
             if cost is None:
                 cost = size * price
+                
+            # Add to position
+            current_position = self.positions.get(symbol, 0)
+            self.positions[symbol] = current_position + size
             
-            # Subtract cost from cash balance
-            if cost <= self.cash:
-                self.cash -= cost
-                
-                # Update position
-                self.positions[symbol] = self.positions.get(symbol, 0) + size
-                
-                # Record the trade
-                self.trades.append({
-                    'type': 'BUY',
-                    'symbol': symbol,
-                    'size': size,
-                    'price': price,
-                    'cost': cost,
-                    'timestamp': datetime.now()
-                })
-                
-                # Update last known price
-                self.last_prices[symbol] = price
-                
-                # Record portfolio state
-                self._record_portfolio_state()
-                
-                logger.info(f"Position added: {size} {symbol} @ {price} (Cost: {cost:.2f})")
-                return True
+            # Track entry price using weighted average
+            if symbol not in self.position_entries:
+                # First position - simple entry price
+                self.position_entries[symbol] = price
             else:
-                logger.warning(f"Insufficient cash: {self.cash} < {cost}")
-                return False
+                # Calculate weighted average for entry price
+                old_size = current_position
+                old_price = self.position_entries[symbol]
+                total_size = old_size + size
+                
+                # Weighted average calculation for entry price
+                if total_size > 0:  # Prevent division by zero
+                    self.position_entries[symbol] = ((old_size * old_price) + (size * price)) / total_size
+            
+            # Reduce cash
+            self.cash -= cost
+            
+            # Update last known price
+            if not hasattr(self, 'last_prices'):
+                self.last_prices = {}
+            self.last_prices[symbol] = price
+            
+            # Log for debugging
+            logger.info(f"Position added: {size} {symbol} @ {price} (Entry price: {self.position_entries[symbol]})")
+            
+            # Record portfolio state
+            self._record_portfolio_state()
+            
+            return True
         except Exception as e:
             logger.error(f"Error adding position: {e}")
             return False
 
     async def reduce_position(self, symbol: str, size: float, price: float):
-        """Reduce or close an existing position
-        
-        Args:
-            symbol: Trading pair symbol
-            size: Position size to sell
-            price: Current market price
-        
-        Returns:
-            bool: True if position reduced successfully
-        """
+        """Reduce or close an existing position"""
         try:
             # Check if position exists and has sufficient size
             if symbol not in self.positions or self.positions[symbol] < size:
                 logger.warning(f"Insufficient position: {self.positions.get(symbol, 0)} < {size}")
                 return False
             
-            # Calculate proceeds
-            proceeds = size * price
-            
-            # Add proceeds to cash
-            self.cash += proceeds
+            # Store original position size and entry price for P&L calculation
+            original_size = self.positions[symbol]
+            entry_price = self.position_entries.get(symbol, 0)
             
             # Update position
             self.positions[symbol] -= size
-            if self.positions[symbol] <= 0:
-                del self.positions[symbol]
             
-            # Record the trade
+            # Only remove entry price if position is fully closed
+            if self.positions[symbol] <= 0:
+                if symbol in self.position_entries:
+                    del self.position_entries[symbol]
+                if symbol in self.positions:
+                    del self.positions[symbol]
+            
+            # Calculate P&L for this trade
+            pnl = (price - entry_price) * size
+            
+            # Record the trade with P&L
             self.trades.append({
                 'type': 'SELL',
                 'symbol': symbol,
                 'size': size,
                 'price': price, 
-                'proceeds': proceeds,
+                'proceeds': size * price,
+                'entry_price': entry_price,
+                'pnl': pnl,
                 'timestamp': datetime.now()
             })
+            
+            # Add proceeds to cash
+            self.cash += size * price
             
             # Update last known price
             self.last_prices[symbol] = price
@@ -165,7 +188,7 @@ class Portfolio:
             # Record portfolio state
             self._record_portfolio_state()
             
-            logger.info(f"Position reduced: {size} {symbol} @ {price} (Proceeds: {proceeds:.2f})")
+            logger.info(f"Position reduced: {size} {symbol} @ {price} (Proceeds: {size * price:.2f}, P&L: {pnl:.2f})")
             return True
         except Exception as e:
             logger.error(f"Error reducing position: {e}")

@@ -73,6 +73,11 @@ trading:
     accumulation_strategy: "weighted"  # Options: simple, weighted
     min_notional_buffer: 1.05  # Buffer multiplier for minimum notional (5% above min)
 
+  initial_positions:
+    BTCUSDT: 0.1  # 0.1 BTC
+    ETHUSDT: 1.0  # 1 ETH
+    BNBUSDT: 1.0  # 1 BNB
+
 # =====================================================================
 # RISK MANAGEMENT
 # =====================================================================

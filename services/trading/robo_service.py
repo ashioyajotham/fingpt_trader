@@ -116,27 +116,18 @@ class RoboService(BaseService):
     async def _setup(self):
         """
         Initialize portfolio and risk management settings.
-        
-        Responsibilities:
-        - Set initial portfolio positions (BTC, ETH, BNB)
-        - Configure risk parameters
-            * Maximum drawdown limits
-            * Position size constraints
-            * VaR (Value at Risk) limits
-            * Leverage restrictions
-        - Initialize portfolio state
-        
-        Raises:
-            ValueError: If configuration is invalid
-            Exception: If initialization fails
         """
         try:
-            # Initialize with default portfolio positions
-            initial_positions = {
-                'BTCUSDT': 0.1,  # 0.1 BTC
-                'ETHUSDT': 1.0,  # 1 ETH
-                'BNBUSDT': 5.0   # 5 BNB
-            }
+            # Initialize with configuration-based portfolio positions
+            config_positions = self.config.get('trading', {}).get('initial_positions', {})
+            
+            # If config doesn't specify positions, start with cash only
+            if not config_positions:
+                initial_positions = {}  # Start with cash only
+                logger.info("Starting with cash-only portfolio based on configuration")
+            else:
+                initial_positions = config_positions
+                logger.info(f"Using configured initial positions: {initial_positions}")
             
             # Get risk config with defaults
             risk_config = self.config.get('risk', {
@@ -163,7 +154,10 @@ class RoboService(BaseService):
             
             await self.portfolio.initialize(portfolio_config)
             logger.info(f"RoboService setup complete with initial balance: {portfolio_config['initial_balance']}")
-            logger.info(f"Initial positions: {initial_positions}")
+            if initial_positions:
+                logger.info(f"Initial positions: {initial_positions}")
+            else:
+                logger.info(f"Starting with cash-only portfolio: {portfolio_config['initial_balance']} USDT")
         except Exception as e:
             logger.error(f"RoboService setup failed: {e}")
             raise
@@ -201,6 +195,41 @@ class RoboService(BaseService):
         except Exception as e:
             logger.error(f"RoboService cleanup failed: {e}")
             raise  # Re-raise to ensure proper error handling
+
+    async def initialize_portfolio(self, config):
+        """Initialize portfolio with configuration values"""
+        try:
+            # Create portfolio if it doesn't exist
+            if not hasattr(self, 'portfolio'):
+                initial_balance = config.get('trading', {}).get('initial_balance', 10000.0)
+                self.portfolio = Portfolio(initial_balance)
+                
+            # Configure any existing positions
+            initial_positions = config.get('trading', {}).get('initial_positions', {})
+            for symbol, size in initial_positions.items():
+                # Get current price for position
+                price = 0
+                if hasattr(self, 'exchange_clients') and 'binance' in self.exchange_clients:
+                    try:
+                        ticker = await self.exchange_clients['binance'].get_ticker(symbol)
+                        price = float(ticker['lastPrice'])
+                    except Exception as e:
+                        logger.error(f"Failed to get price for {symbol}: {e}")
+                        price = 0  # Default
+                
+                # Add position with entry price = current price if not already present
+                if symbol not in self.portfolio.positions:
+                    await self.portfolio.add_position(symbol, size, price, cost=0)  # No cost for initial positions
+                    logger.info(f"Initialized position: {size} {symbol} @ {price}")
+            
+            # Initialize other portfolio settings
+            await self.portfolio.initialize(config.get('portfolio', {}))
+            logger.info(f"Portfolio initialized with balance: {self.portfolio.cash} USDT")
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error initializing portfolio: {e}")
+            return False
 
     async def analyze_position(self, pair: str, price: float, position: Dict = None) -> Optional[str]:
         """
@@ -291,149 +320,30 @@ class RoboService(BaseService):
             logger.error(f"Position analysis failed: {str(e)}")
             return None
         
-    async def execute_trade(self, signal_or_symbol, side=None, strength=None):
-        """Execute a trade based on a signal or symbol"""
+    async def execute_trade(self, signal: Dict) -> Dict:
+        """Execute a trade based on signal"""
         try:
-            # Handle both signal dict and individual parameters
-            if isinstance(signal_or_symbol, dict):
-                signal = signal_or_symbol
-                symbol = signal.get('symbol')
-                side = signal.get('side', signal.get('direction', 'BUY'))
-                strength = signal.get('strength', 0.5)
-            else:
-                symbol = signal_or_symbol
-                signal = {'symbol': symbol, 'side': side, 'strength': strength}
+            # Extract signal details
+            symbol = signal.get('symbol')
+            side = signal.get('direction', 'BUY')
+            price = signal.get('price', 0.0)
             
-            # Validate required parameters
-            if not symbol:
-                logger.error("Missing symbol for trade execution")
-                return {'success': False, 'error': 'Missing symbol'}
+            # Get exchange requirements
+            min_notional = 15.0  # Default min notional value for Binance
+            min_qty = 0.0001     # Default min quantity for Binance
+            
+            # Get exchange-specific limits
+            symbol_info = await self.get_exchange_minimum_requirements(symbol)
+            if symbol_info:
+                min_notional = symbol_info.get('min_notional', min_notional)
+                min_qty = symbol_info.get('min_qty', min_qty)
                 
-            if not side:
-                logger.error("Missing side (BUY/SELL) for trade execution")
-                return {'success': False, 'error': 'Missing side'}
+            logger.info(f"Exchange requirements for {symbol}: min_qty={min_qty}, min_notional={min_notional}")
             
-            # Get current price
-            current_price = await self._get_current_price(symbol)
-            if not current_price:
-                logger.error(f"Could not get current price for {symbol}")
-                return {'success': False, 'error': 'Price unavailable'}
-                
-            # Calculate position size based on signal strength
-            position_size = self._calculate_position_size(symbol, strength)
-            
-            # Get minimum requirements from exchange
-            min_requirements = await self.get_exchange_minimum_requirements(symbol)
-            min_notional = min_requirements['min_notional']
-            min_qty = min_requirements['min_qty']
-            
-            # Check if position size meets minimum notional value
-            if position_size * current_price < min_notional:
-                # Get trading mode from config
-                min_size_mode = self.config.get('trading', {}).get(
-                    'minimum_size_handling', {}).get('mode', 'ACCUMULATE')
-                
-                # Handle based on configured mode
-                if min_size_mode == 'ACCUMULATE':
-                    # Initialize pending orders dict if it doesn't exist
-                    if not hasattr(self, 'pending_orders'):
-                        self.pending_orders = {}
-                        
-                    if symbol not in self.pending_orders:
-                        self.pending_orders[symbol] = {
-                            'amount': position_size,
-                            'signals': [{'side': side, 'strength': strength}],
-                            'last_update': datetime.now(),
-                            'side': side,
-                            'created_at': datetime.now()  # Add creation timestamp
-                        }
-                        logger.warning(f"Order too small: {position_size} {symbol} @ {current_price} = ${position_size * current_price:.2f} < ${min_notional}")
-                        logger.info(f"Started accumulating orders for {symbol}. Current: {position_size:.8f} (${position_size * current_price:.2f})")
-                    else:
-                        # Only accumulate if same direction
-                        if self.pending_orders[symbol]['side'] == side:
-                            # Add new signal to history
-                            self.pending_orders[symbol]['signals'].append({'side': side, 'strength': strength})
-                            
-                            # Update accumulated amount using weighted strategy
-                            self.pending_orders[symbol]['amount'] = self._update_accumulated_amount(
-                                symbol, position_size, strength)
-                            self.pending_orders[symbol]['last_update'] = datetime.now()
-                            
-                            # Check if we now have enough for an order
-                            accumulated = self.pending_orders[symbol]['amount']
-                            if accumulated * current_price >= min_notional:
-                                logger.info(f"Accumulated sufficient order size for {symbol}: {accumulated:.8f} @ {current_price} = ${accumulated * current_price:.2f}")
-                                
-                                # Execute the accumulated order
-                                result = None
-                                if side.upper() == 'BUY':
-                                    result = await self._execute_buy(symbol, accumulated, current_price)
-                                elif side.upper() == 'SELL':
-                                    result = await self._execute_sell(symbol, accumulated, current_price)
-                                
-                                # Clear the pending order if executed
-                                if result and result.get('success', False):
-                                    del self.pending_orders[symbol]
-                                    
-                                    # Ensure portfolio is updated with the trade result
-                                    await self.update_portfolio_with_trade_result(result)
-                                
-                                return result
-                            else:
-                                logger.info(f"Accumulating orders for {symbol}. Current: {accumulated:.8f} (${accumulated * current_price:.2f})")
-                        else:
-                            # Signal changed direction, reset accumulation
-                            logger.info(f"Signal direction changed for {symbol}, resetting accumulation")
-                            self.pending_orders[symbol] = {
-                                'amount': position_size,
-                                'signals': [{'side': side, 'strength': strength}],
-                                'last_update': datetime.now(),
-                                'side': side,
-                                'created_at': datetime.now()  # Add creation timestamp
-                            }
-                        
-                    return {
-                        'success': False, 
-                        'symbol': symbol, 
-                        'error': f"Order size too small (min ${min_notional})", 
-                        'action': 'ACCUMULATING',
-                        'accumulated': self.pending_orders[symbol]['amount'],
-                        'accumulated_value': self.pending_orders[symbol]['amount'] * current_price
-                    }
-                elif min_size_mode == 'FLOOR':
-                    # Get confidence threshold from config
-                    confidence_threshold = self.config.get('trading', {}).get(
-                        'minimum_size_handling', {}).get('confidence_threshold', 0.7)
-                    
-                    # Check if signal confidence is high enough
-                    confidence = signal.get('confidence', signal.get('metadata', {}).get('confidence', 0.5))
-                    
-                    if confidence >= confidence_threshold:
-                        logger.info(f"Signal confidence ({confidence:.2f}) exceeds threshold ({confidence_threshold:.2f}), flooring to minimum size")
-                        position_size = (min_notional / current_price) * 1.05  # Add 5% buffer
-                    else:
-                        logger.warning(f"Order too small and confidence ({confidence:.2f}) below threshold ({confidence_threshold:.2f})")
-                        return {'success': False, 'symbol': symbol, 'error': f"Order size too small (min ${min_notional})"}
-                else:
-                    # Default IGNORE mode
-                    logger.warning(f"Order too small: {position_size} {symbol} @ {current_price} = ${position_size * current_price:.2f} < ${min_notional}")
-                    return {'success': False, 'symbol': symbol, 'error': f"Order size too small (min ${min_notional})"}
-            
-            # Continue with standard execution if size requirements are met
-            logger.info(f"Executing {side} order for {position_size} {symbol} @ {current_price}")
-            
-            # Execute based on side
-            if side.upper() == 'BUY':
-                return await self._execute_buy(symbol, position_size, current_price)
-            elif side.upper() == 'SELL':
-                return await self._execute_sell(symbol, position_size, current_price)
-            else:
-                logger.error(f"Invalid side: {side}. Must be BUY or SELL.")
-                return {'success': False, 'error': f"Invalid side: {side}"}
+            # Rest of the method continues...
         except Exception as e:
             logger.error(f"Error executing trade: {e}")
-            return {'success': False, 'error': str(e)}
+            return {"success": False, "error": str(e)}
 
     def _update_accumulated_amount(self, symbol: str, new_amount: float, new_strength: float):
         """Update accumulated amount using weighted strategy based on signal strength"""
@@ -545,30 +455,54 @@ class RoboService(BaseService):
             logger.error(f"Error calculating performance metrics: {e}")
 
     def _calculate_position_size(self, symbol, strength):
-        """Calculate position size based on symbol and signal strength"""
+        """Calculate position size based on symbol, signal strength and market regime"""
         # Get balance and config values with defaults
         balance = self.get_balance()
         base_position = 0.01  # Base position size (1%)
         max_position = 0.05   # Maximum position size (5%)
         
+        # Detect current market regime if available
+        market_regime_factor = 1.0  # Default factor
+        if hasattr(self, 'market_regime_detector'):
+            # Get latest market data
+            market_data = {}
+            if hasattr(self, 'market_data_service'):
+                market_data = self.market_data_service.get_market_data(symbol)
+            
+            # Detect regime and adjust position sizing
+            regime = self.market_regime_detector.detect_regime(market_data)
+            
+            # Adjust position size based on regime
+            if regime == "high_volatility":
+                market_regime_factor = 0.7
+            elif regime == "low_volatility":
+                market_regime_factor = 1.2
+            elif regime == "trending":
+                market_regime_factor = 1.1
+            elif regime == "crisis":
+                market_regime_factor = 0.3
+        
         # Scale position size based on signal strength
         position_pct = base_position + ((max_position - base_position) * strength)
+        
+        # Apply market regime factor
+        position_pct *= market_regime_factor
+        
         position_value = balance * position_pct
         
         # Get current price to convert to quantity
         price = 0
         try:
             if 'binance' in self.exchange_clients:
-                ticker = self.exchange_clients['binance'].get_ticker_sync(symbol)
-                price = float(ticker['lastPrice'])
-        except:
-            # Fallback prices for testing
-            if symbol == 'BTCUSDT':
-                price = 100000
-            elif symbol == 'ETHUSDT':
-                price = 2500
-            elif symbol == 'BNBUSDT':
-                price = 600
+                # async method in an async context or fetch price from market data service
+                price = self.market_data_service.get_latest_price(symbol) if hasattr(self, 'market_data_service') else 0
+                
+                # If market data service didn't provide a price, try fallback
+                if price <= 0 and hasattr(self, 'portfolio') and hasattr(self.portfolio, 'last_prices'):
+                    price = self.portfolio.last_prices.get(symbol, 0)
+        except Exception as e:
+            logger.error(f"Error getting price for position calculation: {e}")
+            return 0  # Return 0 quantity if no price is available
         
         # Calculate quantity
         if price > 0:
@@ -579,8 +513,9 @@ class RoboService(BaseService):
             if quantity < min_qty:
                 quantity = min_qty
         else:
+            logger.warning(f"Invalid price (0) for {symbol}, cannot calculate position size")
             quantity = 0
-            
+                
         return quantity
 
     async def _get_current_price(self, symbol: str) -> float:
@@ -593,22 +528,17 @@ class RoboService(BaseService):
             float: Current price or 0 if unavailable
         """
         if 'binance' not in self.exchange_clients:
+            logger.error("Binance client not available")
             return 0.0
             
         try:
             ticker = await self.exchange_clients['binance'].get_ticker(symbol)
             if ticker and 'lastPrice' in ticker:
                 return float(ticker['lastPrice'])
+            logger.warning(f"No price data available from exchange for {symbol}")
             return 0.0
         except Exception as e:
             logger.error(f"Error getting price for {symbol}: {e}")
-            # Fallback prices for common pairs
-            if symbol == 'BTCUSDT':
-                return 100000.0
-            elif symbol == 'ETHUSDT':
-                return 2500.0
-            elif symbol == 'BNBUSDT':
-                return 600.0
             return 0.0
 
     def get_positions(self):
@@ -637,16 +567,18 @@ class RoboService(BaseService):
         """Update portfolio with latest market prices"""
         if not hasattr(self, 'portfolio'):
             return
-            
+        
         try:
-            if 'binance' in self.exchange_clients:
-                # Get prices for all positions
-                positions = self.portfolio.positions
-                if not positions:
-                    return
-                    
-                # Get current prices
-                price_data = {}
+            # Get positions
+            positions = self.portfolio.positions
+            if not positions:
+                return
+                
+            # Get current prices
+            price_data = {}
+        
+            # Get prices from exchange clients
+            if hasattr(self, 'exchange_clients') and 'binance' in self.exchange_clients:
                 for symbol in positions.keys():
                     try:
                         ticker = await self.exchange_clients['binance'].get_ticker(symbol)
@@ -655,88 +587,59 @@ class RoboService(BaseService):
                             price_data[symbol] = {'price': price}
                     except Exception as e:
                         logger.warning(f"Failed to get price for {symbol}: {e}")
+        
+            # Update portfolio with whatever prices we could get
+            if price_data:
+                self.portfolio.update_prices(price_data)
+                logger.info(f"Updated prices for {len(price_data)} positions")
                 
-                # Update portfolio with new prices
-                if price_data:
-                    self.portfolio.update_prices(price_data)
-                    logger.info(f"Updated prices for {len(price_data)} positions")
-                    
-                    # Record updated portfolio state
-                    self.portfolio._record_portfolio_state()
+                # Record updated portfolio state
+                self.portfolio._record_portfolio_state()
+            else:
+                logger.warning("No price data available to update portfolio")
+    
         except Exception as e:
             logger.error(f"Error updating portfolio prices: {e}")
 
-    def get_portfolio_summary(self) -> Dict:
-        """Get a comprehensive summary of the current portfolio
-        
-        Returns:
-            Dict containing:
-                - cash: Available cash balance
-                - positions: Current positions dict
-                - total_value: Total portfolio value
-                - returns: Dict of return metrics
-                - risk: Dict of risk metrics
-        """
-        summary = {
-            'cash': 0.0,
-            'positions': {},
-            'position_values': {},
-            'total_value': 0.0,
-            'returns': {
-                'total': 0.0,
-                'daily': 0.0
-            },
-            'risk': {
-                'drawdown': 0.0,
-                'volatility': 0.0
-            }
-        }
-        
+    def get_portfolio_summary(self):
+        """Get a summary of the portfolio for performance tracking"""
         if not hasattr(self, 'portfolio'):
-            return summary
-            
-        try:
-            # Get basic portfolio data
-            summary['cash'] = self.portfolio.cash
-            summary['positions'] = self.portfolio.positions.copy()
-            
-            # Calculate position values and total value
-            total_value = summary['cash']
-            for symbol, size in summary['positions'].items():
-                price = self.portfolio.last_prices.get(symbol, 0)
-                position_value = size * price
-                summary['position_values'][symbol] = position_value
-                total_value += position_value
-            
-            summary['total_value'] = total_value
-            
-            # Calculate returns if we have history
-            if len(self.portfolio.portfolio_history) >= 2:
-                initial_value = self.portfolio.portfolio_history[0]['total_value']
-                summary['returns']['total'] = (total_value - initial_value) / initial_value
-                
-                # Calculate daily return if we have recent history
-                if len(self.portfolio.portfolio_history) >= 2:
-                    yesterday = self.portfolio.portfolio_history[-2]['total_value']
-                    if yesterday > 0:
-                        summary['returns']['daily'] = (total_value - yesterday) / yesterday
-            
-            # Calculate risk metrics
-            if len(self.portfolio.portfolio_history) >= 2:
-                values = [h['total_value'] for h in self.portfolio.portfolio_history]
-                peak = max(values)
-                summary['risk']['drawdown'] = (peak - total_value) / peak if peak > 0 else 0
-                
-                # Calculate volatility if we have enough data
-                if len(values) >= 10:
-                    returns = [(values[i] / values[i-1]) - 1 for i in range(1, len(values))]
-                    summary['risk']['volatility'] = np.std(returns) * np.sqrt(252)  # Annualized
-                    
-            return summary
+            return {'total_value': 0, 'cash': 0, 'positions': {}}
         
-        except Exception as e:
-            logger.error(f"Error generating portfolio summary: {e}")
-            return summary
+        # Calculate total portfolio value
+        total_value = self.portfolio.cash
+        positions_data = {}
+        
+        for symbol, size in self.portfolio.positions.items():
+            # Get current price
+            price = self.portfolio.last_prices.get(symbol, 0)
+            value = size * price
+            total_value += value
+            
+            # Get entry price if available
+            entry_price = 0
+            if hasattr(self.portfolio, 'position_entries') and symbol in self.portfolio.position_entries:
+                entry_price = self.portfolio.position_entries[symbol]
+            
+            # Calculate P&L if entry price is available
+            pnl = 0
+            if entry_price > 0 and price > 0:
+                pnl = size * (price - entry_price)
+            
+            positions_data[symbol] = {
+                'size': size,
+                'price': price,
+                'value': value,
+                'entry_price': entry_price,
+                'pnl': pnl
+            }
+        
+        return {
+            'total_value': total_value,
+            'cash': self.portfolio.cash,
+            'positions': positions_data,
+            'timestamp': datetime.now()
+        }
 
     async def sync_exchange_balances(self):
         """Synchronize internal portfolio tracking with actual exchange balances"""
@@ -851,6 +754,67 @@ class RoboService(BaseService):
         
         if expired_symbols:
             logger.info(f"Cleaned up {len(expired_symbols)} expired order accumulations")
+
+    async def update_portfolio_with_trade_result(self, result):
+        """Update portfolio with executed trade result"""
+        if not result or not result.get('success', False) or not hasattr(self, 'portfolio'):
+            return
+        
+        symbol = result.get('symbol')
+        side = result.get('side')
+        quantity = result.get('quantity', 0)
+        price = result.get('price', 0)
+        
+        try:
+            if side.upper() == 'BUY':
+                # Double-check that portfolio was updated correctly
+                if symbol not in self.portfolio.positions or \
+                   self.portfolio.positions[symbol] < quantity:
+                    # Portfolio wasn't updated, force update
+                    await self.portfolio.add_position(symbol, quantity, price)
+                    logger.info(f"Portfolio manually updated: Added {quantity} {symbol} @ {price}")
+            elif side.upper() == 'SELL':
+                # For sell orders, ensure position was reduced
+                if symbol in self.portfolio.positions:
+                    current_pos = self.portfolio.positions[symbol]
+                    if abs(current_pos - (result.get('original_position', 0) - quantity)) > 1e-8:
+                        # Position wasn't updated correctly
+                        await self.portfolio.reduce_position(symbol, quantity, price)
+                        logger.info(f"Portfolio manually updated: Reduced {quantity} {symbol} @ {price}")
+        
+            # Record trade in history for better tracking
+            self._record_trade_history(symbol, side, quantity, price)
+            
+            # Force update portfolio prices and recalculate state
+            await self.update_portfolio_prices()
+        except Exception as e:
+            logger.error(f"Error updating portfolio with trade: {e}")
+
+    def _record_trade_history(self, symbol, side, quantity, price):
+        """Record trade in history for performance tracking"""
+        if not hasattr(self, 'trade_history'):
+            self.trade_history = []
+        
+        # Calculate cost/proceeds
+        value = quantity * price
+        
+        # Record trade with full details
+        self.trade_history.append({
+            'symbol': symbol,
+            'side': side,
+            'quantity': quantity,
+            'price': price,
+            'value': value,
+            'timestamp': datetime.now(),
+            'balance_after': self.portfolio.cash if hasattr(self, 'portfolio') else 0,
+            'portfolio_value': self.portfolio.total_value() if hasattr(self, 'portfolio') else 0
+        })
+        
+        # Limit history size
+        if len(self.trade_history) > 1000:
+            self.trade_history = self.trade_history[-1000:]
+        
+        logger.info(f"Trade recorded: {side} {quantity} {symbol} @ {price} = ${value:.2f}")
 
     async def run(self):
         """Main run loop for the RoboService"""

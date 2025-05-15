@@ -70,84 +70,156 @@ class ConsoleUI:
             subtitle=f"Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         ))
     
-    def display_portfolio(self, balance: float, positions: Dict[str, Any]):
-        """Display portfolio details in a formatted table."""
+    def display_portfolio(self, balance, positions, entry_prices=None, current_prices=None):
+        """Display portfolio summary with entry prices and current prices"""
         if not self.setup_complete:
             logger.warning("ConsoleUI not set up. Call setup() first.")
             return
             
         # Create portfolio table
-        table = Table(title="[bold]Portfolio Summary[/bold]")
+        table = Table(title="Portfolio Summary")
         table.add_column("Asset", style="cyan")
-        table.add_column("Position", style="white")
+        table.add_column("Position", style="green")
         table.add_column("Value (USDT)", style="yellow")
+        table.add_column("Entry Price", style="blue")
+        table.add_column("Current Price", style="magenta")
+        table.add_column("P&L", style="")
         table.add_column("Change (24h)", style="")
         
-        # Add cash position
-        table.add_row("USDT", f"{balance:.2f}", f"{balance:.2f}", "")
+        # Store values for class access
+        self.portfolio_cash = balance
+        self.portfolio_positions = positions
         
-        # Add crypto positions
+        # Add cash row
+        table.add_row("USDT", f"{balance:.2f}", f"{balance:.2f}", "", "", "", "")
+        
+        # Track total portfolio value
         total_value = balance
+        total_pnl = 0.0
+        
+        # Add position rows
         for symbol, position in positions.items():
-            # Calculate position value based on last known price
-            price = self.last_prices.get(symbol, 0)
-            value = position * price if price else 0
-            total_value += value
+            # Get base asset (remove USDT suffix)
+            base_asset = symbol.replace("USDT", "")
             
-            # Get 24h change from market data service if available
-            change_pct = 0.0
+            # Calculate value
+            price = 0.0
+            if current_prices and symbol in current_prices:
+                price = current_prices[symbol]
             
-            # Try to get the change from market_data dictionary
-            if symbol in self.market_data:
-                change_pct = self.market_data[symbol].get('change', 0.0)
+            # If we don't have a price, mark it clearly
+            if price <= 0:
+                price_str = "N/A"
+                value = 0
+            else:
+                price_str = f"{price:.2f}"
+                value = position * price
+                total_value += value
             
-            change_str = self._format_change(change_pct)
+            # Get entry price if available
+            entry_price = ""
+            pnl = "$0.00"
+            pnl_color = "white"
+            if entry_prices and symbol in entry_prices and entry_prices[symbol] > 0:
+                entry_price = f"{entry_prices[symbol]:.2f}"
+                # Calculate P&L if we have both entry and current price
+                if price > 0:
+                    pnl_value = position * (price - entry_prices[symbol])
+                    total_pnl += pnl_value
+                    pnl_color = "green" if pnl_value >= 0 else "red"
+                    pnl = f"${pnl_value:.2f}"
             
+            # Format position (different precision for different assets)
+            if base_asset == "BTC":
+                position_str = f"{position:.6f}"
+            else:
+                position_str = f"{position:.6f}"
+            
+            # Get 24h change if available
+            change = "N/A"
+            if hasattr(self, 'price_changes') and symbol in self.price_changes:
+                change_value = self.price_changes[symbol]
+                change_color = "green" if change_value >= 0 else "red"
+                change = f"[{change_color}]{change_value:.2f}%[/{change_color}]"
+            
+            # Add row with color-coded P&L
             table.add_row(
-                symbol.replace("USDT", ""),
-                f"{position:.6f}",
-                f"{value:.2f}",
-                change_str
+                base_asset, 
+                position_str, 
+                f"{value:.2f}" if price > 0 else "N/A", 
+                entry_price, 
+                price_str, 
+                f"[{pnl_color}]{pnl}[/{pnl_color}]",
+                change
             )
         
-        # Add total row
-        table.add_row("TOTAL", "", f"{total_value:.2f}", "", style="bold")
+        # Add total row (only counting known values)
+        table.add_row(
+            "TOTAL", 
+            "", 
+            f"{total_value:.2f}", 
+            "", 
+            "", 
+            f"${total_pnl:.2f}", 
+            ""
+        )
         
         # Display the table
         self.console.print(table)
     
-    def display_market_data(self):
-        """Display current market data for watched pairs."""
-        if not self.watched_pairs:
+    def display_market_data(self, market_data: Dict[str, Dict]):
+        """Display market data in a structured table"""
+        if not self.setup_complete:
+            logger.warning("ConsoleUI not set up. Call setup() first.")
             return
             
+        # Create market data table
         table = Table(title="[bold]Market Data[/bold]")
         table.add_column("Symbol", style="cyan")
         table.add_column("Price", style="yellow")
         table.add_column("24h Change", style="")
-        table.add_column("Sentiment", style="magenta")
+        table.add_column("Sentiment", style="")
         
-        for symbol in self.watched_pairs:
-            if symbol in self.market_data:
-                price = self.last_prices.get(symbol, 0)
-                change = self.market_data[symbol].get('change', 0)
-                sentiment = self.market_data[symbol].get('sentiment', "Neutral ↔")
-                
-                table.add_row(
-                    symbol,
-                    f"{price:.2f}" if price else "N/A",
-                    self._format_change(change),
-                    sentiment  # Already formatted string
-                )
+        # Use current_prices if available, which has actual price data
+        current_prices = getattr(self, 'current_prices', {})
+        
+        # Add rows for each symbol
+        for symbol, data in market_data.items():
+            # Format price - first check current_prices which is more reliable
+            price = current_prices.get(symbol, 0.0) if current_prices else data.get('price', 0.0)
+            price_str = f"{price:.2f}" if price else "N/A"
+            
+            # Format change
+            change = data.get('change', 0.0)
+            change_str = f"{change:.2f}%" if isinstance(change, (int, float)) else "0.00%"
+            change_color = "green" if change > 0 else ("red" if change < 0 else "white")
+            change_display = f"[{change_color}]{change_str}[/{change_color}]"
+            
+            # Format sentiment
+            sentiment = data.get('sentiment', 'Neutral')
+            if isinstance(sentiment, (int, float)):
+                # Convert numeric sentiment to text
+                if sentiment > 0.2:
+                    sentiment = "Bullish"
+                    sentiment_color = "green"
+                elif sentiment < -0.2:
+                    sentiment = "Bearish"
+                    sentiment_color = "red"
+                else:
+                    sentiment = "Neutral"
+                    sentiment_color = "yellow"
             else:
-                # Fallback for symbols without data
-                table.add_row(
-                    symbol,
-                    "N/A",
-                    self._format_change(0),
-                    "Neutral ↔"
-                )
+                # Use text sentiment as-is
+                sentiment_color = "green" if "bull" in str(sentiment).lower() else ("red" if "bear" in str(sentiment).lower() else "yellow")
+            
+            sentiment_display = f"[{sentiment_color}]{sentiment}[/{sentiment_color}]"
+            
+            # Display symbol without USDT suffix
+            display_symbol = symbol.replace("USDT", "")
+            
+            table.add_row(display_symbol, price_str, change_display, sentiment_display)
         
+        # Print the table
         self.console.print(table)
     
     def update_price(self, symbol: str, price: float):
@@ -308,6 +380,152 @@ class ConsoleUI:
         
         self.console.print(table)
     
+    def display_performance_metrics(self, metrics):
+        """Display trading performance metrics in a forex trader style"""
+        if not self.setup_complete:
+            logger.warning("ConsoleUI not set up. Call setup() first.")
+            return
+            
+        # Create performance metrics table
+        table = Table(title="[bold blue]Performance Metrics[/bold blue]")
+        
+        # Add metric columns
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="yellow")
+        table.add_column("Rating", style="")
+        
+        # Helper function to rate metrics
+        def get_rating(metric, value):
+            if metric == "sharpe_ratio":
+                if value >= 2.0:
+                    return "[green]Excellent[/green]"
+                elif value >= 1.0:
+                    return "[green]Good[/green]"
+                elif value >= 0.5:
+                    return "[yellow]Average[/yellow]"
+                else:
+                    return "[red]Poor[/red]"
+            elif metric == "win_rate":
+                if value >= 0.65:
+                    return "[green]Excellent[/green]"
+                elif value >= 0.55:
+                    return "[green]Good[/green]"
+                elif value >= 0.45:
+                    return "[yellow]Average[/yellow]"
+                else:
+                    return "[red]Poor[/red]"
+            elif metric == "profit_factor":
+                if value >= 2.0:
+                    return "[green]Excellent[/green]"
+                elif value >= 1.5:
+                    return "[green]Good[/green]"
+                elif value >= 1.0:
+                    return "[yellow]Breakeven[/yellow]"
+                else:
+                    return "[red]Losing[/red]"
+            elif metric == "max_drawdown":
+                if value <= 0.05:
+                    return "[green]Excellent[/green]"
+                elif value <= 0.15:
+                    return "[green]Good[/green]"
+                elif value <= 0.25:
+                    return "[yellow]Caution[/yellow]"
+                else:
+                    return "[red]High Risk[/red]"
+            return ""
+        
+        # Add rows for key metrics
+        sharpe = metrics.get('sharpe_ratio', 0)
+        table.add_row(
+            "Sharpe Ratio", 
+            f"{sharpe:.2f}" if isinstance(sharpe, (int, float)) else "N/A",
+            get_rating("sharpe_ratio", sharpe if isinstance(sharpe, (int, float)) else 0)
+        )
+        
+        win_rate = metrics.get('win_rate', 0)
+        table.add_row(
+            "Win Rate", 
+            f"{win_rate:.2%}", 
+            get_rating("win_rate", win_rate)
+        )
+        
+        profit_factor = metrics.get('profit_factor', 0)
+        table.add_row(
+            "Profit Factor", 
+            f"{profit_factor:.2f}" if isinstance(profit_factor, (int, float)) else "N/A", 
+            get_rating("profit_factor", profit_factor if isinstance(profit_factor, (int, float)) else 0)
+        )
+        
+        drawdown = metrics.get('max_drawdown', 0)
+        table.add_row(
+            "Max Drawdown", 
+            f"{drawdown:.2%}", 
+            get_rating("max_drawdown", drawdown)
+        )
+        
+        # Add extra forex metrics
+        expectancy = metrics.get('expectancy', 0)
+        table.add_row("Trade Expectancy", f"${expectancy:.2f}")
+        
+        avg_trade = metrics.get('avg_trade', 0)
+        table.add_row("Avg Trade", f"${avg_trade:.2f}")
+        
+        # Kelly percentage
+        if win_rate > 0 and 'reward_risk' in metrics:
+            r_r = metrics['reward_risk']
+            kelly = win_rate - ((1 - win_rate) / r_r)
+            kelly_pct = max(0, min(kelly, 0.5))  # Cap at 50%
+            table.add_row("Kelly %", f"{kelly_pct:.2%}")
+        
+        # Display the table
+        self.console.print(table)
+        
+        # Show trading metrics over time if we have history
+        if 'equity_curve' in metrics and len(metrics['equity_curve']) > 5:
+            self._display_equity_curve(metrics['equity_curve'])
+
+    def _display_equity_curve(self, equity_points):
+        """Display simple ASCII equity curve"""
+        if len(equity_points) < 5:
+            return
+        
+        # Normalize data for display
+        max_val = max(equity_points)
+        min_val = min(equity_points)
+        range_val = max_val - min_val if max_val != min_val else 1
+        
+        # Create a simple 10-line high graph
+        height = 10
+        width = min(len(equity_points), 50)
+        
+        # Select points to display based on width
+        step = max(1, len(equity_points) // width)
+        display_points = equity_points[::step][:width]
+        
+        # Create graph
+        graph = []
+        for i in range(height):
+            level = max_val - (i / height) * range_val
+            line = ""
+            for point in display_points:
+                if point >= level:
+                    line += "█"
+                else:
+                    line += " "
+            graph.append(line)
+        
+        # Display graph with border
+        self.console.print("[bold blue]Equity Curve[/bold blue]")
+        top_border = "┌" + "─" * width + "┐"
+        bottom_border = "└" + "─" * width + "┘"
+        
+        self.console.print(top_border)
+        for line in graph:
+            self.console.print(f"│{line}│")
+        self.console.print(bottom_border)
+        
+        self.console.print(f"High: ${max_val:.2f}  Low: ${min_val:.2f}  Current: ${equity_points[-1]:.2f}")
+
     def _create_progress_bar(self, percentage: float) -> str:
         """Create a text-based progress bar"""
         filled = int(percentage / 10)
@@ -358,13 +576,110 @@ class ConsoleUI:
         color = "green" if confidence > 0.7 else "yellow" if confidence > 0.4 else "red"
         return f"[{color}]{'█' * filled_blocks}[/{color}][dim]{'░' * empty_blocks}[/dim] ({confidence:.2f})"
 
+    def display_trading_cycle_header(self, cycle_number, performance_metrics=None):
+        """Display formatted header for trading cycle with performance metrics"""
+        if not self.setup_complete:
+            return
+            
+        # Create header with cycle number
+        header = f"Trading Cycle #{cycle_number}"
+        self.console.rule(f"[bold blue]{header}[/bold blue]")
+        
+        # If we have performance metrics, show key indicators
+        if performance_metrics:
+            win_rate = performance_metrics.get('win_rate', 0)
+            profit_factor = performance_metrics.get('profit factor', 0)
+            sharpe_ratio = performance_metrics.get('sharpe ratio', 0)
+    
+    def display_trader_dashboard(self):
+        """Display a comprehensive forex-style trading dashboard"""
+        if not self.setup_complete:
+            return
+        
+        # Clear screen for a fresh dashboard
+        self.console.clear()
+        
+        # 1. MARKET OVERVIEW - First thing traders want to see
+        if hasattr(self, 'market_data'):
+            self.display_market_data(self.market_data)
+            
+        # 2. ACTIVE SIGNALS - Second most important for decision making
+        if hasattr(self, 'recent_signals') and self.recent_signals:
+            self.display_signals(self.recent_signals)
+            
+        # 3. PORTFOLIO STATUS - After market view, see your positions
+        if hasattr(self, 'portfolio_positions'):
+            self.display_portfolio(self.portfolio_cash, self.portfolio_positions, 
+                                 self.position_entries, self.current_prices)
 
-# Example usage:
-# ui = ConsoleUI.get_instance()
-# ui.setup(watched_pairs=["BTCUSDT", "ETHUSDT", "BNBUSDT"])
-# 
-# with ui.create_progress_bar("Loading model")[0]:
-#     time.sleep(2)
-#
-# ui.display_portfolio(10000.0, {"BTCUSDT": 0.5, "ETHUSDT": 5.0})
-# ui.display_trade_signal("BTCUSDT", "BUY", 0.8, 60000.0, 0.7)
+        # 4. PERFORMANCE METRICS - At the bottom for reference
+        if hasattr(self, 'performance_metrics'):
+            self.display_performance_metrics(self.performance_metrics)
+        
+        # 5. SYSTEM STATUS - Always good to know
+        status_panel = Panel(
+            f"[bold green]System Status:[/bold green] Running\n" +
+            f"Cycle: {self.current_cycle if hasattr(self, 'current_cycle') else 'N/A'}\n" +
+            f"Last Update: {datetime.now().strftime('%H:%M:%S')}"
+        )
+        self.console.print(status_panel)
+    
+    def display_signals(self, signals: List[Dict]):
+        """Display active trading signals"""
+        if not signals:
+            return
+            
+        table = Table(title="[bold]Trading Signals[/bold]")
+        table.add_column("Symbol", style="cyan")
+        table.add_column("Direction", style="")
+        table.add_column("Strength", style="")
+        table.add_column("Price", style="yellow")
+        table.add_column("Source", style="")
+        table.add_column("Time", style="")
+        
+        # Get current time for age calculation
+        now = datetime.now()
+        
+        for signal in signals:
+            # Extract values with defaults
+            symbol = signal.get('symbol', 'UNKNOWN')
+            direction = signal.get('direction', 'UNKNOWN')
+            strength = signal.get('strength', 0.0)
+            price = signal.get('price', 0.0)
+            source = signal.get('type', 'UNKNOWN')
+            timestamp = signal.get('timestamp', now)
+            
+            # Format direction with color
+            direction_color = "green" if direction.upper() == 'BUY' else "red"
+            direction_display = f"[{direction_color}]{direction}[/{direction_color}]"
+            
+            # Format strength as visual bar
+            strength_bar = self._format_strength_bar(strength)
+            
+            # Format price
+            price_str = f"{price:.2f}" if price else "N/A"
+            
+            # Format signal age
+            if isinstance(timestamp, datetime):
+                age = now - timestamp
+                if age.total_seconds() < 60:
+                    age_str = "Just now"
+                elif age.total_seconds() < 3600:
+                    age_str = f"{int(age.total_seconds() / 60)}m ago"
+                else:
+                    age_str = f"{int(age.total_seconds() / 3600)}h ago"
+            else:
+                age_str = "N/A"
+            
+            # Add row to table
+            table.add_row(
+                symbol.replace('USDT', ''),
+                direction_display,
+                strength_bar,
+                price_str,
+                source,
+                age_str
+            )
+        
+        # Print the table
+        self.console.print(table)

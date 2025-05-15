@@ -267,31 +267,33 @@ class SentimentIndicator:
 class MarketRegimeDetector:
     """Detects market regime based on multiple indicators"""
     
-    def __init__(self):
-        # Thresholds for regime classification
+    def __init__(self, config: Dict = None):
+        config = config or {}
+        
+        # Initialize with default thresholds
         self.thresholds = {
             'volatility': {
-                'high': 0.03,    # 3% daily volatility
-                'stress': 0.05,  # 5% daily volatility
-                'crisis': 0.07   # 7% daily volatility
+                'high': config.get('volatility_high', 0.03),    # 3% daily volatility
+                'stress': config.get('volatility_stress', 0.05),  # 5% daily volatility
+                'crisis': config.get('volatility_crisis', 0.07)   # 7% daily volatility
             },
             'volume': {
-                'low': 0.5,     # 50% below average
-                'crisis': 0.2    # 80% below average
+                'low': config.get('volume_low', 0.5),     # 50% below average
+                'crisis': config.get('volume_crisis', 0.2)    # 80% below average
             },
             'spread': {
-                'high': 0.002,   # 20bps spread
-                'stress': 0.005  # 50bps spread
+                'high': config.get('spread_high', 0.002),   # 20bps spread
+                'stress': config.get('spread_stress', 0.005)  # 50bps spread
             },
             'price_impact': {
-                'high': 0.001,   # 10bps for standard size
-                'stress': 0.002  # 20bps for standard size
+                'high': config.get('price_impact_high', 0.001),   # 10bps for standard size
+                'stress': config.get('price_impact_stress', 0.002)  # 20bps for standard size
             }
         }
         
         # Regime history
         self.history = []
-        self.max_history = 100
+        self.max_history = config.get('max_history', 100)
 
     def detect_regime(self, data: Dict) -> MarketRegime:
         """Detect current market regime from market data"""
