@@ -426,7 +426,11 @@ class TradingSystem:
                     if news_data:
                         signals = await self.analyze_market_sentiment(news_data)
                         
-                        # STEP 5: PROCESS SIGNALS AND EXECUTE TRADES
+                        # STEP 5: GROUP SIMILAR SIGNALS
+                        if signals:
+                            signals = await self._group_similar_signals(signals)
+                        
+                        # STEP 6: PROCESS SIGNALS AND EXECUTE TRADES
                         if signals:
                             trade_count = await self._process_signals(signals)
                             logger.info(f"Processed {len(signals)} signals, executed {trade_count} trades")
@@ -489,94 +493,154 @@ class TradingSystem:
                 self.ui.display_error(f"Fatal trading error: {str(e)}")
             raise
 
-    async def _process_signals(self, signals):
-        """Process detected signals and execute trades if needed."""
-        try:
-            # CHECK CIRCUIT BREAKERS FIRST
-            if hasattr(self, 'system_monitor') and hasattr(self.system_monitor, 'circuit_breaker'):
-                # Get market data for circuit breaker check
-                market_data = {}
-                if hasattr(self, 'market_data_service'):
-                    for pair in self.market_data_service.get_watched_pairs():
-                        market_data[pair] = self.market_data_service.get_market_data(pair)
-                
-                # Check if circuit breaker is triggered
-                if self.system_monitor.circuit_breaker.check_conditions(market_data):
-                    logger.warning("[red]Circuit breaker triggered! All trading halted.[/red]")
-                    if hasattr(self, 'ui'):
-                        self.ui.display_warning("⚠️ CIRCUIT BREAKER TRIGGERED - Trading halted")
-                    return 0  # No trades executed
-                    
-            # Check for rapid price moves
-            if hasattr(self, 'system_monitor') and hasattr(self.system_monitor, 'detect_rapid_moves'):
-                rapid_moves = self.system_monitor.detect_rapid_moves(market_data)
-                if rapid_moves:
-                    affected_pairs = ", ".join(rapid_moves.keys())
-                    logger.warning(f"[yellow]Rapid price moves detected in: {affected_pairs}[/yellow]")
-                    if hasattr(self, 'ui'):
-                        self.ui.display_warning(f"⚠️ Price volatility detected in {affected_pairs}")
+    async def _group_similar_signals(self, signals: List[Dict]) -> List[Dict]:
+        """Group similar signals for the same asset to create larger positions"""
+        if len(signals) <= 1:
+            return signals
             
-            # Continue with regular signal processing
-            trade_count = 0
-            for signal in signals:
-                symbol = signal.get('symbol')
-                direction = signal.get('direction')
-                strength = signal.get('strength', 0.0)
-                price = signal.get('price', 0.0)
+        # Group signals by symbol
+        grouped = {}
+        for signal in signals:
+            symbol = signal.get('symbol')
+            if not symbol:
+                continue
                 
-                # Boost signal strength when multiple indicators align
-                if any(s['symbol'] == symbol and s != signal for s in signals):
-                    # Multiple signals for same asset - confirmation boost
-                    logger.info(f"Multiple signals detected for {symbol}, boosting strength")
-                    strength = min(strength * 1.25, 1.0)  # Boost by 25% but cap at 1.0
-                    signal['strength'] = strength
-                    
-                    # Multiple signals for same asset - dynamic threshold adjustment
-                    logger.info(f"Multiple signals detected for {symbol}, adjusting threshold")
-                    # More aggressive threshold when multiple signals confirm the same direction
-                    dynamic_threshold = self.get_config('trading.execution.signal_threshold', 0.5) * 0.8
-                    
-                    if strength >= dynamic_threshold:
-                        logger.info(f"Signal exceeds dynamic threshold ({dynamic_threshold:.2f}), executing trade...")
-                        trade_result = await self.robo_service.execute_trade(signal)
+            if symbol not in grouped:
+                grouped[symbol] = []
+                
+            grouped[symbol].append(signal)
+        
+        # Process groups to create consolidated signals
+        consolidated = []
+        for symbol, symbol_signals in grouped.items():
+            if len(symbol_signals) == 1:
+                # Only one signal, no grouping needed
+                consolidated.append(symbol_signals[0])
+                continue
+                
+            # Multiple signals - consolidate if they agree on direction
+            buy_signals = [s for s in symbol_signals if s.get('direction', 0) > 0]
+            sell_signals = [s for s in symbol_signals if s.get('direction', 0) < 0]
+            
+            # Process buy signals
+            if buy_signals:
+                # Calculate average strength and combined confidence
+                avg_strength = sum(s.get('strength', 0) for s in buy_signals) / len(buy_signals)
+                # Use confidence boosting formula: new_conf = 1-(1-conf1)*(1-conf2)*...
+                combined_confidence = 1.0
+                for s in buy_signals:
+                    combined_confidence *= (1 - s.get('confidence', 0.5))
+                combined_confidence = 1 - combined_confidence
+                
+                # Create consolidated buy signal with boosted values
+                consolidated.append({
+                    'symbol': symbol,
+                    'direction': 1,
+                    'strength': min(avg_strength * 1.2, 1.0),  # Boost but cap at 1.0
+                    'confidence': min(combined_confidence, 1.0),
+                    'timestamp': datetime.now(),
+                    'grouped': len(buy_signals),
+                    'price': buy_signals[0].get('price', 0)
+                })
+                
+            # Process sell signals (same logic as buy)
+            if sell_signals:
+                avg_strength = sum(s.get('strength', 0) for s in sell_signals) / len(sell_signals)
+                combined_confidence = 1.0
+                for s in sell_signals:
+                    combined_confidence *= (1 - s.get('confidence', 0.5))
+                combined_confidence = 1 - combined_confidence
+                
+                consolidated.append({
+                    'symbol': symbol,
+                    'direction': -1,
+                    'strength': min(avg_strength * 1.2, 1.0),
+                    'confidence': min(combined_confidence, 1.0),
+                    'timestamp': datetime.now(),
+                    'grouped': len(sell_signals),
+                    'price': sell_signals[0].get('price', 0)
+                })
+        
+        logger.info(f"Grouped {len(signals)} signals into {len(consolidated)} consolidated signals")
+        return consolidated
 
-                # Get threshold from config
-                threshold = self.get_config('trading.execution_threshold', 0.5)
-                
-                # Log signal detection
-                logger.info(f"Signal detected: {symbol} {direction} (strength: {strength:.2f})")
-                
-                # Check if signal strength exceeds execution threshold
-                if strength >= threshold:
-                    # Use rich-compatible symbols
-                    logger.info(f"[green]Signal exceeds threshold, executing trade...[/green]")
-                    
-                    # Execute trade
-                    trade_result = await self.robo_service.execute_trade(signal)
-                    
-                    # Log result
-                    if trade_result:
-                        trade_count += 1
-                        logger.info(f"Trade executed: {trade_result}")
-                        
-                        # Display in UI if available
-                        if hasattr(self, 'ui'):
-                            self.ui.display_trade_signal(
-                                symbol, 
-                                direction, 
-                                strength,
-                                price,
-                                signal.get('metadata', {}).get('confidence', 0.5)
-                            )
-                else:
-                    # Use rich-compatible formatting
-                    logger.info(f"[red]Signal below threshold, no trade executed[/red]")
+    async def _process_signals(self, signals: List[Dict]) -> int:
+        """Process trading signals with improved position sizing and confidence weighting"""
+        if not signals:
+            logger.info("No signals to process")
+            return 0
             
-            return trade_count
+        try:
+            # Track execution stats
+            processed = 0
+            executed = 0
+            
+            # Process each signal
+            for signal in signals:
+                processed += 1
+                
+                # Calculate position size with advanced logic
+                quantity = self._calculate_position_size(signal)
+                
+                # Skip if quantity is zero (could be accumulated for later)
+                if quantity <= 0:
+                    continue
+                
+                # Determine trade direction
+                direction = signal.get('direction', 0)
+                side = 'BUY' if direction > 0 else 'SELL' if direction < 0 else None
+                
+                # Skip neutral signals
+                if not side:
+                    logger.info(f"Neutral signal for {signal.get('symbol')}, no trade")
+                    continue
+                    
+                # Get current price if not provided
+                symbol = signal.get('symbol', '')
+                price = signal.get('price', 0)
+                if price <= 0 and hasattr(self, 'market_data_service'):
+                    price = self.market_data_service.get_latest_price(symbol)
+                    
+                # ENHANCED: Use confidence-weighted threshold
+                confidence = signal.get('confidence', 0.5)
+                strength = signal.get('strength', 0.0)
+                
+                # Dynamic threshold adjustment based on confidence
+                base_threshold = self.get_config('trading.execution.threshold', 0.3)
+                dynamic_threshold = base_threshold * (1.0 - (confidence - 0.5))  # Lower threshold for higher confidence
+                
+                # Log the signal details with confidence emphasis
+                logger.info(f"Signal detected: {symbol} {side} (strength: {strength:.2f}, confidence: {confidence:.2f})")
+                
+                # Check if signal exceeds dynamic threshold
+                if (confidence > 0.6) and (strength >= dynamic_threshold):
+                    logger.info(f"Signal exceeds dynamic threshold ({dynamic_threshold:.2f}), executing trade...")
+                    
+                    # Execute the trade
+                    if hasattr(self, 'robo_service') and hasattr(self.robo_service, 'execute_trade'):
+                        # Get exchange requirements
+                        exchange_info = await self.robo_service.get_exchange_requirements(symbol)
+                        logger.info(f"Exchange requirements for {symbol}: min_qty={exchange_info.get('min_qty')}, min_notional={exchange_info.get('min_notional')}")
+                        
+                        # Execute trade with position size
+                        success = await self.robo_service.execute_trade(symbol, side, quantity, price)
+                        
+                        if success:
+                            executed += 1
+                            logger.info(f"Successfully executed {side} trade for {quantity} {symbol} at {price}")
+                        else:
+                            logger.error(f"Failed to execute {side} trade for {symbol}")
+                    else:
+                        logger.error("No trade execution service available")
+                else:
+                    logger.info(f"Signal below threshold, no trade executed")
+            
+            return executed
+        
         except Exception as e:
-            logger.error(f"Error processing signals: {str(e)}")
-            if hasattr(self, 'ui'):
-                self.ui.display_error(f"Error processing signals: {str(e)}")
+            logger.error(f"Error processing signals: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return 0
 
     async def process_trading_signal(self, signal):
@@ -700,90 +764,113 @@ class TradingSystem:
             logger.error(f"Error in handling minimum size notification: {e}")
 
     def _calculate_position_size(self, signal: Dict) -> float:
-        """Calculate position size based on signal strength and portfolio value"""
+        """Calculate position size based on signal strength, confidence, and portfolio value"""
         try:
-            # Get trading pair symbol and signal strength
-            symbol = signal.get('symbol', '')
-            strength = signal.get('strength', 0.5)
-            confidence = signal.get('confidence', 0.5)
+            # Get account balance and configuration
+            balance = self.get_config('trading.account.balance', 10000.0)
             
-            # Get portfolio value
-            portfolio_value = 0
-            if hasattr(self, 'robo_service') and hasattr(self.robo_service, 'portfolio'):
-                portfolio = self.robo_service.portfolio
-                portfolio_value = portfolio.total_value()
+            # More aggressive position sizing parameters
+            max_position_pct = self.get_config('trading.position_sizing.max_position_pct', 0.10)  # Increased from 0.05
+            base_position_pct = self.get_config('trading.position_sizing.base_position_pct', 0.03)  # Increased from 0.01
             
-            # Default to small position if we can't get portfolio value
-            if portfolio_value <= 0:
-                portfolio_value = 10000  # Assume default $10K
+            # Exchange requirements
+            min_notional = self.get_config('trading.execution.min_notional', 15.0)
             
             # Get current price
-            price = signal.get('price', 0)
-            if price <= 0 and hasattr(self, 'market_data_service'):
-                price = self.market_data_service.get_latest_price(symbol)
-            
+            price = signal.get('price', 0.0)
             if price <= 0:
-                logger.error(f"Cannot calculate position size: no price for {symbol}")
-                return 0
+                # Try to get current price from market data service
+                if hasattr(self, 'market_data_service'):
+                    price = self.market_data_service.get_latest_price(signal['symbol'])
                 
-            # Get position sizing settings
-            base_position = self.get_config('trading.position_sizing.base', 0.01)  # Default 1%
-            max_position = self.get_config('trading.position_sizing.max', 0.1)    # Default 10%
+                if price <= 0:
+                    logger.error(f"Cannot calculate position size: no valid price for {signal['symbol']}")
+                    return 0.0
             
-            # Calculate scaled position size based on strength and confidence
-            confidence_factor = confidence if confidence > 0.3 else 0.3
-            combined_signal = strength * confidence_factor
+            # Calculate position size based on BOTH signal strength AND confidence
+            # This is key - prioritizing confidence over raw sentiment
+            strength_factor = min(signal.get('strength', 0.5), 1.0)
+            confidence_factor = min(signal.get('confidence', 0.5), 1.0)
             
-            # Scale position between base and max
-            position_pct = base_position + (combined_signal * (max_position - base_position))
+            # Weighted calculation: confidence gets 60% weight, strength gets 40%
+            combined_factor = (confidence_factor * 0.6) + (strength_factor * 0.4)
+            position_pct = base_position_pct + ((max_position_pct - base_position_pct) * combined_factor)
             
-            # Check for momentum
-            prices = []
-            if hasattr(self, 'market_data_service'):
-                prices = self.market_data_service.get_recent_prices(symbol, limit=3)
+            # Calculate position in USD value
+            position_size = balance * position_pct
             
-            # Adjust position size based on momentum
-            if len(prices) >= 3:
-                if prices[-1] > prices[-2] > prices[-3] and signal.get('side') == 'BUY':
-                    logger.info(f"Upward momentum detected for {symbol}, increasing position size")
-                    position_pct *= 1.2  # 20% larger position on momentum
-                elif prices[-1] < prices[-2] < prices[-3] and signal.get('side') == 'SELL':
-                    logger.info(f"Downward momentum detected for {symbol}, increasing position size")
-                    position_pct *= 1.2  # 20% larger position on momentum
+            # Trader optimization: accumulate small signals
+            if hasattr(self, 'pending_signals') and signal['symbol'] in self.pending_signals:
+                pending_value = self.pending_signals[signal['symbol']].get('value', 0)
+                pending_expires = self.pending_signals[signal['symbol']].get('expires', datetime.now())
+                
+                # If we have a pending signal and it hasn't expired
+                if pending_value > 0 and pending_expires > datetime.now():
+                    position_size += pending_value
+                    logger.info(f"Adding pending signal value of ${pending_value:.2f} to position size")
+                    
+                    # Clear pending signal if we now meet minimums
+                    if position_size >= min_notional:
+                        self.pending_signals.pop(signal['symbol'])
+                        logger.info(f"Accumulated signal now meets minimum requirements (${position_size:.2f})")
             
-            # Calculate position value
-            position_value = portfolio_value * position_pct
+            # Check if position meets minimum notional value
+            if position_size < min_notional:
+                # Store small signal for later accumulation instead of forcing execution
+                if not hasattr(self, 'pending_signals'):
+                    self.pending_signals = {}
+                    
+                # Record this signal for potential accumulation
+                self.pending_signals[signal['symbol']] = {
+                    'value': position_size,
+                    'expires': datetime.now() + timedelta(hours=12),  # Expire after 12 hours
+                    'initial_strength': combined_factor
+                }
+                logger.info(f"Signal for {signal['symbol']} too small (${position_size:.2f}), storing for accumulation")
+                return 0.0  # Don't execute yet
             
-            # Convert to quantity based on current price
-            quantity = position_value / price
+            # Calculate quantity based on price
+            quantity = position_size / price
             
-            # Fix: Get exchange minimum requirements
-            min_qty = 0.0001  # Default minimum quantity
-            min_notional = 15.0  # Default minimum notional value ($15)
+            # Get asset-specific minimums
+            min_qty = self._get_minimum_quantity(signal['symbol'])
             
-            # Get exchange-specific requirements if robo_service is available
-            if hasattr(self, 'robo_service') and hasattr(self.robo_service, 'get_exchange_minimum_requirements'):
-                # Since we're in a non-async context, we need to use a synchronous alternative
-                # or call this earlier in an async context
-                symbol_info = self.get_config(f'exchange.minimum_requirements.{symbol}', {})
-                min_qty = symbol_info.get('min_qty', min_qty)
-                min_notional = symbol_info.get('min_notional', min_notional)
-            
-            # Fix: Ensure position meets minimum requirements
-            if quantity * price < min_notional:
-                # Adjust to meet minimum notional value
-                logger.info(f"Adjusting position size to meet minimum notional of ${min_notional}")
-                quantity = (min_notional * 1.01) / price  # Add 1% buffer
-            
+            # Ensure quantity meets minimum
             if quantity < min_qty:
-                # Adjust to meet minimum quantity
-                logger.info(f"Adjusting position size to meet minimum quantity of {min_qty}")
-                quantity = min_qty * 1.01  # Add 1% buffer
+                logger.warning(f"Adjusting quantity from {quantity} to minimum {min_qty}")
+                quantity = min_qty * 1.05  # Add 5% buffer
+            
+            # Final check on notional value
+            notional_value = quantity * price
+            if notional_value < min_notional:
+                adjusted_qty = (min_notional * 1.05) / price  # Add 5% buffer
+                logger.warning(f"Final adjustment to meet min notional: {adjusted_qty}")
+                quantity = adjusted_qty
+            
+            # Trader-specific volatility adjustment
+            if signal['symbol'] in ['BTCUSDT', 'ETHUSDT']:
+                # Add buffer for high-volatility assets to prevent order rejections during price movement
+                quantity *= 1.02  # Add 2% buffer for volatile assets
             
             return quantity
+            
         except Exception as e:
-            logger.error(f"Error calculating position size: {str(e)}")
-            return 0
+            logger.error(f"Error calculating position size: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return 0.0
+
+    def _get_minimum_quantity(self, symbol: str) -> float:
+        """Get minimum quantity for a trading pair"""
+        # Default minimums - could be loaded from exchange info API in production
+        min_quantities = {
+            'BTCUSDT': 0.00001,  # 0.00001 BTC
+            'ETHUSDT': 0.0001,   # 0.0001 ETH
+            'BNBUSDT': 0.001     # 0.001 BNB
+        }
+        
+        # Return symbol-specific minimum or default to 0.001
+        return min_quantities.get(symbol, 0.001)
 
     def _format_order_size(self, trade: Dict) -> float:
         """Format order size correctly for the exchange"""
@@ -988,7 +1075,7 @@ class TradingSystem:
             return {}
 
     async def analyze_market_sentiment(self, news_data):
-        """Analyze market sentiment based on news data"""
+        """Analyze market sentiment based on news data with enhanced confidence weighting"""
         try:
             signals = []
             
@@ -1002,7 +1089,7 @@ class TradingSystem:
             
             # Get sentiment thresholds from config
             detection_threshold = self.get_config('strategies.sentiment.detection_threshold', 0.3)
-            confidence_threshold = self.get_config('strategies.sentiment.min_confidence', 0.4)
+            confidence_threshold = self.get_config('strategies.sentiment.min_confidence', 0.6)  # Increased from 0.4
             
             # First get current market prices for all pairs
             current_prices = {}
@@ -1061,27 +1148,33 @@ class TradingSystem:
                         confidence = sentiment_result.get('confidence', 0.0)
                         
                         # Log the sentiment analysis using rich-compatible formatting
-                        if sentiment_score > 0:
-                            logger.info(f"Sentiment analysis: score=[green]{sentiment_score:.2f}[/green], confidence={confidence:.2f}")
-                        elif sentiment_score < 0:
-                            logger.info(f"Sentiment analysis: score=[red]{sentiment_score:.2f}[/red], confidence={confidence:.2f}")
-                        else:
-                            logger.info(f"Sentiment analysis: score=[yellow]{sentiment_score:.2f}[/yellow], confidence={confidence:.2f}")
+                        logger.info(f"Sentiment analysis: score={sentiment_score:.2f}, confidence={confidence:.2f}")
                         
-                        # Generate signal if sentiment is strong enough - using config thresholds
-                        if abs(sentiment_score) > detection_threshold and confidence > confidence_threshold:
-                            logger.info(f"[bold]Strong sentiment signal detected![/bold] (threshold={detection_threshold:.2f})")
+                        # ENHANCED: Prioritize confidence over raw sentiment score
+                        # Only proceed if confidence meets minimum threshold
+                        if confidence < confidence_threshold:
+                            logger.info(f"Sentiment below thresholds (sentiment threshold={detection_threshold:.2f}, confidence threshold={confidence_threshold:.2f}), no signal generated")
+                            continue
+                        
+                        # Calculate confidence-weighted sentiment score (60% confidence, 40% sentiment)
+                        weighted_score = (confidence * 0.6) * (abs(sentiment_score) * 0.4)
+                        
+                        # Generate signal if weighted score is strong enough
+                        if weighted_score > detection_threshold:
+                            logger.info(f"Strong sentiment signal detected! (threshold={detection_threshold:.2f})")
                             
                             signals.append({
                                 'symbol': pair,
                                 'type': 'SENTIMENT',
-                                'direction': 'BUY' if sentiment_score > 0 else 'SELL',
-                                'strength': abs(sentiment_score) * confidence,
+                                'direction': 1 if sentiment_score > 0 else -1,  # Use numeric direction
+                                'strength': abs(sentiment_score),
+                                'confidence': confidence,  # Store confidence separately
                                 'price': current_price,
                                 'timestamp': datetime.now(),
                                 'metadata': {
                                     'sentiment': sentiment_score,
                                     'confidence': confidence,
+                                    'weighted_score': weighted_score,
                                     'news_id': news.get('id'),
                                     'source': news.get('source')
                                 }
@@ -1089,15 +1182,17 @@ class TradingSystem:
                             
                             # Update UI with new sentiment
                             if hasattr(self, 'ui'):
+                                # Add confidence indicator to sentiment display
                                 sentiment_text = self.ui._format_sentiment(sentiment_score)
+                                if confidence > 0.8:
+                                    sentiment_text += " ★★★"  # High confidence
+                                elif confidence > 0.6:
+                                    sentiment_text += " ★★"   # Medium confidence
+                                else:
+                                    sentiment_text += " ★"    # Lower confidence
                                 self.ui.update_sentiment(pair, sentiment_text)
                         else:
-                            logger.info(f"Sentiment below thresholds, no signal generated")
-                        
-                        # After sentiment analysis, add:
-                        if hasattr(self, 'ui'):
-                            sentiment_display = self.ui._format_sentiment(sentiment_score)
-                            self.ui.update_sentiment(pair, sentiment_display)
+                            logger.info(f"Sentiment below threshold, no signal generated")
                         
                         # Update in market data service
                         if hasattr(self, 'market_data_service'):
@@ -1106,6 +1201,7 @@ class TradingSystem:
                             if isinstance(market_data, dict):
                                 market_data['sentiment'] = sentiment_score
                                 market_data['sentiment_confidence'] = confidence
+                                market_data['weighted_score'] = weighted_score
                             
                             # Update market data
                             self.market_data_service.update_symbol_data(pair, market_data)
@@ -1193,6 +1289,11 @@ class TradingSystem:
 if __name__ == "__main__":
     import asyncio
     
+    # Parse command line arguments
+    import argparse
+    parser = argparse.ArgumentParser(description="FinGPT Trader")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output")
+    parser.add_argument("-q", "--quiet", action="store_true", help="Minimize console output")
     # Parse command line arguments
     import argparse
     parser = argparse.ArgumentParser(description="FinGPT Trader")

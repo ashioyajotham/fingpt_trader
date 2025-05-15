@@ -14,12 +14,18 @@ from services.base_service import BaseService
 
 class PerformanceTracker(BaseService):
     def __init__(self, config: Dict = None):
+        """Initialize the performance tracker with configuration"""
         super().__init__(config)
         self.trades = []
         self.portfolio_values = []
         self.benchmark_data = {}
+        
+        # Directly initialize these critical values to prevent attribute errors
+        self.benchmark_symbol = config.get("benchmark", "SPY") if config else "SPY"
+        self.risk_free_rate = config.get("risk_free_rate", 0.02) if config else 0.02
 
     async def _setup(self) -> None:
+        """Initialize performance tracker settings"""
         self.benchmark_symbol = self.config.get("benchmark", "SPY")
         self.risk_free_rate = self.config.get("risk_free_rate", 0.02)
 

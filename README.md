@@ -1,94 +1,93 @@
 # FinGPT Trader
 
-A quantitative trading system integrating a large language model (Falcon-7B) with market data analysis. The system uses natural language processing for market sentiment analysis alongside quantitative methods and market inefficiency detection for trading decision support.
+A quantitative trading system that combines Falcon-7B language model-driven sentiment analysis with technical market analysis to identify cryptocurrency trading opportunities. The system's core innovation is its confidence-weighted sentiment scoring mechanism, which integrates both the sentiment value and the model's confidence level to generate more reliable trading signals.
+
+## System Overview
+
+FinGPT Trader processes financial news and market data in parallel, combining both sources to identify potential trading opportunities. The system uses:
+
+- **Falcon-7B Model**: Fine-tuned for financial sentiment analysis
+- **Confidence-Weighted Scoring**: 60% confidence weight, 40% sentiment strength weight
+- **Technical Analysis**: Standard technical indicators for market inefficiency detection
+- **Event-Driven Architecture**: Asynchronous processing of market events
+- **Risk Management**: Basic position tracking and exposure monitoring
 
 ## Current Implementation Status
 
 ✅ = Implemented | 🚧 = Partially Implemented | 📅 = Planned | ⚠️ = Implementation Issues
 
-## System Components
+### Core Components
 
-- **Quantitative Analysis Engine**
-  - 🚧 Basic market data processing (⚠️ API connection issues)
+- **Sentiment Analysis**
+  - ✅ Falcon-7B financial sentiment model implementation
+  - ✅ Confidence-weighted sentiment scoring
+  - ✅ Adaptive correlation tracking between sentiment and price
+
+- **Market Data Processing**
+  - 🚧 Price data collection from Binance (⚠️ API parameter issues)
+  - ✅ Technical indicator calculation (RSI, MAs, volume analysis)
   - ✅ Market inefficiency detection
-  - 🚧 Minimum order size handling (⚠️ Size too small for high-value assets)
-  - 📅 Order book imbalance analysis
-  - 📅 Market microstructure modeling
-
-- **Sentiment Analysis**
-  - 🚧 Basic sentiment extraction using Falcon-7B (⚠️ Format parsing issues)
-  - 🚧 News impact integration (⚠️ News API connection issues) 
-  - ✅ Text-based signal generation
-
-- **Trading Framework**
-  - ✅ Event-driven architecture
-  - 🚧 Asynchronous execution (⚠️ Method parameter mismatches)
-  - ✅ Configuration-driven threshold management
-  - 🚧 Signal processing pipeline (⚠️ Inconsistent signal formats)
-  - 📅 Multi-asset portfolio optimization
-
-## Functional Features
-
-### Currently Implemented ✅
-
-- **Sentiment Analysis**
-  - Real-time processing of news with Falcon-7B
-  - Confidence-weighted sentiment scores
-  - Integration with trading signals
-  - Threshold-based signal generation
-
-- **Market Inefficiency Detection**
-  - Technical indicator-based inefficiency detection
-  - Z-score analysis of price spreads
-  - RSI overbought/oversold analysis
-  - Moving average crossover detection
-  - Volume spike identification
-
-- **Basic Market Data Processing**
-  - Price data collection from Binance
-  - Simple statistical analysis
-  - Signal generation based on confidence thresholds
+  - 🚧 Minimum order size handling (⚠️ Size calculations incorrect)
 
 - **Trading Execution**
-  - Binance testnet integration
-  - Market order execution
-  - Position management
+  - ✅ Binance testnet integration
+  - 🚧 Order execution (⚠️ Method parameter mismatches)
+  - ✅ Position tracking
+  - 📅 Tax-loss harvesting
 
-- **Risk Monitoring**
-  - Basic position tracking
-  - Simple exposure metrics
-  - Initial drawdown monitoring
+- **Risk Management**
+  - 🚧 Basic position tracking
+  - ✅ Simple exposure metrics
+  - 📅 Value-at-Risk (VaR) calculations
+  - 📅 Correlation-aware risk metrics
 
-### In Development 🚧
+## Technical Implementation
 
-- **Market Analysis**
-  - Improved sentiment integration with market data
-  - Better minimum order size handling
-  - Enhanced trade signal generation
+### Confidence-Weighted Sentiment Analysis
 
-- **System Stability**
-  - Event loop management and graceful shutdown
-  - Error recovery mechanisms
-  - API rate limit handling
+The system's key innovation is its confidence-weighted sentiment scoring mechanism. Rather than using raw sentiment scores, FinGPT Trader weighs the model's confidence (60%) against sentiment strength (40%) to generate more reliable signals:
 
-### Planned Features 📅
+```python
+# Calculate confidence-weighted sentiment score
+weighted_score = (confidence * 0.6) * (abs(sentiment_score) * 0.4)
 
-- **Advanced Portfolio Management**
-  - Dynamic position sizing based on Kelly Criterion
-  - Risk-adjusted rebalancing
-  - Multi-asset correlation analysis
+# Generate signal if weighted score exceeds detection threshold
+if weighted_score > detection_threshold:
+    signals.append({
+        'symbol': pair,
+        'type': 'SENTIMENT',
+        'direction': 1 if sentiment_score > 0 else -1,
+        'strength': abs(sentiment_score),
+        'confidence': confidence,
+        'price': current_price,
+        'timestamp': datetime.now()
+    })
+```
 
-- **Tax Optimization**
-  - Tax-loss harvesting algorithms
-  - Wash sale prevention logic
-  - Tax efficiency metrics
+This approach helps filter out low-confidence predictions, reducing false signals.
 
-- **Advanced Risk Management**
-  - Value-at-Risk (VaR) calculations
-  - Sentiment-adjusted position sizing
-  - Correlation-aware risk metrics
+### Market-Sentiment Correlation Tracking
 
-## System Architecture
+The system maintains a history of sentiment and price movements to calculate correlation coefficients:
+
+```python
+# Calculate correlation between sentiment changes and price changes
+correlation = np.corrcoef(
+    sentiment_changes[:min_length],
+    price_changes[:min_length]
+)[0, 1]
+
+# Update correlation record for position sizing
+self.market_correlation[symbol] = {
+    'value': correlation,
+    'updated_at': datetime.now(),
+    'samples': min_length
+}
+```
+
+This correlation data helps adjust signal strength based on historical sentiment-price relationships.
+
+### System Architecture
 
 ```mermaid
 graph TD
@@ -115,7 +114,7 @@ graph TD
     classDef planned fill:#f0d0d0;
 ```
 
-## Configuration Architecture
+## Configuration
 
 The system uses a hierarchical YAML-based configuration system:
 - `trading.yaml`: Core trading parameters, thresholds, and position sizing
@@ -123,13 +122,11 @@ The system uses a hierarchical YAML-based configuration system:
 - `model.yaml`: ML model configurations
 - `services.yaml`: External service connectivity parameters
 
-All configuration values are accessed through a centralized configuration system with proper validation, eliminating hardcoded values throughout the codebase.
-
 ## Setup Requirements
 
 ### Prerequisites
 - Python 3.8+ with asyncio support
-- Windows, macOS, or Linux (note: Windows may have encoding issues)
+- Windows, macOS, or Linux 
 - 8GB+ RAM recommended (for model loading)
 - CUDA-compatible GPU recommended but not required
 
@@ -146,19 +143,7 @@ pip install -r requirements.txt
 chcp 65001  # If running in cmd.exe
 ```
 
-## Quick Start
-
-1. **Environment Setup**
-```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # or `venv\Scripts\activate` on Windows
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-2. **Configuration**
+### Configuration
 ```bash
 # Set up your .env file with required API keys:
 BINANCE_API_KEY=your_key_here         # Obtain from Binance Testnet
@@ -167,7 +152,7 @@ CRYPTOPANIC_API_KEY=your_key_here     # Required for news feeds
 HUGGINGFACE_TOKEN=your_token_here     # Optional for model access
 ```
 
-3. **Run Trading System**
+### Running the System
 ```bash
 # Basic run
 python main.py
@@ -177,102 +162,44 @@ python main.py -q
 
 # Run with verbose debugging output
 python main.py -v
-
-# Suppress model initialization output
-python main.py -mq
 ```
 
-## Technical Implementation Details
+## Current Challenges
 
-### Sentiment Analysis Implementation
+### Known Issues
 
-```python
-async def analyze(self, text: str) -> Dict:
-    """Analyze sentiment using LLM"""
-    prompt = f"""
-    Analyze the sentiment of the following financial news text. 
-    Consider market impact, investor sentiment, and financial implications.
-    Rate on a scale from -1.0 (extremely bearish) to 1.0 (extremely bullish).
-    Provide only a JSON response with 'sentiment' and 'confidence' values.
-    
-    News text: {text}
-    """
-    
-    response = await self.fingpt.generate(prompt, temperature=0.2)
-    result = self._parse_sentiment(response)
-    
-    # Safe type conversion to avoid format errors
-    sentiment = float(result.get('sentiment', 0.0)) if result.get('sentiment') is not None else 0.0
-    confidence = float(result.get('confidence', 0.0)) if result.get('confidence') is not None else 0.0
-    
-    logger.info(f"Sentiment analysis: score={sentiment:.2f}, confidence={confidence:.2f}")
-    
-    if (abs(sentiment) >= self.detection_threshold and confidence >= self.confidence_threshold):
-        logger.info(f"Strong sentiment signal detected! (threshold={self.detection_threshold:.2f})")
-        
-    return result
-```
+- **API Connectivity**
+  - Binance client fails with invalid `base_url` parameter
+  - CryptoPanic API returns null values for some endpoints
+  - Error handling needs improvement for API failures
 
-### Market Inefficiency Detection
+- **Sentiment Analysis**
+  - Method discrepancies between `analyze()` and `analyze_text()`
+  - Unicode encoding errors in Windows environments
+  - Inconsistent LLM response formats causing parsing errors
 
-The system implements a comprehensive market inefficiency detector:
+- **Trading Execution**
+  - Position sizing calculations produce orders below minimum requirements
+  - Parameter mismatch in `execute_trade()` method
+  - Inconsistent signal formats between processing methods
 
-```python
-# Detection of technical inefficiencies
-def _detect_technical_signals(self, prices: pd.DataFrame) -> List[Dict]:
-    signals = []
-    
-    # Get price series
-    close = prices['close']
-    
-    # Moving Average Crossovers
-    short_ma = close.rolling(window=5).mean()
-    long_ma = close.rolling(window=20).mean()
-    
-    # Generate crossover signals
-    if len(close) > 20:
-        # Bullish crossover
-        if short_ma.iloc[-2] < long_ma.iloc[-2] and short_ma.iloc[-1] > long_ma.iloc[-1]:
-            signals.append({
-                'confidence': 0.6,
-                'direction': 1,  # Long
-                'magnitude': 0.02,  # 2% expected move
-                'metadata': {'source': 'ma_crossover_bullish'}
-            })
-            
-        # Bearish crossover    
-        elif short_ma.iloc[-2] > long_ma.iloc[-2] and short_ma.iloc[-1] < long_ma.iloc[-1]:
-            signals.append({
-                'confidence': 0.6,
-                'direction': -1,  # Short
-                'magnitude': 0.02,
-                'metadata': {'source': 'ma_crossover_bearish'}
-            })
-    
-    # RSI Signals with configuration-driven thresholds
-    # Additional technical signals...
-    
-    return signals
-```
+### Immediate Improvements Needed
 
-### Current Challenges
+1. **API Connectivity**
+   - Remove unsupported parameters in AsyncClient.create()
+   - Add error handling for API timeouts and failures
 
-The system currently faces several implementation challenges:
+2. **Method Compatibility**
+   - Fix signature mismatch in trading execution methods
+   - Standardize signal format between components
 
-1. **Sentiment Analysis Quality**
-   - Model sometimes produces inconsistent formatting
-   - News relevance filtering needs improvement
-   - Sentiment confidence calibration is ongoing
+3. **Position Sizing**
+   - Add validation for exchange minimum order sizes
+   - Implement dynamic lookup of exchange requirements
 
-2. **Order Execution**
-   - Minimum order size requirements not always met
-   - Better USD to crypto quantity conversion needed
-   - Timeout handling for exchange API calls
-
-3. **System Stability**
-   - Need improved logging for system monitoring
-   - Better handling for exchange API timeouts
-   - Enhanced data validation for external inputs
+4. **Error Handling**
+   - Add more robust exception handling for LLM responses
+   - Improve logging for system monitoring
 
 ## Known Issues
 
@@ -315,51 +242,30 @@ The system currently faces several implementation challenges:
    - Add type conversion for sentiment scores before formatting
    - Add exception handling for inconsistent LLM responses
 
-## Roadmap: Planned Mathematical Framework
-
-The following mathematical models are planned for future implementation:
-
-### Sentiment-Adjusted Signal Model
-
-$$ S(t) = \alpha M(t) + \beta I(t) + \gamma L(t) $$
-
-Where:
-- $S(t)$ is the final trading signal
-- $M(t)$ is market microstructure score
-- $I(t)$ is orderbook imbalance
-- $L(t)$ is NLP sentiment score
-- $\alpha, \beta, \gamma$ are weights
-
-### Position Sizing with Kelly Criterion
-
-$$ f^* = \frac{p(1+r) - q}{r} \cdot (1 + \lambda|S|) $$
-
-### Advanced Risk Management
-
-$$ VaR_{\alpha}(S) = -\inf\{l \in \mathbb{R}: P(L \leq l | S) \geq \alpha\} $$
-
-$$ R = \sqrt{w^T\Sigma w} \cdot (1 + \delta|S|) $$
-
-## Development Status
+## Development Roadmap
 
 Current development priorities:
 - [x] Fix AsyncIO event loop issues
 - [x] Improve error handling in API calls
-- [x] Add detailed sentiment score logging
 - [ ] Enhance sentiment analysis prompt engineering
-- [x] Fix minimum order size calculation (identified but not fully implemented)
-- [ ] Implement proper USD to crypto quantity conversion
+- [ ] Fix minimum order size calculation
 - [ ] Fix Binance API client initialization parameters
-- [ ] Address sentiment analysis formatting inconsistencies
 - [ ] Resolve execute_trade() parameter mismatch
-- [ ] Develop basic backtesting framework
+- [ ] Implement basic backtesting framework
+
+Future enhancements:
+- Advanced position sizing with Kelly Criterion
+- Multi-asset portfolio optimization
+- Value-at-Risk (VaR) calculations
+- Sentiment-adjusted position sizing
+- Correlation-aware risk metrics
 
 ## Warning
 
 ⚠️ **IMPORTANT**: This system is in early development stage and not production-ready:
-- Use testnet only - not suitable for real trading yet
+- Use testnet only - not suitable for real trading
 - Expect instability and potential errors
-- Many advanced features described are planned but not yet implemented
+- Many features described are planned but not yet implemented
 - System requires significant technical knowledge to run properly
 
 ## License
@@ -370,15 +276,13 @@ MIT License - See [LICENSE](LICENSE) for details.
 
 This project builds on the foundation of several important open-source projects and research:
 
-- **FinGPT Research**: Core ideas on financial sentiment analysis and market prediction using large language models were inspired by research from the FinGPT paper. The paper can be found [here](https://arxiv.org/abs/2306.06031).
+- **FinGPT Research**: Core ideas on financial sentiment analysis and market prediction using large language models were inspired by research from the [FinGPT paper](https://arxiv.org/abs/2306.06031).
 
-- **llama.cpp**: Our inferencing pipeline leverages the efficient llama.cpp framework for running the language model with minimal computational resources, enabling local execution without cloud dependencies. Read more about it [here](https://github.com/ggml-org/llama.cpp)
+- **llama.cpp**: Our inferencing pipeline leverages the [llama.cpp](https://github.com/ggml-org/llama.cpp) framework for running language models with minimal computational resources.
 
-- **Binance API**: Trading functionality is built on the Binance exchange API and Python client libraries, which provide a robust infrastructure for cryptocurrency trading. The API documentation can be found [here](https://binance-docs.github.io/apidocs/spot/en/#public-rest-api).
+- **Binance API**: Trading functionality is built on the [Binance exchange API](https://binance-docs.github.io/apidocs/spot/en/#public-rest-api) and Python client libraries.
 
-- **Python AsyncIO**: The asynchronous architecture is powered by Python's AsyncIO framework, enabling efficient concurrent operations. Learn more about AsyncIO [here](https://docs.python.org/3/library/asyncio.html).
-
-Special thanks to all open-source contributors whose tools and libraries make projects like this possible.
+- **Python AsyncIO**: The asynchronous architecture is powered by [Python's AsyncIO framework](https://docs.python.org/3/library/asyncio.html).
 
 ## Contributing
 

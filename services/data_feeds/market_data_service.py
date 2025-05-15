@@ -544,87 +544,95 @@ class MarketDataService(BaseService):
         return not (missing_prices or zero_prices)
 
     def calculate_price_changes(self) -> Dict[str, float]:
-        """Calculate 24h price changes for all watched pairs"""
+        """Calculate 24h price changes with optimized cache usage"""
         changes = {}
-        current_time = datetime.now()
         
+        # First use the change cache for instant results
+        if hasattr(self, 'change_cache'):
+            for symbol, data in self.change_cache.items():
+                changes[symbol] = data['current_change']
+        
+        # For any missing symbols, use the existing calculation method
         for symbol, data in self.price_history.items():
-            if not data:
-                changes[symbol] = 0.0
-                logger.debug(f"No price history for {symbol}")
-                continue
-                
-            # Get current price
-            current_price = self.get_latest_price(symbol)
-            if not current_price:
-                changes[symbol] = 0.0
-                continue
-                
-            # Find price closest to 24h ago
-            yesterday = current_time - timedelta(hours=24)
-            closest_point = None
-            closest_diff = timedelta(days=100)
-            
-            for point in data:
-                if 'timestamp' in point:
-                    time_diff = abs(point['timestamp'] - yesterday)
-                    if time_diff < closest_diff:
-                        closest_diff = time_diff
-                        closest_point = point
-            
-            # If we found a point and it's within reasonable range (36h)
-            if closest_point and closest_diff < timedelta(hours=36):
-                old_price = closest_point.get('price', 0)
-                if old_price > 0:
-                    change = ((current_price - old_price) / old_price) * 100
-                    changes[symbol] = round(change, 2)
-                else:
-                    changes[symbol] = 0.0
-            else:
-                # New fallback: if we have at least 2 data points in history, show short-term change
-                if len(data) >= 2:
-                    oldest = data[0].get('price', 0)
-                    if oldest > 0:
-                        short_change = ((current_price - oldest) / oldest) * 100
-                        changes[symbol] = round(short_change, 2)
-                        logger.info(f"Using short-term change for {symbol}: {short_change:.2f}% (insufficient history)")
+            if symbol not in changes:
+                if data:
+                    newest = data[-1]['price'] if data else 0
+                    oldest = data[0]['price'] if data else 0
+                    if oldest and oldest > 0:
+                        change_pct = ((newest - oldest) / oldest) * 100
+                        changes[symbol] = round(change_pct, 2)
                     else:
                         changes[symbol] = 0.0
                 else:
-                    # No historical data point found
                     changes[symbol] = 0.0
-                    logger.debug(f"Insufficient price history for {symbol} change calculation")
-            
+        
         return changes
 
     def update_price_history(self, symbol: str, price: float):
-        """Update price history for a symbol"""
+        """Update price history for a symbol with optimized change tracking"""
         if not hasattr(self, 'price_history'):
             self.price_history = {}
+        
+        if not hasattr(self, 'change_cache'):
+            self.change_cache = {}
         
         if symbol not in self.price_history:
             self.price_history[symbol] = []
         
+        if symbol not in self.change_cache:
+            self.change_cache[symbol] = {
+                'reference_price': price,
+                'reference_time': datetime.now(),
+                'current_change': 0.0
+            }
+        
+        current_time = datetime.now()
+        
         # Add new price data point with timestamp
         self.price_history[symbol].append({
             'price': price,
-            'timestamp': datetime.now()
+            'timestamp': current_time
         })
         
-        # Limit history size (keep 24h worth of data assuming 1 update per minute)
+        # Limit history size (keep 24h worth of data)
         max_history = 24 * 60  # 24 hours of minute data
         if len(self.price_history[symbol]) > max_history:
             self.price_history[symbol] = self.price_history[symbol][-max_history:]
-            
-        # Also update the market_data store - THIS IS KEY
+        
+        # Update the market_data store
         if not hasattr(self, '_market_data'):
             self._market_data = {}
         
         if symbol not in self._market_data:
             self._market_data[symbol] = {}
-            
+        
         self._market_data[symbol]['price'] = price
-        self._market_data[symbol]['timestamp'] = datetime.now()
+        self._market_data[symbol]['timestamp'] = current_time
+        
+        # Update 24h change cache - key optimization
+        ref_entry = self.change_cache[symbol]
+        ref_time = ref_entry['reference_time']
+        ref_price = ref_entry['reference_price']
+        time_diff = (current_time - ref_time).total_seconds() / 3600  # hours
+        
+        # If reference point is close to 24h old, update the change
+        if 23 <= time_diff <= 25:
+            # We have a good 24h reference point
+            if ref_price > 0:
+                percent_change = ((price - ref_price) / ref_price) * 100
+                ref_entry['current_change'] = round(percent_change, 2)
+            
+            # Reset reference point to current for next 24h
+            ref_entry['reference_price'] = price
+            ref_entry['reference_time'] = current_time
+        elif time_diff > 25:
+            # Reference too old, reset
+            ref_entry['reference_price'] = price
+            ref_entry['reference_time'] = current_time
+            ref_entry['current_change'] = 0.0
+        
+        # Update the change in market data
+        self._market_data[symbol]['change'] = ref_entry['current_change']
 
 class MarketDataFeed(BaseService):
     """Market data feed handler"""
