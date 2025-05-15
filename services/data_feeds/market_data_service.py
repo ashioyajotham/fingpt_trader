@@ -408,6 +408,57 @@ class MarketDataService(BaseService):
             logger.error(f"Error in get_latest_price for {symbol}: {str(e)}")
             return 0.0
 
+    def get_latest_data(self, symbol: str) -> Dict:
+        """Return complete market data for UI display"""
+        result = {
+            'price': 0.0,
+            'change': 0.0,
+            'volume': 0.0,
+            'high': 0.0,
+            'low': 0.0,
+            'sentiment': 'Neutral'
+        }
+        
+        # If we have cached market data, use it
+        if hasattr(self, 'market_data') and symbol in self.market_data:
+            data = self.market_data[symbol]
+            
+            # Extract price from various possible fields
+            for field in ['price', 'lastPrice', 'last', 'close']:
+                if field in data and data[field]:
+                    try:
+                        result['price'] = float(data[field])
+                        break
+                    except (ValueError, TypeError):
+                        continue
+            
+            # Extract other fields if available
+            if 'change' in data:
+                try:
+                    result['change'] = float(data['change'])
+                except (ValueError, TypeError):
+                    pass
+                    
+            if 'volume' in data:
+                try:
+                    result['volume'] = float(data['volume'])
+                except (ValueError, TypeError):
+                    pass
+                    
+            if 'high' in data:
+                try:
+                    result['high'] = float(data['high'])
+                except (ValueError, TypeError):
+                    pass
+                    
+            if 'low' in data:
+                try:
+                    result['low'] = float(data['low'])
+                except (ValueError, TypeError):
+                    pass
+        
+        return result
+
 class MarketDataFeed(BaseService):
     """Market data feed handler"""
     def __init__(self, config: Optional[Dict] = None):

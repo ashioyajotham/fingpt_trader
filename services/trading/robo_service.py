@@ -116,27 +116,18 @@ class RoboService(BaseService):
     async def _setup(self):
         """
         Initialize portfolio and risk management settings.
-        
-        Responsibilities:
-        - Set initial portfolio positions (BTC, ETH, BNB)
-        - Configure risk parameters
-            * Maximum drawdown limits
-            * Position size constraints
-            * VaR (Value at Risk) limits
-            * Leverage restrictions
-        - Initialize portfolio state
-        
-        Raises:
-            ValueError: If configuration is invalid
-            Exception: If initialization fails
         """
         try:
-            # Initialize with default portfolio positions
-            initial_positions = {
-                'BTCUSDT': 0.1,  # 0.1 BTC
-                'ETHUSDT': 1.0,  # 1 ETH
-                'BNBUSDT': 5.0   # 5 BNB
-            }
+            # Initialize with configuration-based portfolio positions
+            config_positions = self.config.get('trading', {}).get('initial_positions', {})
+            
+            # If config doesn't specify positions, start with cash only
+            if not config_positions:
+                initial_positions = {}  # Start with cash only
+                logger.info("Starting with cash-only portfolio based on configuration")
+            else:
+                initial_positions = config_positions
+                logger.info(f"Using configured initial positions: {initial_positions}")
             
             # Get risk config with defaults
             risk_config = self.config.get('risk', {
@@ -163,7 +154,10 @@ class RoboService(BaseService):
             
             await self.portfolio.initialize(portfolio_config)
             logger.info(f"RoboService setup complete with initial balance: {portfolio_config['initial_balance']}")
-            logger.info(f"Initial positions: {initial_positions}")
+            if initial_positions:
+                logger.info(f"Initial positions: {initial_positions}")
+            else:
+                logger.info(f"Starting with cash-only portfolio: {portfolio_config['initial_balance']} USDT")
         except Exception as e:
             logger.error(f"RoboService setup failed: {e}")
             raise
@@ -201,6 +195,41 @@ class RoboService(BaseService):
         except Exception as e:
             logger.error(f"RoboService cleanup failed: {e}")
             raise  # Re-raise to ensure proper error handling
+
+    async def initialize_portfolio(self, config):
+        """Initialize portfolio with configuration values"""
+        try:
+            # Create portfolio if it doesn't exist
+            if not hasattr(self, 'portfolio'):
+                initial_balance = config.get('trading', {}).get('initial_balance', 10000.0)
+                self.portfolio = Portfolio(initial_balance)
+                
+            # Configure any existing positions
+            initial_positions = config.get('trading', {}).get('initial_positions', {})
+            for symbol, size in initial_positions.items():
+                # Get current price for position
+                price = 0
+                if hasattr(self, 'exchange_clients') and 'binance' in self.exchange_clients:
+                    try:
+                        ticker = await self.exchange_clients['binance'].get_ticker(symbol)
+                        price = float(ticker['lastPrice'])
+                    except Exception as e:
+                        logger.error(f"Failed to get price for {symbol}: {e}")
+                        price = 0  # Default
+                
+                # Add position with entry price = current price if not already present
+                if symbol not in self.portfolio.positions:
+                    await self.portfolio.add_position(symbol, size, price, cost=0)  # No cost for initial positions
+                    logger.info(f"Initialized position: {size} {symbol} @ {price}")
+            
+            # Initialize other portfolio settings
+            await self.portfolio.initialize(config.get('portfolio', {}))
+            logger.info(f"Portfolio initialized with balance: {self.portfolio.cash} USDT")
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error initializing portfolio: {e}")
+            return False
 
     async def analyze_position(self, pair: str, price: float, position: Dict = None) -> Optional[str]:
         """
@@ -369,8 +398,12 @@ class RoboService(BaseService):
                                 result = None
                                 if side.upper() == 'BUY':
                                     result = await self._execute_buy(symbol, accumulated, current_price)
-                                elif side.upper() == 'SELL':
-                                    result = await self._execute_sell(symbol, accumulated, current_price)
+                                    
+                                    # Update portfolio with entry price
+                                    if result and result.get('success', False) and hasattr(self, 'portfolio'):
+                                        # Make sure entry price is recorded
+                                        if symbol not in self.portfolio.position_entries:
+                                            self.portfolio.position_entries[symbol] = current_price
                                 
                                 # Clear the pending order if executed
                                 if result and result.get('success', False):
@@ -545,14 +578,43 @@ class RoboService(BaseService):
             logger.error(f"Error calculating performance metrics: {e}")
 
     def _calculate_position_size(self, symbol, strength):
-        """Calculate position size based on symbol and signal strength"""
+        """Calculate position size based on symbol, signal strength and market regime"""
         # Get balance and config values with defaults
         balance = self.get_balance()
         base_position = 0.01  # Base position size (1%)
         max_position = 0.05   # Maximum position size (5%)
         
+        # Detect current market regime if available
+        market_regime_factor = 1.0  # Default factor
+        if hasattr(self, 'market_regime_detector'):
+            # Get latest market data
+            market_data = {}
+            if hasattr(self, 'market_data_service'):
+                market_data = self.market_data_service.get_market_data(symbol)
+            
+            # Detect regime and adjust position sizing
+            regime = self.market_regime_detector.detect_regime(market_data)
+            
+            # Adjust position size based on regime
+            if regime == "high_volatility":
+                market_regime_factor = 0.7  # Reduce position size in volatile markets
+                logger.info(f"High volatility detected, reducing position size by 30%")
+            elif regime == "low_volatility":
+                market_regime_factor = 1.2  # Increase position in calm markets
+                logger.info(f"Low volatility detected, increasing position size by 20%")
+            elif regime == "trending":
+                market_regime_factor = 1.1  # Slightly increase in trending markets
+                logger.info(f"Trending market detected, increasing position size by 10%")
+            elif regime == "crisis":
+                market_regime_factor = 0.3  # Significantly reduce in crisis
+                logger.warning(f"Crisis regime detected, reducing position size by 70%")
+        
         # Scale position size based on signal strength
         position_pct = base_position + ((max_position - base_position) * strength)
+        
+        # Apply market regime factor
+        position_pct *= market_regime_factor
+        
         position_value = balance * position_pct
         
         # Get current price to convert to quantity
@@ -666,77 +728,45 @@ class RoboService(BaseService):
         except Exception as e:
             logger.error(f"Error updating portfolio prices: {e}")
 
-    def get_portfolio_summary(self) -> Dict:
-        """Get a comprehensive summary of the current portfolio
-        
-        Returns:
-            Dict containing:
-                - cash: Available cash balance
-                - positions: Current positions dict
-                - total_value: Total portfolio value
-                - returns: Dict of return metrics
-                - risk: Dict of risk metrics
-        """
-        summary = {
-            'cash': 0.0,
-            'positions': {},
-            'position_values': {},
-            'total_value': 0.0,
-            'returns': {
-                'total': 0.0,
-                'daily': 0.0
-            },
-            'risk': {
-                'drawdown': 0.0,
-                'volatility': 0.0
-            }
-        }
-        
+    def get_portfolio_summary(self):
+        """Get a summary of the portfolio for performance tracking"""
         if not hasattr(self, 'portfolio'):
-            return summary
-            
-        try:
-            # Get basic portfolio data
-            summary['cash'] = self.portfolio.cash
-            summary['positions'] = self.portfolio.positions.copy()
-            
-            # Calculate position values and total value
-            total_value = summary['cash']
-            for symbol, size in summary['positions'].items():
-                price = self.portfolio.last_prices.get(symbol, 0)
-                position_value = size * price
-                summary['position_values'][symbol] = position_value
-                total_value += position_value
-            
-            summary['total_value'] = total_value
-            
-            # Calculate returns if we have history
-            if len(self.portfolio.portfolio_history) >= 2:
-                initial_value = self.portfolio.portfolio_history[0]['total_value']
-                summary['returns']['total'] = (total_value - initial_value) / initial_value
-                
-                # Calculate daily return if we have recent history
-                if len(self.portfolio.portfolio_history) >= 2:
-                    yesterday = self.portfolio.portfolio_history[-2]['total_value']
-                    if yesterday > 0:
-                        summary['returns']['daily'] = (total_value - yesterday) / yesterday
-            
-            # Calculate risk metrics
-            if len(self.portfolio.portfolio_history) >= 2:
-                values = [h['total_value'] for h in self.portfolio.portfolio_history]
-                peak = max(values)
-                summary['risk']['drawdown'] = (peak - total_value) / peak if peak > 0 else 0
-                
-                # Calculate volatility if we have enough data
-                if len(values) >= 10:
-                    returns = [(values[i] / values[i-1]) - 1 for i in range(1, len(values))]
-                    summary['risk']['volatility'] = np.std(returns) * np.sqrt(252)  # Annualized
-                    
-            return summary
+            return {'total_value': 0, 'cash': 0, 'positions': {}}
         
-        except Exception as e:
-            logger.error(f"Error generating portfolio summary: {e}")
-            return summary
+        # Calculate total portfolio value
+        total_value = self.portfolio.cash
+        positions_data = {}
+        
+        for symbol, size in self.portfolio.positions.items():
+            # Get current price
+            price = self.portfolio.last_prices.get(symbol, 0)
+            value = size * price
+            total_value += value
+            
+            # Get entry price if available
+            entry_price = 0
+            if hasattr(self.portfolio, 'position_entries') and symbol in self.portfolio.position_entries:
+                entry_price = self.portfolio.position_entries[symbol]
+            
+            # Calculate P&L if entry price is available
+            pnl = 0
+            if entry_price > 0 and price > 0:
+                pnl = size * (price - entry_price)
+            
+            positions_data[symbol] = {
+                'size': size,
+                'price': price,
+                'value': value,
+                'entry_price': entry_price,
+                'pnl': pnl
+            }
+        
+        return {
+            'total_value': total_value,
+            'cash': self.portfolio.cash,
+            'positions': positions_data,
+            'timestamp': datetime.now()
+        }
 
     async def sync_exchange_balances(self):
         """Synchronize internal portfolio tracking with actual exchange balances"""
@@ -851,6 +881,67 @@ class RoboService(BaseService):
         
         if expired_symbols:
             logger.info(f"Cleaned up {len(expired_symbols)} expired order accumulations")
+
+    async def update_portfolio_with_trade_result(self, result):
+        """Update portfolio with executed trade result"""
+        if not result or not result.get('success', False) or not hasattr(self, 'portfolio'):
+            return
+        
+        symbol = result.get('symbol')
+        side = result.get('side')
+        quantity = result.get('quantity', 0)
+        price = result.get('price', 0)
+        
+        try:
+            if side.upper() == 'BUY':
+                # Double-check that portfolio was updated correctly
+                if symbol not in self.portfolio.positions or \
+                   self.portfolio.positions[symbol] < quantity:
+                    # Portfolio wasn't updated, force update
+                    await self.portfolio.add_position(symbol, quantity, price)
+                    logger.info(f"Portfolio manually updated: Added {quantity} {symbol} @ {price}")
+            elif side.upper() == 'SELL':
+                # For sell orders, ensure position was reduced
+                if symbol in self.portfolio.positions:
+                    current_pos = self.portfolio.positions[symbol]
+                    if abs(current_pos - (result.get('original_position', 0) - quantity)) > 1e-8:
+                        # Position wasn't updated correctly
+                        await self.portfolio.reduce_position(symbol, quantity, price)
+                        logger.info(f"Portfolio manually updated: Reduced {quantity} {symbol} @ {price}")
+        
+            # Record trade in history for better tracking
+            self._record_trade_history(symbol, side, quantity, price)
+            
+            # Force update portfolio prices and recalculate state
+            await self.update_portfolio_prices()
+        except Exception as e:
+            logger.error(f"Error updating portfolio with trade: {e}")
+
+    def _record_trade_history(self, symbol, side, quantity, price):
+        """Record trade in history for performance tracking"""
+        if not hasattr(self, 'trade_history'):
+            self.trade_history = []
+        
+        # Calculate cost/proceeds
+        value = quantity * price
+        
+        # Record trade with full details
+        self.trade_history.append({
+            'symbol': symbol,
+            'side': side,
+            'quantity': quantity,
+            'price': price,
+            'value': value,
+            'timestamp': datetime.now(),
+            'balance_after': self.portfolio.cash if hasattr(self, 'portfolio') else 0,
+            'portfolio_value': self.portfolio.total_value() if hasattr(self, 'portfolio') else 0
+        })
+        
+        # Limit history size
+        if len(self.trade_history) > 1000:
+            self.trade_history = self.trade_history[-1000:]
+        
+        logger.info(f"Trade recorded: {side} {quantity} {symbol} @ {price} = ${value:.2f}")
 
     async def run(self):
         """Main run loop for the RoboService"""

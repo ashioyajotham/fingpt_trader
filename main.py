@@ -201,6 +201,19 @@ class TradingSystem:
             'model_config': self.strategies_config.get('sentiment', {})
         })
 
+        # Initialize system monitoring
+        from services.monitoring.system_monitor import SystemMonitor
+        self.system_monitor = SystemMonitor(self.config.get('monitoring', {}))
+        
+        # Initialize performance tracking
+        from services.monitoring.performance_tracker import PerformanceTracker
+        self.performance_tracker = PerformanceTracker(self.config.get('performance', {}))
+
+        # Add these default attributes
+        self.price_history = {}  # For storing historical prices
+        self.trade_history = []  # For tracking trade attempts
+        self.recent_signals = [] # For storing recent trading signals
+
     def get_config(self, path: str, default=None):
         """
         Access configuration using dot notation with optional default
@@ -370,84 +383,96 @@ class TradingSystem:
             cycle_count = 0
             
             while True:
-                cycle_count += 1
-                logger.info(f"=== Trading Cycle #{cycle_count} ===")
-                
-                # Use UI to show cycle information if available
-                if hasattr(self, 'ui'):
-                    self.ui.console.rule(f"[bold blue]Trading Cycle #{cycle_count}")
-                
                 try:
-                    # Get latest market data
+                    cycle_count += 1
+                    logger.info(f"=== Trading Cycle #{cycle_count} ===")
+                    
+                    # MONITOR SYSTEM RESOURCES
+                    if hasattr(self, 'system_monitor'):
+                        system_metrics = await self.system_monitor.check_health()
+                        if system_metrics.get('status') == 'critical':
+                            logger.warning(f"System resources critical: {system_metrics.get('critical_metrics')}")
+                            if hasattr(self, 'ui'):
+                                self.ui.display_warning(f"System resources low: {system_metrics.get('critical_metrics')}")
+                    
+                    # Display UI header with performance metrics if available
+                    if hasattr(self, 'performance_tracker'):
+                        try:
+                            performance_metrics = await self.performance_tracker.calculate_metrics()
+                            
+                            # Pass metrics to UI header
+                            if hasattr(self, 'ui') and hasattr(self.ui, 'display_trading_cycle_header'):
+                                self.ui.display_trading_cycle_header(cycle_count, performance_metrics)
+                                self.ui.performance_metrics = performance_metrics
+                        except Exception as e:
+                            logger.error(f"Error calculating performance metrics: {e}")
+                            if hasattr(self, 'ui') and hasattr(self.ui, 'display_trading_cycle_header'):
+                                self.ui.display_trading_cycle_header(cycle_count)
+                    else:
+                        # Just display basic header if no metrics available
+                        if hasattr(self, 'ui') and hasattr(self.ui, 'display_trading_cycle_header'):
+                            self.ui.display_trading_cycle_header(cycle_count)
+                    
+                    # STEP 1: UPDATE MARKET DATA - Add this critical step
                     await self.update_market_data()
                     
-                    # Update UI with latest data
-                    await self.update_ui()
-                    
-                    # Update UI with latest prices if available
-                    if hasattr(self, 'ui'):
-                        for pair in self.market_data_service.get_watched_pairs():
-                            price = self.market_data_service.get_latest_price(pair)
-                            if price:
-                                self.ui.update_price(pair, price)
-                        
-                        # Display market data table
-                        self.ui.display_market_data()
-                    
-                    # Check news and sentiment
+                    # STEP 2: UPDATE NEWS DATA - Get latest news
                     news_data = await self.update_news_data()
                     
-                    # Update signals based on sentiment analysis
-                    signals = await self.analyze_market_sentiment(news_data)
+                    # STEP 3: UPDATE PORTFOLIO AND UI
+                    await self.update_ui()
                     
-                    # Process detected signals
-                    await self._process_signals(signals)
-                    
-                    # Add periodic portfolio updates:
-                    if cycle_count % 5 == 0:  # Every 5 cycles
-                        positions = self.robo_service.get_positions()
-                        balance = self.robo_service.get_balance()
+                    # STEP 4: ANALYZE SENTIMENT AND GENERATE SIGNALS
+                    if news_data:
+                        signals = await self.analyze_market_sentiment(news_data)
                         
-                        # Log portfolio information
-                        logger.info(f"Current Portfolio: {positions}")
-                        logger.info(f"Balance: {balance:.2f} USDT")
+                        # STEP 5: PROCESS SIGNALS AND EXECUTE TRADES
+                        if signals:
+                            trade_count = await self._process_signals(signals)
+                            logger.info(f"Processed {len(signals)} signals, executed {trade_count} trades")
+                    
+                    # PERFORMANCE TRACKING - Update with portfolio data
+                    if hasattr(self, 'performance_tracker') and cycle_count % 5 == 0:
+                        # Get portfolio data from RoboService
+                        portfolio_summary = self.robo_service.get_portfolio_summary()
                         
-                        # Update UI with portfolio information if available
-                        try:
-                            if hasattr(self, 'ui'):
-                                self.ui.display_portfolio(balance, positions)
-                        except Exception as e:
-                            logger.error(f"UI error displaying portfolio: {e}")
+                        # Update performance tracker
+                        await self.performance_tracker.record_performance(portfolio_summary)
+                        
+                        # Calculate and display key metrics every 10 cycles
+                        if cycle_count % 10 == 0:
+                            try:
+                                performance_metrics = await self.performance_tracker.calculate_metrics()
+                                
+                                # Display forex-style performance metrics
+                                logger.info(f"===== PERFORMANCE METRICS =====")
+                                logger.info(f"Sharpe Ratio: {performance_metrics.get('sharpe_ratio', 'N/A')}")
+                                logger.info(f"Win Rate: {performance_metrics.get('win_rate', 0):.2%}")
+                                logger.info(f"Profit Factor: {performance_metrics.get('profit_factor', 'N/A')}")
+                                logger.info(f"Drawdown: {performance_metrics.get('max_drawdown', 0):.2%}")
+                                
+                                # Display in UI if available
+                                if hasattr(self, 'ui') and hasattr(self.ui, 'display_performance_metrics'):
+                                    self.ui.display_performance_metrics(performance_metrics)
+                                    self.ui.performance_metrics = performance_metrics
+                            except Exception as e:
+                                logger.error(f"Error displaying performance metrics: {e}")
                     
-                    # Update portfolio with latest prices
-                    await self.robo_service.update_portfolio_prices()
-
-                    # Get and display portfolio summary
-                    portfolio_summary = self.robo_service.get_portfolio_summary()
-                    logger.info(f"Portfolio Summary - Value: ${portfolio_summary['total_value']:.2f}, "
-                                f"Return: {portfolio_summary['returns']['total']:.2%}, "
-                                f"Drawdown: {portfolio_summary['risk']['drawdown']:.2%}")
-
-                    if hasattr(self, 'ui') and self.ui and hasattr(self.ui, 'display_portfolio'):
-                        self.ui.display_portfolio(
-                            balance=portfolio_summary['cash'],
-                            positions={s: sz for s, sz in portfolio_summary['positions'].items() if sz > 0}
-                        )
+                    # After updating all components
+                    if hasattr(self, 'ui') and hasattr(self.ui, 'display_trader_dashboard'):
+                        self.ui.current_cycle = cycle_count
+                        self.ui.display_trader_dashboard()
                     
-                    # Clean up expired pending orders every 10 cycles
-                    if cycle_count % 10 == 0 and hasattr(self.robo_service, 'cleanup_expired_orders'):
-                        await self.robo_service.cleanup_expired_orders()
-
+                    # Sleep before next cycle
+                    await asyncio.sleep(self.config.get('trading.loop_interval', 60))
+                    
                 except Exception as e:
                     logger.error(f"Error in trading loop: {str(e)}")
                     
                     # Display error in UI if available
                     if hasattr(self, 'ui'):
                         self.ui.display_error(f"Trading loop error: {str(e)}")
-                
-                # Sleep before next cycle
-                await asyncio.sleep(self.config.get('cycle_interval', 60))
-                
+            
         except asyncio.CancelledError:
             logger.info("Trading loop cancelled")
         except Exception as e:
@@ -460,6 +485,31 @@ class TradingSystem:
     async def _process_signals(self, signals):
         """Process detected signals and execute trades if needed."""
         try:
+            # CHECK CIRCUIT BREAKERS FIRST
+            if hasattr(self, 'system_monitor') and hasattr(self.system_monitor, 'circuit_breaker'):
+                # Get market data for circuit breaker check
+                market_data = {}
+                if hasattr(self, 'market_data_service'):
+                    for pair in self.market_data_service.get_watched_pairs():
+                        market_data[pair] = self.market_data_service.get_market_data(pair)
+                
+                # Check if circuit breaker is triggered
+                if self.system_monitor.circuit_breaker.check_conditions(market_data):
+                    logger.warning("[red]Circuit breaker triggered! All trading halted.[/red]")
+                    if hasattr(self, 'ui'):
+                        self.ui.display_warning("⚠️ CIRCUIT BREAKER TRIGGERED - Trading halted")
+                    return 0  # No trades executed
+                    
+            # Check for rapid price moves
+            if hasattr(self, 'system_monitor') and hasattr(self.system_monitor, 'detect_rapid_moves'):
+                rapid_moves = self.system_monitor.detect_rapid_moves(market_data)
+                if rapid_moves:
+                    affected_pairs = ", ".join(rapid_moves.keys())
+                    logger.warning(f"[yellow]Rapid price moves detected in: {affected_pairs}[/yellow]")
+                    if hasattr(self, 'ui'):
+                        self.ui.display_warning(f"⚠️ Price volatility detected in {affected_pairs}")
+            
+            # Continue with regular signal processing
             trade_count = 0
             for signal in signals:
                 symbol = signal.get('symbol')
@@ -538,19 +588,28 @@ class TradingSystem:
             side = signal.get('side', 'BUY')
             result = await self.robo_service.execute_trade(signal)
             
-            # Handle accumulating orders
-            if not result.get('success', False) and result.get('action') == 'ACCUMULATING':
-                # Log accumulation status
-                symbol = signal.get('symbol')
-                accumulated = result.get('accumulated', 0)
-                value = result.get('accumulated_value', 0)
-                
-                # Display accumulation status
-                logger.info(f"Accumulating orders for {symbol}: {accumulated:.8f} (${value:.2f})")
-                
-                # Update UI if needed
-                if hasattr(self, 'ui') and hasattr(self.ui, 'display_pending_orders') and hasattr(self.robo_service, 'pending_orders'):
-                    self.ui.display_pending_orders(self.robo_service.pending_orders)
+            # Record trade in performance tracker
+            if hasattr(self, 'performance_tracker'):
+                if result.get('success', False):
+                    # Successful trade
+                    await self.performance_tracker.record_trade({
+                        'symbol': signal.get('symbol'),
+                        'side': side,
+                        'entry_price': result.get('price', 0),
+                        'quantity': result.get('quantity', 0),
+                        'timestamp': datetime.now(),
+                        'signal_strength': strength,
+                        'signal_type': signal.get('type', 'sentiment')
+                    })
+                elif result.get('action') == 'ACCUMULATING':
+                    # Accumulating trade
+                    await self.performance_tracker.record_pending_order({
+                        'symbol': signal.get('symbol'),
+                        'side': side,
+                        'accumulated': result.get('accumulated', 0),
+                        'value': result.get('accumulated_value', 0),
+                        'timestamp': datetime.now()
+                    })
             
             return result
         else:
@@ -839,28 +898,40 @@ class TradingSystem:
             # Get trading pairs
             pairs = self.get_config('trading.pairs')
             
-            # Log request
-            logger.debug(f"Fetching market data for pairs: {pairs}")
-            
             # Fetch market data
             market_data = await self.market_data_service.get_realtime_quote(pairs)
             
-            # Debug log the returned data structure
-            logger.debug(f"Market data response: {market_data}")
-            
-            # Check if data is valid and contains expected fields
+            # Process the market data and update UI and portfolio
             for symbol, data in market_data.items():
-                price_fields_found = []
                 if isinstance(data, dict):
+                    # Extract price from any available field
+                    price = None
                     for field in ['price', 'lastPrice', 'last', 'close']:
                         if field in data and data[field]:
-                            price_fields_found.append(f"{field}={data[field]}")
-                    logger.debug(f"{symbol} price fields: {', '.join(price_fields_found) or 'none'}")
-                else:
-                    logger.warning(f"Unexpected data format for {symbol}: {type(data)}")
+                            price = float(data[field])
+                            break
+                            
+                    if price:
+                        # Update UI with new price
+                        if hasattr(self, 'ui'):
+                            self.ui.update_price(symbol, price)
+                        
+                        # Update portfolio prices if available
+                        if hasattr(self, 'robo_service') and hasattr(self.robo_service, 'portfolio'):
+                            self.robo_service.portfolio.last_prices[symbol] = price
+                        
+                        # Update 24h change if available
+                        if 'change' in data and hasattr(self, 'ui'):
+                            self.ui.update_change(symbol, data['change'])
+            
+            # Force portfolio value recalculation
+            if hasattr(self, 'robo_service') and hasattr(self.robo_service, 'portfolio'):
+                await self.robo_service.update_portfolio_prices()
+            
+            # Update market data in UI
+            if hasattr(self, 'ui'):
+                self.ui.market_data = market_data
                 
-            # Process the market data and update internal state
-            # ...
         except Exception as e:
             logger.error(f"Error updating market data: {str(e)}")
 
@@ -1007,6 +1078,17 @@ class TradingSystem:
                         if hasattr(self, 'ui'):
                             sentiment_display = self.ui._format_sentiment(sentiment_score)
                             self.ui.update_sentiment(pair, sentiment_display)
+                        
+                        # Update in market data service
+                        if hasattr(self, 'market_data_service'):
+                            # Store sentiment in market data for display
+                            market_data = self.market_data_service.get_latest_data(pair)
+                            if isinstance(market_data, dict):
+                                market_data['sentiment'] = sentiment_score
+                                market_data['sentiment_confidence'] = confidence
+                            
+                            # Update market data
+                            self.market_data_service.update_symbol_data(pair, market_data)
                             
                     except Exception as e:
                         logger.error(f"Error analyzing news sentiment: {str(e)}")
@@ -1019,87 +1101,69 @@ class TradingSystem:
     async def update_ui(self):
         """Update the UI with latest market data"""
         try:
-            # Get trading pairs
-            pairs = self.get_config('trading.pairs')
-            
-            # Get sentiment thresholds from config for UI display
-            bullish_threshold = self.get_config('strategies.sentiment.detection_threshold', 0.3)
-            bearish_threshold = -1 * bullish_threshold
-            
-            for pair in pairs:
-                # Fetch price directly from cache where we know it's stored correctly
-                price = 0.0
-                if hasattr(self, 'market_data_service') and pair in self.market_data_service.cache:
-                    data = self.market_data_service.cache[pair]
-                    
-                    # Try different price fields
-                    for field in ['price', 'lastPrice', 'last', 'close']:
-                        if field in data and data[field]:
-                            try:
-                                price = float(data[field])
-                                if price > 0:
-                                    # Update UI with the valid price
-                                    if hasattr(self, 'ui'):
-                                        self.ui.update_price(pair, price)
-                                    break
-                            except (ValueError, TypeError):
-                                pass
+            # Update portfolio positions with CURRENT PRICES
+            if hasattr(self, 'robo_service') and hasattr(self.robo_service, 'portfolio'):
+                portfolio = self.robo_service.portfolio
+                positions = portfolio.positions  # Dictionary of positions
+                balance = portfolio.cash
                 
-                # Calculate 24h change if we have enough history data
-                change_pct = 0.0
-                if hasattr(self, 'market_data_service') and \
-                   hasattr(self.market_data_service, 'price_history') and \
-                   pair in self.market_data_service.price_history:
-                    
-                    history = self.market_data_service.price_history[pair]
-                    if len(history) >= 2:
-                        # Calculate change from oldest to newest price
-                        newest_price = history[-1]['price']
-                        # Find price closest to 24h ago
-                        day_ago = datetime.now() - timedelta(hours=24)
-                        closest_idx = 0
-                        for i, entry in enumerate(history):
-                            if abs((entry['timestamp'] - day_ago).total_seconds()) < \
-                               abs((history[closest_idx]['timestamp'] - day_ago).total_seconds()):
-                                closest_idx = i
+                # Calculate total value with current prices
+                total_value = balance
+                
+                # Get entry prices from portfolio
+                entry_prices = {}
+                if hasattr(portfolio, 'position_entries'):
+                    entry_prices = portfolio.position_entries
+                
+                # Get current prices for each position
+                current_prices = {}
+                for symbol in positions.keys():
+                    # Get current price from market data service
+                    price = 0.0
+                    if hasattr(self.market_data_service, 'get_latest_price'):
+                        price = self.market_data_service.get_latest_price(symbol)
+                        current_prices[symbol] = price
                         
-                        if closest_idx < len(history):
-                            old_price = history[closest_idx]['price']
-                            if old_price > 0:
-                                change_pct = ((newest_price - old_price) / old_price) * 100
-                                # Add UI method if it exists
-                                if hasattr(self, 'ui') and hasattr(self.ui, 'update_change'):
-                                    self.ui.update_change(pair, change_pct)
+                        # Update last_prices in portfolio to ensure proper valuation
+                        if hasattr(portfolio, 'last_prices'):
+                            portfolio.last_prices[symbol] = price
+                            
+                        # Calculate position value (important!)
+                        position_size = positions.get(symbol, 0)
+                        position_value = position_size * price
+                        total_value += position_value
+                
+                # Display portfolio with entry prices and current prices
+                if hasattr(self, 'ui'):
+                    self.ui.display_portfolio(balance, positions, entry_prices, current_prices)
+                    self.ui.portfolio_cash = balance
+                    self.ui.portfolio_positions = positions
+                    self.ui.position_entries = entry_prices
+                    self.ui.current_prices = current_prices
             
-            # Update sentiment in UI using config thresholds
-            if hasattr(self, 'ui') and hasattr(self, 'recent_signals'):
+            # Update market data UI component if available
+            if hasattr(self, 'ui') and hasattr(self.market_data_service, 'get_latest_data'):
+                market_data = {}
+                pairs = self.get_config('trading.pairs')
+                
                 for pair in pairs:
-                    # Find the most recent strong sentiment signal for this pair
-                    sentiment_value = "Neutral"
-                    sentiment_direction = "↔"
-                    
-                    # Check recent signals for sentiment data
-                    recent_signals = [s for s in self.recent_signals if s['symbol'] == pair]
-                    if recent_signals:
-                        # Get the most recent signal
-                        signal = max(recent_signals, key=lambda x: x['timestamp'])
-                        sentiment_score = signal['metadata'].get('sentiment', 0.0)
-                        
-                        if sentiment_score > bullish_threshold:
-                            sentiment_value = "Bullish"
-                            sentiment_direction = "↑"
-                        elif sentiment_score < bearish_threshold:
-                            sentiment_value = "Bearish"
-                            sentiment_direction = "↓"
-                        
-                    # Update UI with sentiment
-                    if hasattr(self.ui, 'update_sentiment'):
-                        self.ui.update_sentiment(pair, f"{sentiment_value} {sentiment_direction}")
-
-            # Add: Display pending orders if available
-            if hasattr(self.robo_service, 'pending_orders') and self.robo_service.pending_orders:
-                if hasattr(self.ui, 'display_pending_orders'):
-                    self.ui.display_pending_orders(self.robo_service.pending_orders)
+                    data = self.market_data_service.get_latest_data(pair)
+                    if data:
+                        market_data[pair] = data
+                
+                if market_data and hasattr(self.ui, 'display_market_data'):
+                    self.ui.display_market_data(market_data)
+                    self.ui.market_data = market_data
+            
+            # Update trading signals UI if there are any recent signals
+            if hasattr(self, 'recent_signals') and self.recent_signals and hasattr(self.ui, 'display_signals'):
+                self.ui.display_signals(self.recent_signals)
+            
+            # Update system health indicator
+            if hasattr(self, 'system_monitor') and hasattr(self.ui, 'update_system_health'):
+                health = await self.system_monitor.check_health()
+                self.ui.update_system_health(health)
+        
         except Exception as e:
             logger.error(f"Error updating UI: {str(e)}")
 
