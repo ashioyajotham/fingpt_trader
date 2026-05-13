@@ -253,7 +253,6 @@ class CryptoPanicClient:
             "kind": kind,
             "filter": filter,
             "regions": regions,
-            "public": "true"
         }
         
         if currencies:
@@ -298,6 +297,9 @@ class CryptoPanicClient:
                             backoff = (2 ** attempt) + (random.random() * 0.5)
                             await asyncio.sleep(backoff)
                             
+                        elif response.status == 404:
+                            logger.warning(f"CryptoPanic endpoint not found: {url}")
+                            break
                         else:
                             response_text = await response.text()
                             logger.error(f"CryptoPanic API error: {response.status}, Response: {response_text[:200]}")
@@ -595,6 +597,7 @@ class NewsService(BaseService):
             news_items = self.cached_news
         
         # Process and categorize news by trading pair
+        normalized_news = [self._normalize_news_item(item) for item in news_items if isinstance(item, dict)]
         result = {}
         for pair in pairs:
             # Extract base token (remove USDT)
@@ -602,17 +605,32 @@ class NewsService(BaseService):
             
             # Filter news for this specific pair
             pair_news = [
-                item for item in news_items 
+                item for item in normalized_news
                 if self.is_relevant(item, base_token)
             ]
             
             result[pair] = pair_news
         
         # Cache the raw news for future fallback
-        self.cached_news = news_items
+        self.cached_news = normalized_news
         self.cached_timestamp = datetime.now()
         
         return result
+
+    def _normalize_news_item(self, item: Dict) -> Dict:
+        """Normalize supported news provider payloads into one shape."""
+        source = item.get('source', 'Unknown')
+        if isinstance(source, dict):
+            source = source.get('title') or source.get('name') or 'Unknown'
+        return {
+            'id': item.get('id') or item.get('url') or item.get('title'),
+            'title': item.get('title', ''),
+            'body': item.get('body') or item.get('text') or item.get('description') or item.get('content') or '',
+            'url': item.get('url', ''),
+            'source': source,
+            'published_at': item.get('published_at') or item.get('publishedAt'),
+            'currencies': item.get('currencies', []),
+        }
         
     def is_relevant(self, item: Dict, pair: str) -> bool:
         """Check if a news item is relevant to a specific trading pair"""
@@ -620,8 +638,14 @@ class NewsService(BaseService):
         currency = pair.replace("USDT", "").lower()
         
         # Check title and content
-        title = item.get('title', '').lower()
-        body = item.get('body', '').lower()
+        title = str(item.get('title', '')).lower()
+        body = str(
+            item.get('body')
+            or item.get('text')
+            or item.get('description')
+            or item.get('content')
+            or ''
+        ).lower()
         content = title + ' ' + body
         
         # Check if currency name or common names appear in content

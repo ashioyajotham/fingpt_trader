@@ -1052,6 +1052,13 @@ class TradingSystem:
             news_data = await self.news_service.fetch_news(pairs)
             
             # Log summary of fetched news
+            if isinstance(news_data, dict):
+                news_count = sum(len(items) for items in news_data.values())
+                logger.info(f"Fetched {news_count} news items")
+                for pair in pairs:
+                    logger.info(f"Fetched {len(news_data.get(pair, []))} relevant news items for {pair}")
+                return news_data
+
             news_count = len(news_data)
             logger.info(f"Fetched {news_count} news items")
             
