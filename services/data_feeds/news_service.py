@@ -240,9 +240,14 @@ class CryptoPanicClient:
         self.cache_timestamp = None
         self.max_retries = 3
         self.retry_delay = 2  # seconds
+        self.unavailable_until = None
         
     async def get_posts(self, currencies=None, kind="news", filter="hot", regions="en"):
         """Get posts from CryptoPanic API with retry logic and caching"""
+        if self.unavailable_until and datetime.now() < self.unavailable_until:
+            logger.info("CryptoPanic temporarily unavailable; using fallback provider")
+            return []
+
         # Return cached data if we had a recent failure (within 1 minute)
         if self.last_successful_response and self.cache_timestamp:
             cache_age = (datetime.now() - self.cache_timestamp).total_seconds()
@@ -301,6 +306,7 @@ class CryptoPanicClient:
                             
                         elif response.status == 404:
                             logger.warning(f"CryptoPanic endpoint not found: {url}")
+                            self.unavailable_until = datetime.now() + timedelta(minutes=30)
                             break
                         else:
                             response_text = await response.text()
