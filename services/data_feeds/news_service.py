@@ -341,7 +341,7 @@ class NewsAPIClient:
     def __init__(self, api_key):
         self.api_key = api_key
         self.base_url = "https://newsapi.org/v2"
-        self.session = aiohttp.ClientSession()
+        self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
     
     async def get_top_headlines(self, q=None, category="business", language="en"):
         """Get top headlines from NewsAPI"""
@@ -361,8 +361,12 @@ class NewsAPIClient:
                     data = await response.json()
                     return data.get('articles', [])
                 else:
-                    logger.error(f"NewsAPI error: {response.status}")
+                    response_text = await response.text()
+                    logger.error(f"NewsAPI error: {response.status}, Response: {response_text[:200]}")
                     return []
+        except asyncio.TimeoutError:
+            logger.error("NewsAPI request timed out")
+            return []
         except Exception as e:
             logger.error(f"NewsAPI request failed: {str(e)}")
             return []
@@ -595,9 +599,9 @@ class NewsService(BaseService):
                 # Construct query for crypto news
                 query = " OR ".join([pair.replace("USDT", "") for pair in pairs])
                 news_api_results = await self.news_api_client.get_top_headlines(q=query)
+                logger.info(f"Retrieved {len(news_api_results)} items from NewsAPI")
                 if news_api_results:
                     news_items.extend(news_api_results)
-                    logger.info(f"Retrieved {len(news_api_results)} items from NewsAPI")
             except Exception as e:
                 logger.error(f"NewsAPI fallback error: {str(e)}")
         
