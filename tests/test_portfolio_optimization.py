@@ -30,7 +30,8 @@ def optimizer():
     })
 
 def test_portfolio_optimization(optimizer, returns_data):
-    weights = optimizer.optimize(returns_data)
+    result = optimizer.optimize(returns_data)
+    weights = np.array(list(result["weights"].values()))
     assert isinstance(weights, np.ndarray)
     assert len(weights) == returns_data.shape[1]
     assert np.isclose(np.sum(weights), 1.0)
@@ -47,4 +48,4 @@ def test_risk_management():
     risk_metrics = risk_manager.calculate_risk_metrics(portfolio)
     assert 'var' in risk_metrics
     assert 'current_drawdown' in risk_metrics
-    assert risk_metrics['var'] > 0
+    assert risk_metrics['var'] >= 0

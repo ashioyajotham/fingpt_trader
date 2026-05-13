@@ -1075,7 +1075,7 @@ class TradingSystem:
             return {}
 
     async def analyze_market_sentiment(self, news_data):
-        """Analyze market sentiment based on news data with enhanced confidence weighting"""
+        """Analyze market sentiment based on news data with trader-optimized weighting"""
         try:
             signals = []
             
@@ -1087,88 +1087,76 @@ class TradingSystem:
             # Get trading pairs and current market prices
             pairs = self.get_config('trading.pairs')
             
-            # Get sentiment thresholds from config
+            # TRADER-OPTIMIZED THRESHOLDS
             detection_threshold = self.get_config('strategies.sentiment.detection_threshold', 0.3)
-            confidence_threshold = self.get_config('strategies.sentiment.min_confidence', 0.6)  # Increased from 0.4
+            confidence_threshold = self.get_config('strategies.sentiment.min_confidence', 0.6)
             
             # First get current market prices for all pairs
             current_prices = {}
             for pair in pairs:
-                # Get latest price from market data service
                 if hasattr(self.market_data_service, 'get_latest_price'):
                     price = self.market_data_service.get_latest_price(pair)
                     current_prices[pair] = price
                 else:
-                    # Fallback if method doesn't exist
                     current_prices[pair] = 0.0
                         
             for pair in pairs:
-                # Skip if no news for this pair
                 if pair not in news_data or not news_data[pair]:
                     continue
                     
-                # Get current price for this pair
                 current_price = current_prices.get(pair, 0.0)
-                
-                # Skip if price is not available or None
-                if current_price is None or current_price <= 0:
+                if current_price <= 0:
                     logger.warning(f"No valid price available for {pair}, skipping sentiment analysis")
                     continue
                     
+                # Track sentiment results for each news item
+                pair_sentiments = []
+                
                 # Analyze each news item
                 for news in news_data[pair]:
                     try:
-                        # Clean the text before analysis
                         text = self._sanitize_text(news.get('title', '') + ' ' + news.get('body', ''))
                         
-                        # Check if sentiment_analyzer is properly initialized
-                        if not hasattr(self, 'sentiment_analyzer') or self.sentiment_analyzer is None:
-                            logger.error("Sentiment analyzer not initialized")
-                            continue
-                            
-                        if not hasattr(self.sentiment_analyzer, 'analyze_text'):
-                            logger.error("Sentiment analyzer missing analyze_text method")
-                            # Try analyze method instead if available
-                            if hasattr(self.sentiment_analyzer, 'analyze'):
-                                logger.info("Falling back to analyze method")
-                                sentiment_result = await self.sentiment_analyzer.analyze(text)
-                            else:
-                                logger.error("No sentiment analysis method available")
-                                continue
-                        else:
-                            # Use the correct method
+                        if hasattr(self.sentiment_analyzer, 'analyze_text'):
                             sentiment_result = await self.sentiment_analyzer.analyze_text(text)
+                        else:
+                            sentiment_result = await self.sentiment_analyzer.analyze(text, pair)
                         
-                        # Check if sentiment_result is None
                         if not sentiment_result:
-                            logger.warning("Sentiment analysis returned None result")
                             continue
                             
                         sentiment_score = sentiment_result.get('sentiment', 0.0)
                         confidence = sentiment_result.get('confidence', 0.0)
                         
-                        # Log the sentiment analysis using rich-compatible formatting
+                        # Log sentiment analysis results
                         logger.info(f"Sentiment analysis: score={sentiment_score:.2f}, confidence={confidence:.2f}")
                         
-                        # ENHANCED: Prioritize confidence over raw sentiment score
-                        # Only proceed if confidence meets minimum threshold
+                        # TRADER-OPTIMIZED: Check if confidence meets minimum threshold
                         if confidence < confidence_threshold:
                             logger.info(f"Sentiment below thresholds (sentiment threshold={detection_threshold:.2f}, confidence threshold={confidence_threshold:.2f}), no signal generated")
                             continue
                         
-                        # Calculate confidence-weighted sentiment score (60% confidence, 40% sentiment)
-                        weighted_score = (confidence * 0.6) * (abs(sentiment_score) * 0.4)
+                        # FIXED FORMULA: Use ADDITION instead of MULTIPLICATION
+                        # This better aligns with how traders evaluate sentiment
+                        weighted_score = (abs(sentiment_score) * 0.4) + (confidence * 0.6)
                         
-                        # Generate signal if weighted score is strong enough
+                        # Store valid sentiment results for possible aggregation
+                        pair_sentiments.append({
+                            'score': sentiment_score,
+                            'confidence': confidence,
+                            'weighted': weighted_score
+                        })
+                        
+                        # Generate signal for strong individual sentiment
                         if weighted_score > detection_threshold:
                             logger.info(f"Strong sentiment signal detected! (threshold={detection_threshold:.2f})")
                             
                             signals.append({
                                 'symbol': pair,
                                 'type': 'SENTIMENT',
-                                'direction': 1 if sentiment_score > 0 else -1,  # Use numeric direction
+                                'direction': 1 if sentiment_score > 0 else -1,
                                 'strength': abs(sentiment_score),
-                                'confidence': confidence,  # Store confidence separately
+                                'confidence': confidence,
                                 'price': current_price,
                                 'timestamp': datetime.now(),
                                 'metadata': {
@@ -1182,32 +1170,62 @@ class TradingSystem:
                             
                             # Update UI with new sentiment
                             if hasattr(self, 'ui'):
-                                # Add confidence indicator to sentiment display
-                                sentiment_text = self.ui._format_sentiment(sentiment_score)
-                                if confidence > 0.8:
-                                    sentiment_text += " ★★★"  # High confidence
-                                elif confidence > 0.6:
-                                    sentiment_text += " ★★"   # Medium confidence
-                                else:
-                                    sentiment_text += " ★"    # Lower confidence
+                                sentiment_indicator = "↗" if sentiment_score > 0 else "↘"
+                                sentiment_text = f"{'Bullish' if sentiment_score > 0 else 'Bearish'} {sentiment_indicator}"
                                 self.ui.update_sentiment(pair, sentiment_text)
                         else:
                             logger.info(f"Sentiment below threshold, no signal generated")
                         
-                        # Update in market data service
-                        if hasattr(self, 'market_data_service'):
-                            # Store sentiment in market data for display
-                            market_data = self.market_data_service.get_latest_data(pair)
-                            if isinstance(market_data, dict):
-                                market_data['sentiment'] = sentiment_score
-                                market_data['sentiment_confidence'] = confidence
-                                market_data['weighted_score'] = weighted_score
-                            
-                            # Update market data
-                            self.market_data_service.update_symbol_data(pair, market_data)
-                            
                     except Exception as e:
                         logger.error(f"Error analyzing news sentiment: {str(e)}")
+                
+                # TRADER-OPTIMIZED: Aggregate sentiments if we have multiple for the same pair
+                if len(pair_sentiments) >= 2:
+                    # Calculate average sentiment weighted by confidence
+                    total_weight = sum(s['confidence'] for s in pair_sentiments)
+                    if total_weight > 0:
+                        avg_score = sum(s['score'] * s['confidence'] for s in pair_sentiments) / total_weight
+                        avg_confidence = sum(s['confidence'] for s in pair_sentiments) / len(pair_sentiments)
+                        
+                        # Use the same weighted formula for aggregated sentiment
+                        agg_weighted_score = (abs(avg_score) * 0.4) + (avg_confidence * 0.6)
+                        
+                        # Apply a slightly lower threshold for aggregated sentiment (Warren Buffett likes consensus)
+                        agg_threshold = detection_threshold * 0.85
+                        
+                        if agg_weighted_score > agg_threshold:
+                            logger.info(f"Strong AGGREGATED sentiment signal! (score={avg_score:.2f}, confidence={avg_confidence:.2f})")
+                            
+                            # Create aggregated signal
+                            signals.append({
+                                'symbol': pair,
+                                'type': 'SENTIMENT_AGGREGATE',
+                                'direction': 1 if avg_score > 0 else -1,
+                                'strength': abs(avg_score),
+                                'confidence': avg_confidence,
+                                'price': current_price,
+                                'timestamp': datetime.now(),
+                                'metadata': {
+                                    'sentiment': avg_score,
+                                    'confidence': avg_confidence,
+                                    'weighted_score': agg_weighted_score,
+                                    'news_count': len(pair_sentiments),
+                                    'source': 'aggregated'
+                                }
+                            })
+                
+                # Always update market data regardless of signal generation
+                if hasattr(self, 'market_data_service'):
+                    market_data = self.market_data_service.get_latest_data(pair)
+                    if isinstance(market_data, dict):
+                        # Store the latest sentiment for this pair
+                        if pair_sentiments:
+                            latest = pair_sentiments[-1]
+                            market_data['sentiment'] = latest['score']
+                            market_data['sentiment_confidence'] = latest['confidence']
+                        
+                        # Update market data
+                        self.market_data_service.update_symbol_data(pair, market_data)
             
             return signals
         except Exception as e:
@@ -1318,6 +1336,7 @@ if __name__ == "__main__":
     # Create console UI
     from utils.console_ui import ConsoleUI
     trading_system.ui = ConsoleUI.get_instance()
+    trading_system.ui.market_data_service = trading_system.market_data_service
     trading_system.ui.set_verbose(args.verbose)
 
     # Initialize UI with trading pairs from config
@@ -1341,3 +1360,4 @@ if __name__ == "__main__":
         trading_system.ui.display_error(f"Fatal error: {str(e)}")
     finally:
         loop.close()
+        logger.info("Event loop closed")

@@ -56,6 +56,83 @@ from strategies.portfolio.tax_aware import TaxAwareStrategy
 
 logger = logging.getLogger(__name__)
 
+class RoboAdvisor:
+    """Small synchronous robo-advisor facade used by smoke tests and examples."""
+
+    def __init__(self, config: Optional[Dict] = None):
+        self.config = config or {}
+
+    def construct_portfolio(self, client_profile) -> Dict:
+        risk_score = max(0.0, min(float(getattr(client_profile, 'risk_score', 5.0)), 10.0))
+        equity_weight = 0.4 + (risk_score / 10.0) * 0.4
+        bond_floor = getattr(client_profile, 'constraints', {}).get('min_bonds', 0.0)
+        bond_weight = max(1.0 - equity_weight, bond_floor)
+        equity_weight = max(0.0, 1.0 - bond_weight)
+        weights = {
+            'equities': equity_weight,
+            'bonds': bond_weight * 0.8,
+            'cash': bond_weight * 0.2,
+        }
+        total = sum(weights.values()) or 1.0
+        weights = {asset: weight / total for asset, weight in weights.items()}
+        return {
+            'weights': weights,
+            'implementation': 'model_portfolio',
+            'risk_score': risk_score,
+        }
+
+    def harvest_tax_losses(
+        self,
+        portfolio: Dict,
+        tax_rate: float,
+        wash_sale_window: int = 30,
+    ) -> List[Dict]:
+        trades = []
+        for symbol, position in portfolio.items():
+            cost_basis = float(position.get('cost_basis', 0.0))
+            current_price = float(position.get('current_price', 0.0))
+            quantity = float(position.get('quantity', 0.0))
+            if quantity > 0 and current_price < cost_basis:
+                trades.append({
+                    'symbol': symbol,
+                    'quantity': quantity,
+                    'action': 'SELL',
+                    'tax_savings': (cost_basis - current_price) * quantity * tax_rate,
+                    'wash_sale_window': wash_sale_window,
+                })
+        return trades
+
+    def optimize_esg_portfolio(
+        self,
+        weights: Dict[str, float],
+        esg_scores: Dict[str, float],
+        min_esg_score: float = 0.75,
+    ) -> Dict[str, float]:
+        adjusted = {}
+        for symbol, weight in weights.items():
+            score = esg_scores.get(symbol, 0.0)
+            adjusted[symbol] = max(float(weight), 0.0) * max(score, 0.0)
+
+        total = sum(adjusted.values())
+        if total <= 0:
+            equal_weight = 1.0 / max(len(weights), 1)
+            return {symbol: equal_weight for symbol in weights}
+
+        normalized = {symbol: weight / total for symbol, weight in adjusted.items()}
+        portfolio_score = sum(normalized[symbol] * esg_scores.get(symbol, 0.0) for symbol in normalized)
+        if portfolio_score >= min_esg_score:
+            return normalized
+
+        eligible = {
+            symbol: weight
+            for symbol, weight in weights.items()
+            if esg_scores.get(symbol, 0.0) >= min_esg_score
+        }
+        if not eligible:
+            return normalized
+        total = sum(eligible.values()) or 1.0
+        return {symbol: weight / total for symbol, weight in eligible.items()}
+
 class RoboService(BaseService):
     """
     Automated portfolio management and trading service.

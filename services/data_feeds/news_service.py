@@ -1,5 +1,6 @@
 import asyncio
 import os
+import random
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -224,15 +225,29 @@ class NewsDataFeed(BaseService):
         return min(relevance, 1.0)
 
 class CryptoPanicClient:
-    """Client for CryptoPanic API"""
+    """Client for CryptoPanic API with enhanced reliability"""
     
     def __init__(self, api_key):
         self.api_key = api_key
         self.base_url = "https://cryptopanic.com/api/v1"
-        self.session = aiohttp.ClientSession()
-    
+        self.session = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=15),  # Add explicit timeout
+            headers={"Accept": "application/json"}
+        )
+        self.last_successful_response = None  # Cache last successful response
+        self.cache_timestamp = None
+        self.max_retries = 3
+        self.retry_delay = 2  # seconds
+        
     async def get_posts(self, currencies=None, kind="news", filter="hot", regions="en"):
-        """Get posts from CryptoPanic API"""
+        """Get posts from CryptoPanic API with retry logic and caching"""
+        # Return cached data if we had a recent failure (within 1 minute)
+        if self.last_successful_response and self.cache_timestamp:
+            cache_age = (datetime.now() - self.cache_timestamp).total_seconds()
+            if cache_age < 60:  # Use cache if less than 1 minute old
+                logger.info(f"Using cached news data ({len(self.last_successful_response)} items, {cache_age:.1f}s old)")
+                return self.last_successful_response
+        
         params = {
             "auth_token": self.api_key,
             "kind": kind,
@@ -243,32 +258,72 @@ class CryptoPanicClient:
         
         if currencies:
             params["currencies"] = currencies
+        
+        # Try multiple endpoints to maximize reliability
+        endpoints = [
+            "/posts/",  # Primary endpoint
+            "/posts/all/",  # Alternative endpoint
+        ]
+        
+        for endpoint in endpoints:
+            for attempt in range(self.max_retries):
+                try:
+                    url = f"{self.base_url}{endpoint}"
+                    logger.debug(f"CryptoPanic request attempt {attempt+1}/{self.max_retries}: {url}")
+                    
+                    # Add random jitter to prevent rate-limiting issues
+                    jitter = 0.1 * attempt 
+                    await asyncio.sleep(jitter)
+                    
+                    async with self.session.get(url, params=params) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            results = data.get('results', [])
+                            
+                            # Cache this successful response
+                            self.last_successful_response = results
+                            self.cache_timestamp = datetime.now()
+                            
+                            logger.info(f"CryptoPanic request successful: {len(results)} news items retrieved")
+                            return results
+                            
+                        elif response.status == 429:  # Rate limited
+                            retry_after = int(response.headers.get('Retry-After', self.retry_delay * 2))
+                            logger.warning(f"CryptoPanic rate limited. Retrying in {retry_after}s")
+                            await asyncio.sleep(retry_after)
+                            
+                        elif response.status == 502:  # Bad Gateway - server issue
+                            logger.warning(f"CryptoPanic API error: 502 Bad Gateway. Attempt {attempt+1}/{self.max_retries}")
+                            # Use exponential backoff with jitter
+                            backoff = (2 ** attempt) + (random.random() * 0.5)
+                            await asyncio.sleep(backoff)
+                            
+                        else:
+                            response_text = await response.text()
+                            logger.error(f"CryptoPanic API error: {response.status}, Response: {response_text[:200]}")
+                            await asyncio.sleep(self.retry_delay)
+                            
+                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                    logger.error(f"CryptoPanic network error: {str(e)}")
+                    await asyncio.sleep(self.retry_delay)
+                except Exception as e:
+                    logger.error(f"CryptoPanic request failed: {str(e)}")
+                    await asyncio.sleep(self.retry_delay)
             
-        try:
-            url = f"{self.base_url}/posts/"
-            async with self.session.get(url, params=params) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return data.get('results', [])
-                else:
-                    logger.error(f"CryptoPanic API error: {response.status}")
-                    return []
-        except Exception as e:
-            logger.error(f"CryptoPanic request failed: {str(e)}")
-            return []
-            
-    async def _cleanup(self) -> None:
-        """Cleanup resources"""
+            # If we've exhausted all retries on this endpoint, try the next one
+            logger.warning(f"All retries failed for endpoint {endpoint}, trying next endpoint")
+        
+        # If we get here, we've exhausted all endpoints and retries
+        # Return cached data if available, otherwise empty list
+        if self.last_successful_response:
+            logger.warning(f"Using stale cached data ({len(self.last_successful_response)} items) as fallback")
+            return self.last_successful_response
+        return []
+    
+    async def close(self):
+        """Close the session"""
         if self.session:
             await self.session.close()
-            
-        # Clean up API clients
-        if hasattr(self, 'cryptopanic_client'):
-            await self.cryptopanic_client.close()
-        if hasattr(self, 'news_api_client'):
-            await self.news_api_client.close()
-            
-        self.cache.clear()
 
 class NewsAPIClient:
     """Client for NewsAPI"""
@@ -506,38 +561,58 @@ class NewsService(BaseService):
         if not self.api_key:
             raise ValueError("NEWS_API_KEY not configured")
 
-    async def fetch_news(self, pairs: List[str]) -> List[Dict]:
-        """Fetch news for multiple currency pairs"""
+    async def fetch_news(self, pairs: List[str]) -> Dict[str, List[Dict]]:
+        """Fetch news for multiple currency pairs with improved reliability"""
         news_items = []
         
         # Try CryptoPanic first
         if hasattr(self, 'cryptopanic_client') and self.cryptopanic_client:
             try:
-                # Make max 5 attempts
-                for attempt in range(1, 6):
-                    try:
-                        crypto_news = await self.cryptopanic_client.get_posts()
-                        if crypto_news:
-                            news_items.extend(crypto_news)
-                            break
-                    except Exception as e:
-                        logger.error(f"CryptoPanic attempt {attempt} failed: {str(e)}")
-                        await asyncio.sleep(1)
+                logger.info("Fetching news from CryptoPanic API")
+                crypto_news = await self.cryptopanic_client.get_posts()
+                if crypto_news:
+                    news_items.extend(crypto_news)
+                    logger.info(f"Retrieved {len(crypto_news)} items from CryptoPanic")
             except Exception as e:
                 logger.error(f"CryptoPanic API error: {str(e)}")
         
         # Try NewsAPI as fallback if needed
-        if not news_items and hasattr(self, 'news_api_client') and self.news_api_client:
+        if len(news_items) < 5 and hasattr(self, 'news_api_client') and self.news_api_client:
             try:
+                logger.info("Insufficient news from CryptoPanic, trying NewsAPI fallback")
                 # Construct query for crypto news
                 query = " OR ".join([pair.replace("USDT", "") for pair in pairs])
                 news_api_results = await self.news_api_client.get_top_headlines(q=query)
                 if news_api_results:
                     news_items.extend(news_api_results)
+                    logger.info(f"Retrieved {len(news_api_results)} items from NewsAPI")
             except Exception as e:
                 logger.error(f"NewsAPI fallback error: {str(e)}")
         
-        return news_items
+        # If still no results and we have cached news, use that
+        if not news_items and hasattr(self, 'cached_news') and self.cached_news:
+            logger.warning("Using cached news as fallback due to API failures")
+            news_items = self.cached_news
+        
+        # Process and categorize news by trading pair
+        result = {}
+        for pair in pairs:
+            # Extract base token (remove USDT)
+            base_token = pair.replace('USDT', '')
+            
+            # Filter news for this specific pair
+            pair_news = [
+                item for item in news_items 
+                if self.is_relevant(item, base_token)
+            ]
+            
+            result[pair] = pair_news
+        
+        # Cache the raw news for future fallback
+        self.cached_news = news_items
+        self.cached_timestamp = datetime.now()
+        
+        return result
         
     def is_relevant(self, item: Dict, pair: str) -> bool:
         """Check if a news item is relevant to a specific trading pair"""

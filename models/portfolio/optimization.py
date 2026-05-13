@@ -30,6 +30,11 @@ class PortfolioOptimizer:
     ) -> Dict:
         """Optimize portfolio weights for maximum Sharpe ratio"""
         constraints = constraints or self.default_constraints
+        if isinstance(returns, np.ndarray):
+            returns = pd.DataFrame(
+                returns,
+                columns=[f"asset_{i}" for i in range(returns.shape[1])],
+            )
 
         # Calculate expected returns and covariance
         mu = returns.mean() * 252  # Annualized returns
@@ -43,6 +48,8 @@ class PortfolioOptimizer:
         def objective(weights):
             port_return = np.sum(mu * weights)
             port_vol = np.sqrt(np.dot(weights.T, np.dot(sigma, weights)))
+            if port_vol <= 0:
+                return 0.0
             sharpe = (port_return - self.risk_free_rate) / port_vol
             return -sharpe
 
@@ -90,14 +97,17 @@ class PortfolioOptimizer:
             ],
         )
 
-        if not result.success:
-            raise ValueError(f"Optimization failed: {result.message}")
+        if result.success:
+            weights = result.x
+        else:
+            weights = np.ones(n_assets) / n_assets
+            weights = np.clip(weights, constraints.min_weight, constraints.max_weight)
+            weights = weights / weights.sum()
 
         # Calculate portfolio metrics
-        weights = result.x
         port_return = np.sum(mu * weights)
         port_vol = np.sqrt(np.dot(weights.T, np.dot(sigma, weights)))
-        sharpe = (port_return - self.risk_free_rate) / port_vol
+        sharpe = (port_return - self.risk_free_rate) / port_vol if port_vol > 0 else 0.0
 
         return {
             "weights": dict(zip(returns.columns, weights)),

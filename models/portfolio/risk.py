@@ -106,6 +106,10 @@ class RiskManager:
     """Portfolio risk management"""
     
     def __init__(self, max_drawdown: float = 0.1, var_limit: float = 0.02):
+        if isinstance(max_drawdown, dict):
+            config = max_drawdown
+            var_limit = config.get('var_limit', var_limit)
+            max_drawdown = config.get('max_drawdown', 0.1)
         self.max_drawdown = max_drawdown
         self.var_limit = var_limit
         self.historical_values = []
@@ -123,6 +127,10 @@ class RiskManager:
         try:
             # Extract values from portfolio
             values = portfolio.get('values', {})
+            if isinstance(values, np.ndarray):
+                values = {f"asset_{i}": float(value) for i, value in enumerate(values)}
+            elif isinstance(values, list):
+                values = {f"asset_{i}": float(value) for i, value in enumerate(values)}
             total_value = sum(float(v) for v in values.values())
             
             # Update historical tracking
@@ -137,8 +145,10 @@ class RiskManager:
             # Calculate metrics
             position_values = {k: float(v) for k, v in values.items()}
             
+            current_drawdown = self._calculate_drawdown()
             return {
-                'max_drawdown': self._calculate_drawdown(),
+                'max_drawdown': current_drawdown,
+                'current_drawdown': current_drawdown,
                 'var': self._calculate_var(),
                 'position_concentration': self._calculate_concentration(position_values),
                 'total_exposure': self._calculate_exposure(position_values)
@@ -148,6 +158,7 @@ class RiskManager:
             logger.error(f"Error calculating risk metrics: {e}")
             return {
                 'max_drawdown': 0.0,
+                'current_drawdown': 0.0,
                 'var': 0.0,
                 'position_concentration': 0.0,
                 'total_exposure': 0.0

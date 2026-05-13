@@ -38,7 +38,7 @@ class BrokerService(BaseService):
         self.exchange = ccxt.binance(
             {
                 "apiKey": os.getenv("BINANCE_API_KEY"),
-                "secret": os.getenv("BINANCE_SECRET_KEY"),
+                "secret": os.getenv("BINANCE_API_SECRET") or os.getenv("BINANCE_SECRET_KEY"),
                 "enableRateLimit": True,
                 "options": {"defaultType": "spot"},
             }

@@ -135,7 +135,7 @@ class SentimentAnalyzer:
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
 
-    async def analyze(self, text: str) -> Dict:
+    async def analyze(self, text: str, symbol: str = "market") -> Dict:
         """Analyze sentiment using LLM"""
         try:
             # Check if FinGPT is properly initialized
@@ -145,13 +145,16 @@ class SentimentAnalyzer:
             
             # Improve the prompt for better sentiment differentiation
             prompt = f"""
-            Analyze the sentiment of the following financial news text. 
-            Consider market impact, investor sentiment, and financial implications.
+            Analyze the sentiment of the following financial news text about {symbol}.
             Rate on a scale from -1.0 (extremely bearish) to 1.0 (extremely bullish).
-            Provide only a JSON response with 'sentiment' and 'confidence' values.
-            
+            IMPORTANT: Be decisive and assign high confidence (0.7-0.9) when the sentiment is clear.
+
+            Examples:
+            - "XYZ stock crashes 15% after missed earnings" → {{"sentiment": -0.8, "confidence": 0.9}}
+            - "ABC announces new partnership with uncertain terms" → {{"sentiment": 0.2, "confidence": 0.4}}
+
             News text: {text}
-            
+
             JSON response:
             """
             
@@ -198,7 +201,7 @@ class SentimentAnalyzer:
             logger.error(f"Error analyzing sentiment: {str(e)}")
             return {'sentiment': 0.0, 'confidence': 0.0}
 
-    async def analyze_text(self, text: str) -> Dict:
+    async def analyze_text(self, text: str, symbol: str = "market") -> Dict:
         """
         Analyze sentiment of a text string.
         
@@ -210,7 +213,7 @@ class SentimentAnalyzer:
         """
         try:
             # Use the existing analyze method
-            result = await self.analyze(text)
+            result = await self.analyze(text, symbol)
             return result
         except Exception as e:
             logger.error(f"Error in analyze_text: {str(e)}")
@@ -528,7 +531,7 @@ class SentimentAnalyzer:
         """Analyze sentiment for a specific symbol and store results"""
         try:
             # Use existing analyze method
-            result = await self.analyze(text)
+            result = await self.analyze(text, symbol)
             
             # Store sentiment data
             if symbol not in self.sentiment_scores:

@@ -168,60 +168,99 @@ class ConsoleUI:
         self.console.print(table)
     
     def display_market_data(self, market_data: Dict[str, Dict]):
-        """Display market data in a structured table"""
+        """Display market data in a trading-optimized format"""
         if not self.setup_complete:
             logger.warning("ConsoleUI not set up. Call setup() first.")
             return
             
-        # Create market data table
+        # Create market data table with enhanced trading metrics
         table = Table(title="[bold]Market Data[/bold]")
         table.add_column("Symbol", style="cyan")
         table.add_column("Price", style="yellow")
-        table.add_column("24h Change", style="")
+        table.add_column("1m", style="")  # 1-minute change
+        table.add_column("15m", style="")  # 15-minute change
+        table.add_column("1h", style="")   # 1-hour change
+        table.add_column("24h", style="")  # Keep 24h for reference
         table.add_column("Sentiment", style="")
         
-        # Use current_prices if available, which has actual price data
-        current_prices = getattr(self, 'current_prices', {})
-        
-        # Add rows for each symbol
+        # Get latest data for each symbol
         for symbol, data in market_data.items():
-            # Format price - first check current_prices which is more reliable
-            price = current_prices.get(symbol, 0.0) if current_prices else data.get('price', 0.0)
+            # Format price
+            price = data.get('price', 0.0)
             price_str = f"{price:.2f}" if price else "N/A"
             
-            # Format change
-            change = data.get('change', 0.0)
-            change_str = f"{change:.2f}%" if isinstance(change, (int, float)) else "0.00%"
-            change_color = "green" if change > 0 else ("red" if change < 0 else "white")
-            change_display = f"[{change_color}]{change_str}[/{change_color}]"
+            # Get all timeframe changes
+            changes = {
+                '1m': self._get_price_change(symbol, minutes=1),
+                '15m': self._get_price_change(symbol, minutes=15),
+                '1h': self._get_price_change(symbol, minutes=60),
+                '24h': data.get('change', 0.0)
+            }
+            
+            # Format changes with direction indicators
+            change_columns = {}
+            for timeframe, change in changes.items():
+                if isinstance(change, (int, float)):
+                    direction = "↑" if change > 0 else ("↓" if change < 0 else "→")
+                    color = "green" if change > 0 else ("red" if change < 0 else "white")
+                    change_columns[timeframe] = f"[{color}]{change:.2f}% {direction}[/{color}]"
+                else:
+                    change_columns[timeframe] = "0.00%"
             
             # Format sentiment
-            sentiment = data.get('sentiment', 'Neutral')
-            if isinstance(sentiment, (int, float)):
-                # Convert numeric sentiment to text
-                if sentiment > 0.2:
-                    sentiment = "Bullish"
-                    sentiment_color = "green"
-                elif sentiment < -0.2:
-                    sentiment = "Bearish"
-                    sentiment_color = "red"
-                else:
-                    sentiment = "Neutral"
-                    sentiment_color = "yellow"
-            else:
-                # Use text sentiment as-is
-                sentiment_color = "green" if "bull" in str(sentiment).lower() else ("red" if "bear" in str(sentiment).lower() else "yellow")
+            sentiment = self._format_sentiment(data.get('sentiment', 0))
             
-            sentiment_display = f"[{sentiment_color}]{sentiment}[/{sentiment_color}]"
-            
-            # Display symbol without USDT suffix
-            display_symbol = symbol.replace("USDT", "")
-            
-            table.add_row(display_symbol, price_str, change_display, sentiment_display)
+            # Add row with all timeframe columns
+            table.add_row(
+                symbol,
+                price_str,
+                change_columns['1m'],
+                change_columns['15m'],
+                change_columns['1h'],
+                change_columns['24h'],
+                sentiment
+            )
         
-        # Print the table
+        # Display the table
         self.console.print(table)
-    
+
+    def _get_price_change(self, symbol: str, minutes: int = 15) -> float:
+        """Calculate price change over specified interval"""
+        # Access price history from market data service
+        if not hasattr(self, 'market_data_service') or not hasattr(self.market_data_service, 'price_history'):
+            return 0.0
+            
+        if symbol not in self.market_data_service.price_history:
+            return 0.0
+            
+        history = self.market_data_service.price_history[symbol]
+        if not history or len(history) < 2:
+            return 0.0
+            
+        # Get current price
+        current_price = history[-1]['price']
+        
+        # Find price from X minutes ago
+        now = datetime.now()
+        target_time = now - timedelta(minutes=minutes)
+        
+        # Find closest price point to target time
+        closest_point = None
+        min_time_diff = timedelta(days=1)
+        
+        for point in history:
+            time_diff = abs(point['timestamp'] - target_time)
+            if time_diff < min_time_diff:
+                min_time_diff = time_diff
+                closest_point = point
+        
+        # Calculate change if we found a valid reference point
+        if closest_point and closest_point['price'] > 0:
+            change_pct = ((current_price - closest_point['price']) / closest_point['price']) * 100
+            return round(change_pct, 2)
+        
+        return 0.0
+
     def update_price(self, symbol: str, price: float):
         """Update the last known price for a symbol."""
         old_price = self.last_prices.get(symbol, price)

@@ -569,22 +569,24 @@ class MarketDataService(BaseService):
         return changes
 
     def update_price_history(self, symbol: str, price: float):
-        """Update price history for a symbol with optimized change tracking"""
+        """Update price history for a symbol with optimized storage for multiple timeframes"""
         if not hasattr(self, 'price_history'):
             self.price_history = {}
-        
         if not hasattr(self, 'change_cache'):
             self.change_cache = {}
+        if not hasattr(self, '_market_data'):
+            self._market_data = {}
         
         if symbol not in self.price_history:
             self.price_history[symbol] = []
-        
         if symbol not in self.change_cache:
             self.change_cache[symbol] = {
                 'reference_price': price,
                 'reference_time': datetime.now(),
                 'current_change': 0.0
             }
+        if symbol not in self._market_data:
+            self._market_data[symbol] = {}
         
         current_time = datetime.now()
         
@@ -593,46 +595,60 @@ class MarketDataService(BaseService):
             'price': price,
             'timestamp': current_time
         })
-        
-        # Limit history size (keep 24h worth of data)
-        max_history = 24 * 60  # 24 hours of minute data
-        if len(self.price_history[symbol]) > max_history:
-            self.price_history[symbol] = self.price_history[symbol][-max_history:]
-        
-        # Update the market_data store
-        if not hasattr(self, '_market_data'):
-            self._market_data = {}
-        
-        if symbol not in self._market_data:
-            self._market_data[symbol] = {}
-        
         self._market_data[symbol]['price'] = price
         self._market_data[symbol]['timestamp'] = current_time
         
-        # Update 24h change cache - key optimization
         ref_entry = self.change_cache[symbol]
-        ref_time = ref_entry['reference_time']
-        ref_price = ref_entry['reference_price']
-        time_diff = (current_time - ref_time).total_seconds() / 3600  # hours
-        
-        # If reference point is close to 24h old, update the change
-        if 23 <= time_diff <= 25:
-            # We have a good 24h reference point
-            if ref_price > 0:
-                percent_change = ((price - ref_price) / ref_price) * 100
-                ref_entry['current_change'] = round(percent_change, 2)
-            
-            # Reset reference point to current for next 24h
+        ref_price = ref_entry.get('reference_price', price)
+        ref_time = ref_entry.get('reference_time', current_time)
+        time_diff = (current_time - ref_time).total_seconds() / 3600
+        if ref_price and ref_price > 0:
+            ref_entry['current_change'] = round(((price - ref_price) / ref_price) * 100, 2)
+        if time_diff >= 24:
             ref_entry['reference_price'] = price
             ref_entry['reference_time'] = current_time
-        elif time_diff > 25:
-            # Reference too old, reset
-            ref_entry['reference_price'] = price
-            ref_entry['reference_time'] = current_time
-            ref_entry['current_change'] = 0.0
-        
-        # Update the change in market data
         self._market_data[symbol]['change'] = ref_entry['current_change']
+        
+        # Store at least 24 hours of data
+        # Keep more points for recent periods (1-15min) and fewer for older periods
+        # This approach balances storage needs with accuracy
+        history = self.price_history[symbol]
+        
+        # Clean history according to adaptive sampling:
+        # - Last hour: keep all points
+        # - 1-3 hours ago: keep points every 5 minutes
+        # - 3-24 hours ago: keep points every 15 minutes
+        if len(history) > 1000:  # Only start cleaning when we have sufficient data
+            one_hour_ago = current_time - timedelta(hours=1)
+            three_hours_ago = current_time - timedelta(hours=3)
+            
+            # Keep all recent points
+            recent_points = [p for p in history if p['timestamp'] >= one_hour_ago]
+            
+            # Downsample middle period (keep every 5 min)
+            middle_points = []
+            middle_period = [p for p in history if three_hours_ago <= p['timestamp'] < one_hour_ago]
+            if middle_period:
+                ref_time = middle_period[0]['timestamp']
+                for p in middle_period:
+                    minutes_diff = (p['timestamp'] - ref_time).total_seconds() / 60
+                    if minutes_diff >= 5:  # Keep point every 5 minutes
+                        middle_points.append(p)
+                        ref_time = p['timestamp']
+            
+            # Downsample oldest period (keep every 15 min)
+            old_points = []
+            old_period = [p for p in history if p['timestamp'] < three_hours_ago]
+            if old_period:
+                ref_time = old_period[0]['timestamp']
+                for p in old_period:
+                    minutes_diff = (p['timestamp'] - ref_time).total_seconds() / 60
+                    if minutes_diff >= 15:  # Keep point every 15 minutes
+                        old_points.append(p)
+                        ref_time = p['timestamp']
+            
+            # Combine all points and update history
+            self.price_history[symbol] = recent_points + middle_points + old_points
 
 class MarketDataFeed(BaseService):
     """Market data feed handler"""

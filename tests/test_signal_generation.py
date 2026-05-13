@@ -48,7 +48,7 @@ async def test_sentiment_analysis():
         "Market faces uncertainty amid economic data"
     ]
     
-    sentiment = await analyzer.analyze_text(test_headlines)
+    sentiment = analyzer.analyze_text(test_headlines)
     assert isinstance(sentiment, np.ndarray)
     assert len(sentiment) == len(test_headlines)
     assert all(-1 <= s <= 1 for s in sentiment)
