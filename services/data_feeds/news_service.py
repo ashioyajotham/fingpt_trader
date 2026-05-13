@@ -146,12 +146,13 @@ class NewsDataFeed(BaseService):
         """Fetch news from external API"""
         if not hasattr(self, 'api_key') or not self.api_key:
             self.api_key = os.environ.get('CRYPTOPANIC_API_KEY')
+        api_plan = os.environ.get('CRYPTOPANIC_API_PLAN', 'developer')
             
         if not self.api_key:
             logger.error("No API key available for news service")
             return
             
-        url = f"https://cryptopanic.com/api/v1/posts/?auth_token={self.api_key}&kind=news"
+        url = f"https://cryptopanic.com/api/{api_plan}/v2/posts/?auth_token={self.api_key}&kind=news"
         
         try:
             async with self.session.get(url) as response:
@@ -227,9 +228,10 @@ class NewsDataFeed(BaseService):
 class CryptoPanicClient:
     """Client for CryptoPanic API with enhanced reliability"""
     
-    def __init__(self, api_key):
+    def __init__(self, api_key, api_plan: str = "developer"):
         self.api_key = api_key
-        self.base_url = "https://cryptopanic.com/api/v1"
+        self.api_plan = api_plan
+        self.base_url = f"https://cryptopanic.com/api/{api_plan}/v2"
         self.session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=15),  # Add explicit timeout
             headers={"Accept": "application/json"}
@@ -369,8 +371,9 @@ class NewsService(BaseService):
     def __init__(self, config: Optional[Dict] = None):
         super().__init__(config or {})
         self.cryptopanic_key = os.getenv("CRYPTOPANIC_API_KEY")
+        self.cryptopanic_plan = os.getenv("CRYPTOPANIC_API_PLAN", "developer")
         self.newsapi_key = os.getenv("NEWS_API_KEY")  # Fallback
-        self.base_url = "https://cryptopanic.com/api/v1"
+        self.base_url = f"https://cryptopanic.com/api/{self.cryptopanic_plan}/v2"
         self.fallback_url = "https://newsapi.org/v2"
         
         self.max_retries = 5  # Increased from 3
@@ -414,7 +417,8 @@ class NewsService(BaseService):
             # Initialize CryptoPanic client
             api_key = self.config.get('cryptopanic_api_key') or os.getenv('CRYPTOPANIC_API_KEY')
             if api_key:
-                self.cryptopanic_client = CryptoPanicClient(api_key)
+                api_plan = self.config.get('cryptopanic_api_plan') or os.getenv('CRYPTOPANIC_API_PLAN', 'developer')
+                self.cryptopanic_client = CryptoPanicClient(api_key, api_plan)
                 
             # Initialize NewsAPI client as fallback
             news_api_key = self.config.get('news_api_key') or os.getenv('NEWS_API_KEY')

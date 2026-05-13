@@ -42,7 +42,8 @@ api:
     # Primary news provider
     provider: "cryptopanic"
     key: ${CRYPTOPANIC_API_KEY}
-    endpoint: "https://cryptopanic.com/api/v1/"
+    plan: ${CRYPTOPANIC_API_PLAN}
+    endpoint: "https://cryptopanic.com/api/${CRYPTOPANIC_API_PLAN}/v2/"
     rate_limit: 60  # Requests per minute
     
     # Fallback news provider
