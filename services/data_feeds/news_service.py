@@ -459,6 +459,7 @@ class NewsService(BaseService):
         super().__init__(config or {})
         self.sources = self.config.get("sources", ["rss", "newsapi"])
         self.rss_feeds = self.config.get("rss_feeds", DEFAULT_RSS_FEEDS)
+        self.news_batch_size = int(self.config.get("batch_size", 10))
         self.cryptopanic_key = os.getenv("CRYPTOPANIC_API_KEY")
         self.cryptopanic_plan = os.getenv("CRYPTOPANIC_API_PLAN", "developer")
         self.newsapi_key = os.getenv("NEWS_API_KEY")  # Fallback
@@ -718,7 +719,7 @@ class NewsService(BaseService):
             pair_news = [
                 item for item in normalized_news
                 if self.is_relevant(item, base_token)
-            ]
+            ][:self.news_batch_size]
             
             result[pair] = pair_news
         
