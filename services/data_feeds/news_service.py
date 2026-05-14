@@ -3,8 +3,10 @@ import os
 import random
 import sys
 from datetime import datetime, timedelta
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Dict, List, Optional
+from xml.etree import ElementTree
 
 import aiohttp
 
@@ -19,6 +21,13 @@ from services.base_service import BaseService
 import logging
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_RSS_FEEDS = [
+    "https://www.coindesk.com/arc/outboundfeeds/rss/",
+    "https://cointelegraph.com/rss",
+    "https://cointelegraph.com/rss/tag/bitcoin",
+    "https://cointelegraph.com/rss/tag/ethereum",
+]
 
 class NewsDataFeed(BaseService):
     """Real-time news data feed handler"""
@@ -376,10 +385,80 @@ class NewsAPIClient:
         if self.session:
             await self.session.close()
 
+class RSSNewsClient:
+    """Client for publisher RSS feeds used as the primary crypto news source."""
+
+    def __init__(self, feeds: Optional[List[str]] = None):
+        self.feeds = feeds or DEFAULT_RSS_FEEDS
+        self.session = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=10),
+            headers={"User-Agent": "fingpt-trader/0.1"}
+        )
+
+    async def get_posts(self) -> List[Dict]:
+        articles = []
+        for feed_url in self.feeds:
+            try:
+                async with self.session.get(feed_url) as response:
+                    if response.status != 200:
+                        logger.warning(f"RSS feed error: {response.status} for {feed_url}")
+                        continue
+                    content = await response.text()
+                    articles.extend(self._parse_feed(content, feed_url))
+            except asyncio.TimeoutError:
+                logger.warning(f"RSS feed timed out: {feed_url}")
+            except Exception as e:
+                logger.warning(f"RSS feed failed for {feed_url}: {e}")
+        logger.info(f"Retrieved {len(articles)} items from RSS feeds")
+        return articles
+
+    def _parse_feed(self, content: str, feed_url: str) -> List[Dict]:
+        try:
+            root = ElementTree.fromstring(content)
+        except ElementTree.ParseError as e:
+            logger.warning(f"Invalid RSS XML from {feed_url}: {e}")
+            return []
+
+        channel_title = root.findtext("./channel/title") or feed_url
+        items = root.findall("./channel/item")
+        articles = []
+        for item in items:
+            title = item.findtext("title") or ""
+            body = (
+                item.findtext("description")
+                or item.findtext("{http://purl.org/rss/1.0/modules/content/}encoded")
+                or ""
+            )
+            link = item.findtext("link") or ""
+            published_at = item.findtext("pubDate") or item.findtext("published") or ""
+            articles.append({
+                "id": link or title,
+                "title": title,
+                "body": body,
+                "url": link,
+                "source": channel_title,
+                "published_at": self._parse_date(published_at),
+            })
+        return articles
+
+    def _parse_date(self, value: str):
+        if not value:
+            return None
+        try:
+            return parsedate_to_datetime(value).isoformat()
+        except Exception:
+            return value
+
+    async def close(self):
+        if self.session:
+            await self.session.close()
+
 
 class NewsService(BaseService):
     def __init__(self, config: Optional[Dict] = None):
         super().__init__(config or {})
+        self.sources = self.config.get("sources", ["rss", "newsapi"])
+        self.rss_feeds = self.config.get("rss_feeds", DEFAULT_RSS_FEEDS)
         self.cryptopanic_key = os.getenv("CRYPTOPANIC_API_KEY")
         self.cryptopanic_plan = os.getenv("CRYPTOPANIC_API_PLAN", "developer")
         self.newsapi_key = os.getenv("NEWS_API_KEY")  # Fallback
@@ -408,14 +487,18 @@ class NewsService(BaseService):
 
     async def _setup(self) -> None:
         """Initialize news service"""
-        if not self.cryptopanic_key:
-            raise ValueError("CRYPTOPANIC_API_KEY not set")
         self.session = aiohttp.ClientSession()
 
     async def _cleanup(self) -> None:
         """Cleanup resources"""
         if self.session:
             await self.session.close()
+        if hasattr(self, 'rss_client'):
+            await self.rss_client.close()
+        if hasattr(self, 'cryptopanic_client'):
+            await self.cryptopanic_client.close()
+        if hasattr(self, 'news_api_client'):
+            await self.news_api_client.close()
         self.cache.clear()
 
     async def setup(self, config=None):
@@ -424,9 +507,13 @@ class NewsService(BaseService):
             self.config.update(config)
         
         try:
-            # Initialize CryptoPanic client
+            # Initialize RSS client as the default crypto-native news source
+            if "rss" in self.sources:
+                self.rss_client = RSSNewsClient(self.config.get("rss_feeds", self.rss_feeds))
+
+            # Initialize CryptoPanic client only when explicitly enabled
             api_key = self.config.get('cryptopanic_api_key') or os.getenv('CRYPTOPANIC_API_KEY')
-            if api_key:
+            if "cryptopanic" in self.sources and api_key:
                 api_plan = self.config.get('cryptopanic_api_plan') or os.getenv('CRYPTOPANIC_API_PLAN', 'developer')
                 self.cryptopanic_client = CryptoPanicClient(api_key, api_plan)
                 
@@ -578,11 +665,21 @@ class NewsService(BaseService):
             raise ValueError("NEWS_API_KEY not configured")
 
     async def fetch_news(self, pairs: List[str]) -> Dict[str, List[Dict]]:
-        """Fetch news for multiple currency pairs with improved reliability"""
+        """Fetch news for multiple currency pairs with RSS first and API fallback."""
         news_items = []
+
+        # Try RSS first: publisher-owned crypto feeds avoid paid API gating.
+        if hasattr(self, 'rss_client') and self.rss_client:
+            try:
+                logger.info("Fetching news from RSS feeds")
+                rss_news = await self.rss_client.get_posts()
+                if rss_news:
+                    news_items.extend(rss_news)
+            except Exception as e:
+                logger.error(f"RSS news error: {str(e)}")
         
-        # Try CryptoPanic first
-        if hasattr(self, 'cryptopanic_client') and self.cryptopanic_client:
+        # Try CryptoPanic only when configured and RSS did not provide enough items.
+        if len(news_items) < 5 and hasattr(self, 'cryptopanic_client') and self.cryptopanic_client:
             try:
                 logger.info("Fetching news from CryptoPanic API")
                 crypto_news = await self.cryptopanic_client.get_posts()
@@ -592,10 +689,10 @@ class NewsService(BaseService):
             except Exception as e:
                 logger.error(f"CryptoPanic API error: {str(e)}")
         
-        # Try NewsAPI as fallback if needed
+        # Try NewsAPI as fallback if needed.
         if len(news_items) < 5 and hasattr(self, 'news_api_client') and self.news_api_client:
             try:
-                logger.info("Insufficient news from CryptoPanic, trying NewsAPI fallback")
+                logger.info("Insufficient RSS/CryptoPanic news, trying NewsAPI fallback")
                 # Construct query for crypto news
                 query = " OR ".join([pair.replace("USDT", "") for pair in pairs])
                 news_api_results = await self.news_api_client.get_top_headlines(q=query)

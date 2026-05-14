@@ -9,6 +9,7 @@ FinGPT Trader processes financial news and market data in parallel, combining bo
 - **Falcon-7B Model**: Fine-tuned for financial sentiment analysis
 - **Confidence-Weighted Scoring**: 60% confidence weight, 40% sentiment strength weight
 - **Technical Analysis**: Standard technical indicators for market inefficiency detection
+- **RSS-first News Ingestion**: Crypto-native publisher RSS feeds, with NewsAPI fallback
 - **Event-Driven Architecture**: Asynchronous processing of market events
 - **Risk Management**: Basic position tracking and exposure monitoring
 
@@ -122,6 +123,16 @@ The system uses a hierarchical YAML-based configuration system:
 - `model.yaml`: ML model configurations
 - `services.yaml`: External service connectivity parameters
 
+### News Sources
+
+News ingestion is RSS-first. Default feeds are configured in `config/services.yaml`:
+- CoinDesk: `https://www.coindesk.com/arc/outboundfeeds/rss/`
+- Cointelegraph: `https://cointelegraph.com/rss`
+- Cointelegraph Bitcoin: `https://cointelegraph.com/rss/tag/bitcoin`
+- Cointelegraph Ethereum: `https://cointelegraph.com/rss/tag/ethereum`
+
+NewsAPI is used as a fallback when RSS does not return enough relevant items. CryptoPanic is optional and disabled by default because its v2 API is plan-gated and the developer route returned 404 in this environment.
+
 ## Setup Requirements
 
 ### Prerequisites
@@ -148,8 +159,12 @@ chcp 65001  # If running in cmd.exe
 # Set up your .env file with required API keys:
 BINANCE_API_KEY=your_key_here         # Obtain from Binance Testnet
 BINANCE_API_SECRET=your_secret_here   # Obtain from Binance Testnet
-CRYPTOPANIC_API_KEY=your_key_here     # Required for news feeds
+NEWS_API_KEY=your_key_here            # Optional fallback for news feeds
 HUGGINGFACE_TOKEN=your_token_here     # Optional for model access
+
+# Optional paid/provider-specific fallback:
+CRYPTOPANIC_API_KEY=
+CRYPTOPANIC_API_PLAN=developer
 ```
 
 ### Running the System
@@ -169,9 +184,9 @@ python main.py -v
 ### Known Issues
 
 - **API Connectivity**
-  - Binance client fails with invalid `base_url` parameter
-  - CryptoPanic API returns null values for some endpoints
-  - Error handling needs improvement for API failures
+  - CryptoPanic is disabled by default because API access is plan-gated
+  - NewsAPI fallback can return zero articles for narrow crypto queries
+  - Error handling needs continued hardening for provider outages
 
 - **Sentiment Analysis**
   - Method discrepancies between `analyze()` and `analyze_text()`
@@ -204,9 +219,9 @@ python main.py -v
 ## Known Issues
 
 - **API Connectivity**
-  - Binance client initialization fails with invalid parameters (base_url not supported)
-  - CryptoPanic API endpoints return null values
-  - Error handling for API failures needs improvement
+  - CryptoPanic API access is plan-gated and optional
+  - RSS feeds are provider-controlled and may occasionally change format or URLs
+  - Error handling for external API failures needs continued improvement
 
 - **Sentiment Analysis**
   - Method implementation discrepancies between `analyze()` and `analyze_text()`

@@ -39,12 +39,21 @@ api:
 
   # News API providers
   news:
-    # Primary news provider
-    provider: "cryptopanic"
-    key: ${CRYPTOPANIC_API_KEY}
-    plan: ${CRYPTOPANIC_API_PLAN}
-    endpoint: "https://cryptopanic.com/api/${CRYPTOPANIC_API_PLAN}/v2/"
-    rate_limit: 60  # Requests per minute
+    # Primary news provider. RSS is preferred because CryptoPanic v2 is gated by paid plan routing.
+    provider: "rss"
+    sources: ["rss", "newsapi"]
+    rss_feeds:
+      - "https://www.coindesk.com/arc/outboundfeeds/rss/"
+      - "https://cointelegraph.com/rss"
+      - "https://cointelegraph.com/rss/tag/bitcoin"
+      - "https://cointelegraph.com/rss/tag/ethereum"
+    # Optional paid/provider-specific CryptoPanic fallback.
+    cryptopanic:
+      enabled: false
+      key: ${CRYPTOPANIC_API_KEY}
+      plan: ${CRYPTOPANIC_API_PLAN}
+      endpoint: "https://cryptopanic.com/api/${CRYPTOPANIC_API_PLAN}/v2/"
+      rate_limit: 60  # Requests per minute
     
     # Fallback news provider
     fallback:
@@ -87,7 +96,12 @@ data_feeds:
     update_interval: 300       # Seconds between updates
     cache_ttl: 3600            # Cache time-to-live (seconds)
     max_cache_size: 1000       # Maximum news items to cache
-    sources: ["cryptopanic", "newsapi"]
+    sources: ["rss", "newsapi"]
+    rss_feeds:
+      - "https://www.coindesk.com/arc/outboundfeeds/rss/"
+      - "https://cointelegraph.com/rss"
+      - "https://cointelegraph.com/rss/tag/bitcoin"
+      - "https://cointelegraph.com/rss/tag/ethereum"
     languages: ["en"]          # Filter for English news
     relevance_threshold: 0.5   # Minimum relevance score
     batch_size: 10             # Process news in batches

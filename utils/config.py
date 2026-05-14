@@ -90,7 +90,7 @@ class ConfigManager:
                 pass
                 
         # Load news API credentials
-        self._load_api_credentials('cryptopanic', required=True)
+        self._load_api_credentials('cryptopanic', required=False)
         self._load_api_credentials('newsapi', required=False)
     
     def _load_exchange_credentials(self, exchange: str, required: bool = True) -> None:
@@ -138,8 +138,7 @@ class ConfigManager:
         # Core required variables
         required = {
             'BINANCE_API_KEY': 'Binance API Key',
-            'BINANCE_API_SECRET': 'Binance API Secret',
-            'CRYPTOPANIC_API_KEY': 'CryptoPanic API Key'
+            'BINANCE_API_SECRET': 'Binance API Secret'
         }
         
         missing = []
