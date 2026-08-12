@@ -1,3 +1,5 @@
+
+
 # FinGPT Trader
 
 A quantitative trading system that combines Falcon-7B language model-driven sentiment analysis with technical market analysis to identify cryptocurrency trading opportunities. The system's core innovation is its confidence-weighted sentiment scoring mechanism, which integrates both the sentiment value and the model's confidence level to generate more reliable trading signals.
@@ -136,7 +138,7 @@ NewsAPI is used as a fallback when RSS does not return enough relevant items. Cr
 ## Setup Requirements
 
 ### Prerequisites
-- Python 3.8+ with asyncio support
+- Python 3.11+
 - Windows, macOS, or Linux 
 - 8GB+ RAM recommended (for model loading)
 - CUDA-compatible GPU recommended but not required
