@@ -1,4 +1,4 @@
-# FinGPT Trader
+# FinGPT Trader (AVJC)
 
 A quantitative trading system that combines Falcon-7B language model-driven sentiment analysis with technical market analysis to identify cryptocurrency trading opportunities. The system's core innovation is its confidence-weighted sentiment scoring mechanism, which integrates both the sentiment value and the model's confidence level to generate more reliable trading signals.
 
