@@ -1,0 +1,445 @@
+{
+  "corpus": "nse",
+  "model": "second-state/FinGPT-MT-Llama-3-8B-LoRA-GGUF",
+  "revision": "bd23528d188976308fe113f53179954514997c21",
+  "quantization": "Q4_K_M",
+  "runtime": "0.3.38",
+  "ended_at": "2026-11-23T15:24:08.965192+00:00",
+  "input_hashes": {
+    "documents.json": "45d2d72872657a523e2f18fbfd9010badd0efafcce4f2247807476a39a097550",
+    "labels.json": "d338716afe7e0ff4578dae7a6a65c0e26aa437e1ea022581bb37dc729a034b3d"
+  },
+  "extractors": {
+    "rules": {
+      "expected": 20,
+      "returned": 20,
+      "correct": 20,
+      "supported": 20,
+      "abstentions": 0,
+      "field_accuracy": 1.0,
+      "citation_precision": 1.0,
+      "wall_seconds": 0.000647667002340313,
+      "rows": [
+        {
+          "document": "statement",
+          "field": "period_end",
+          "prediction": {
+            "value": "2024-12-31",
+            "source": "fixture://nse/statement",
+            "page": 1,
+            "quote": "period ended 2024-12-31",
+            "attribution": "issuer financial statement"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "statement",
+          "field": "revenue",
+          "prediction": {
+            "value": "2,500,000",
+            "source": "fixture://nse/statement",
+            "page": 1,
+            "quote": "revenue was KES 2,500,000",
+            "attribution": "issuer financial statement"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "statement",
+          "field": "currency",
+          "prediction": {
+            "value": "KES",
+            "source": "fixture://nse/statement",
+            "page": 1,
+            "quote": "revenue was KES 2,500,000.",
+            "attribution": "issuer financial statement"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "dividend-original",
+          "field": "issuer",
+          "prediction": {
+            "value": "Example Kenyan Issuer PLC",
+            "source": "fixture://nse/dividend-original",
+            "page": 1,
+            "quote": "Example Kenyan Issuer PLC",
+            "attribution": "issuer announcement"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "dividend-original",
+          "field": "status",
+          "prediction": {
+            "value": "approved",
+            "source": "fixture://nse/dividend-original",
+            "page": 1,
+            "quote": "Approved dividend",
+            "attribution": "issuer announcement"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "dividend-original",
+          "field": "currency",
+          "prediction": {
+            "value": "KES",
+            "source": "fixture://nse/dividend-original",
+            "page": 1,
+            "quote": "KES 1.00 per share",
+            "attribution": "issuer announcement"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "dividend-original",
+          "field": "amount",
+          "prediction": {
+            "value": "1.00",
+            "source": "fixture://nse/dividend-original",
+            "page": 1,
+            "quote": "KES 1.00 per share",
+            "attribution": "issuer announcement"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "dividend-original",
+          "field": "ex_date",
+          "prediction": {
+            "value": "2025-01-13",
+            "source": "fixture://nse/dividend-original",
+            "page": 1,
+            "quote": "Ex-date: 2025-01-13",
+            "attribution": "issuer announcement"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "dividend-original",
+          "field": "book_closure",
+          "prediction": {
+            "value": "2025-01-14",
+            "source": "fixture://nse/dividend-original",
+            "page": 1,
+            "quote": "Book closure: 2025-01-14",
+            "attribution": "issuer announcement"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "dividend-original",
+          "field": "pay_date",
+          "prediction": {
+            "value": "2025-01-16",
+            "source": "fixture://nse/dividend-original",
+            "page": 1,
+            "quote": "Payment date: 2025-01-16",
+            "attribution": "issuer announcement"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "dividend-correction",
+          "field": "issuer",
+          "prediction": {
+            "value": "Example Kenyan Issuer PLC",
+            "source": "fixture://nse/dividend-correction",
+            "page": 1,
+            "quote": "Example Kenyan Issuer PLC",
+            "attribution": "issuer announcement"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "dividend-correction",
+          "field": "status",
+          "prediction": {
+            "value": "approved",
+            "source": "fixture://nse/dividend-correction",
+            "page": 1,
+            "quote": "Approved dividend",
+            "attribution": "issuer announcement"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "dividend-correction",
+          "field": "currency",
+          "prediction": {
+            "value": "KES",
+            "source": "fixture://nse/dividend-correction",
+            "page": 1,
+            "quote": "KES 1.20 per share",
+            "attribution": "issuer announcement"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "dividend-correction",
+          "field": "amount",
+          "prediction": {
+            "value": "1.20",
+            "source": "fixture://nse/dividend-correction",
+            "page": 1,
+            "quote": "KES 1.20 per share",
+            "attribution": "issuer announcement"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "dividend-correction",
+          "field": "ex_date",
+          "prediction": {
+            "value": "2025-01-13",
+            "source": "fixture://nse/dividend-correction",
+            "page": 1,
+            "quote": "Ex-date: 2025-01-13",
+            "attribution": "issuer announcement"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "dividend-correction",
+          "field": "book_closure",
+          "prediction": {
+            "value": "2025-01-14",
+            "source": "fixture://nse/dividend-correction",
+            "page": 1,
+            "quote": "Book closure: 2025-01-14",
+            "attribution": "issuer announcement"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "dividend-correction",
+          "field": "pay_date",
+          "prediction": {
+            "value": "2025-01-16",
+            "source": "fixture://nse/dividend-correction",
+            "page": 1,
+            "quote": "Payment date: 2025-01-16",
+            "attribution": "issuer announcement"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "claim",
+          "field": "claim",
+          "prediction": {
+            "value": "The claimant alleges that payment was delayed.",
+            "source": "fixture://nse/claim",
+            "page": 1,
+            "quote": "The claimant alleges that payment was delayed.",
+            "attribution": "claimant allegation"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "finding",
+          "field": "claim",
+          "prediction": {
+            "value": "The court found that delivery occurred on 2024-12-20.",
+            "source": "fixture://nse/finding",
+            "page": 1,
+            "quote": "The court found that delivery occurred on 2024-12-20.",
+            "attribution": "court finding"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "news",
+          "field": "claim",
+          "prediction": {
+            "value": "The publisher reported that the company opened a new office.",
+            "source": "fixture://nse/news",
+            "page": 1,
+            "quote": "The publisher reported that the company opened a new office.",
+            "attribution": "news report"
+          },
+          "correct": true,
+          "supported": true
+        }
+      ]
+    },
+    "FinGPT": {
+      "expected": 20,
+      "returned": 0,
+      "correct": 0,
+      "supported": 0,
+      "abstentions": 20,
+      "field_accuracy": 0.0,
+      "citation_precision": null,
+      "wall_seconds": 1.4759423749928828,
+      "rows": [
+        {
+          "document": "statement",
+          "field": "period_end",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "statement",
+          "field": "revenue",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "statement",
+          "field": "currency",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "dividend-original",
+          "field": "issuer",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "dividend-original",
+          "field": "status",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "dividend-original",
+          "field": "currency",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "dividend-original",
+          "field": "amount",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "dividend-original",
+          "field": "ex_date",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "dividend-original",
+          "field": "book_closure",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "dividend-original",
+          "field": "pay_date",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "dividend-correction",
+          "field": "issuer",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "dividend-correction",
+          "field": "status",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "dividend-correction",
+          "field": "currency",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "dividend-correction",
+          "field": "amount",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "dividend-correction",
+          "field": "ex_date",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "dividend-correction",
+          "field": "book_closure",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "dividend-correction",
+          "field": "pay_date",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "claim",
+          "field": "claim",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "finding",
+          "field": "claim",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "news",
+          "field": "claim",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        }
+      ],
+      "model_sha256": "4bebb8b47fc9d113f01ab5113152074a806600017ea12040e547acce0a35922a",
+      "tokens": 512,
+      "diagnostics": {
+        "calls": 6,
+        "finish_stop": 6,
+        "invalid_json": 6
+      }
+    }
+  }
+}
