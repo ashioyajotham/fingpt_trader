@@ -1,0 +1,22 @@
+[
+  {
+    "id": "kcb-fy25-proposal",
+    "kind": "dividend_notice",
+    "issuer": "KCB Group PLC",
+    "attribution": "issuer press release, 11 March 2026, page 1",
+    "source": "https://kcbgroup.com/download-report?document=kcb-group-press-release--fy-2025-performance--final.pdf#page=1",
+    "pages": [
+      "the Board has proposed a final dividend payout of KShs. 3 per share, subject to shareholder approval."
+    ]
+  },
+  {
+    "id": "equity-fy25-approval",
+    "kind": "dividend_notice",
+    "issuer": "Equity Group Holdings Plc",
+    "attribution": "issuer AGM release, 24 June 2026, dividend paragraph; HTML passage 1",
+    "source": "https://equitygroupholdings.com/nairobi-24th-june-2026-equity-group-holdings-plc-shareholders-have-approved-all-proposed-resolutions-tabled-at-the-22nd-annual-general-meeting-agm-including-dividend-payout-board-appointments-a/",
+    "pages": [
+      "Shareholders approved a first and final dividend of Kshs. 21.70 billion (Kshs. 5.75 per share)"
+    ]
+  }
+]

@@ -1,0 +1,36 @@
+{
+  "kcb-fy25-proposal": {
+    "amount": {
+      "value": "3",
+      "page": 1,
+      "span": "3 per share"
+    },
+    "currency": {
+      "value": "KES",
+      "page": 1,
+      "span": "KShs."
+    },
+    "status": {
+      "value": "proposed",
+      "page": 1,
+      "span": "proposed"
+    }
+  },
+  "equity-fy25-approval": {
+    "amount": {
+      "value": "5.75",
+      "page": 1,
+      "span": "5.75 per share"
+    },
+    "currency": {
+      "value": "KES",
+      "page": 1,
+      "span": "Kshs."
+    },
+    "status": {
+      "value": "approved",
+      "page": 1,
+      "span": "approved"
+    }
+  }
+}

@@ -8,7 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from .data import FIXTURES, instant, load_dataset, number
-from .evidence import LocalFinGPT, extract_rules, score_extractor
+from .evidence import LocalFinGPT, extract_rules, evaluate_documents
 from .experiments import compare, dataset_hash, load_features, model_features, simulate
 from .forward import ForwardBook
 from .paper import Assumptions
@@ -38,6 +38,7 @@ def get_parser():
             cmd.add_argument("--gguf", type=Path, required=name == "features",
                              help="local FinGPT weights for optional inference")
         if name == "evaluate":
+            cmd.add_argument("--corpus", type=Path, help="standalone directory with source documents and reference labels")
             cmd.add_argument("--labels", type=Path, help="reviewed JSON references (default: dataset labels.json)")
         if name == "features":
             cmd.add_argument("--model-available-at", type=instant, required=True)
@@ -57,6 +58,13 @@ def get_parser():
 
 
 def run(args):
+    if args.command == "evaluate" and args.corpus:
+        if args.as_of:
+            raise ValueError("standalone excerpt evaluation does not use a market replay clock")
+        documents = json.loads((args.corpus / "documents.json").read_text())
+        labels = json.loads((args.labels or args.corpus / "labels.json").read_text())
+        model = LocalFinGPT(args.gguf) if args.gguf else None
+        return {"corpus": args.corpus.name, "extractors": evaluate_documents(documents, labels, model)}
     root = FIXTURES / args.dataset if args.dataset in {"binance", "nse", "nse-public-sample"} else Path(args.dataset)
     dataset = load_dataset(root)
     full_dataset = dataset
@@ -78,11 +86,7 @@ def run(args):
                      "extractor": model.version if model else "rules-v1",
                      "fields": extract(d)} for d in dataset.documents]
         labels = json.loads((args.labels or root / "labels.json").read_text())
-        scores = {"rules": score_extractor(dataset.documents, labels, extract_rules)}
-        if model:
-            scores["FinGPT"] = score_extractor(dataset.documents, labels, model.extract)
-            scores["FinGPT"].update(model_sha256=model.version, tokens=model.tokens)
-        return {"dataset": dataset.meta["source"], "extractors": scores}
+        return {"dataset": dataset.meta["source"], "extractors": evaluate_documents(dataset.documents, labels, model)}
     config = Assumptions(args.cash, args.fee_bps, args.slippage_bps, args.participation, args.max_exposure)
     features = load_features(args.features, full_dataset)
     if args.as_of:

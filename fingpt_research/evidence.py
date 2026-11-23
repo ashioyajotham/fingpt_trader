@@ -3,6 +3,8 @@
 import hashlib
 import json
 import re
+from collections import Counter
+from platform import machine, system
 from time import perf_counter
 
 DIVIDEND_FIELDS = {
@@ -57,16 +59,21 @@ class LocalFinGPT:
 
         with path.open("rb") as stream:
             self.version = hashlib.file_digest(stream, "sha256").hexdigest()
-        self.model = Llama(model_path=str(path), n_ctx=4096, seed=0, verbose=False)
+        gpu_layers = -1 if system() == "Darwin" and machine() == "arm64" else 0
+        self.model = Llama(model_path=str(path), n_ctx=4096, seed=0, verbose=False, n_gpu_layers=gpu_layers)
+        self.diagnostics = Counter()
         self.tokens = 0
 
     def generate_json(self, instruction, doc):
         prompt = "Instruction: " + instruction + "\nInput: " + json.dumps(doc["pages"], ensure_ascii=False)
         response = self.model(prompt + "\nAnswer: ", temperature=0, max_tokens=768)
         self.tokens += response["usage"]["total_tokens"]
+        self.diagnostics["calls"] += 1
+        self.diagnostics["finish_" + str(response["choices"][0].get("finish_reason"))] += 1
         try:
             answer = json.loads(response["choices"][0]["text"])
         except json.JSONDecodeError:
+            self.diagnostics["invalid_json"] += 1
             return {}
         return answer if isinstance(answer, dict) else {}
 
@@ -137,3 +144,15 @@ def score_extractor(documents, labels, extractor):
     return {**totals, "field_accuracy": totals["correct"] / len(rows) if rows else None,
             "citation_precision": totals["supported"] / totals["returned"] if totals["returned"] else None,
             "wall_seconds": perf_counter() - start, "rows": rows}
+
+
+def evaluate_documents(documents, labels, model=None):
+    """Use identical source passages and scoring for every candidate."""
+    ids = [doc["id"] for doc in documents]
+    if len(ids) != len(set(ids)) or any(key not in labels for key in ids):
+        raise ValueError("each document requires a unique ID and reference annotation")
+    scores = {"rules": score_extractor(documents, labels, extract_rules)}
+    if model is not None:
+        scores["FinGPT"] = score_extractor(documents, labels, model.extract)
+        scores["FinGPT"].update(model_sha256=model.version, tokens=model.tokens, diagnostics=dict(model.diagnostics))
+    return scores
