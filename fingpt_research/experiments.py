@@ -39,10 +39,7 @@ def model_features(model, dataset, model_available_at, latency_seconds):
     for doc in dataset.documents:
         if doc["available_at"] < model_available_at:
             continue
-        prediction = model.generate_json(
-            'Classify sentiment toward the issuer. Return {"sentiment":"positive|neutral|negative"}.', doc)
-        label = prediction.get("sentiment")
-        score = {"positive": 1, "neutral": 0, "negative": -1}.get(label) if isinstance(label, str) else None
+        score = model.sentiment(doc)
         if score is None:
             continue
         rows.append({"instrument": dataset.meta["instrument"], "producer": "FinGPT-local-sentiment-v1",

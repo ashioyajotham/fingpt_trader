@@ -122,6 +122,7 @@ class ResearchRelease(unittest.TestCase):
         self.assertEqual((result["expected"], result["supported"]), (20, 20))
         doc = self.ds.documents[1]
         fake = object.__new__(LocalFinGPT)
+        fake.passages = Mock(return_value=[(1, doc["pages"][0])])
         fake.generate_json = Mock(return_value={
             "amount": {"page": 1, "quote": "invented", "value": "4"},
             "currency": {"page": 1, "quote": "KES 1.00 per share", "value": "KES"}
@@ -142,7 +143,7 @@ class ResearchRelease(unittest.TestCase):
 
     def test_model_feature_timing_and_comparison(self):
         model = Mock(version="test-stub")
-        model.generate_json.return_value = {"sentiment": "negative"}
+        model.sentiment.return_value = -1
         rows = model_features(model, self.ds, instant("2024-01-01T00:00:00Z"), 60)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "features.json"

@@ -70,22 +70,45 @@ class LocalFinGPT:
             return {}
         return answer if isinstance(answer, dict) else {}
 
+    def passages(self, doc):
+        """Keep prompts within the GGUF context and retain original page numbers."""
+        for page, text in enumerate(doc["pages"], 1):
+            tokens = self.model.tokenize(text.encode("utf-8"), add_bos=False)
+            for start in range(0, len(tokens), 1900):
+                fragment = self.model.detokenize(tokens[start:start + 2000]).decode("utf-8", errors="ignore")
+                yield page, fragment
+
+    def sentiment(self, doc):
+        scores = []
+        for _, passage in self.passages(doc):
+            answer = self.generate_json(
+                'Classify sentiment toward the issuer. Return {"sentiment":"positive|neutral|negative"}.',
+                {"pages": [passage]})
+            label = answer.get("sentiment")
+            if isinstance(label, str) and label in {"positive", "neutral", "negative"}:
+                scores.append({"positive": 1, "neutral": 0, "negative": -1}[label])
+        if scores:
+            return (sum(scores) > 0) - (sum(scores) < 0)
+        return None
+
     def extract(self, doc):
         prompt = ("Extract these fields: " + ", ".join(fields(doc)) +
                   '. Return {field: {"value": string, "page": integer, "quote": exact source text}}.'
                   " Omit unknown fields. Use lowercase status. Count pages from one.")
-        candidates = self.generate_json(prompt, doc)
-        result = {}
-        for field in fields(doc):
-            item = candidates.get(field)
-            if not isinstance(item, dict):
-                continue
-            page, quote, value = item.get("page"), item.get("quote"), item.get("value")
-            if (type(page) is int and 1 <= page <= len(doc["pages"]) and isinstance(quote, str)
-                    and quote.strip() and quote in doc["pages"][page - 1] and isinstance(value, str)
-                    and value.strip() and value.casefold() in quote.casefold()):
-                result[field] = citation(doc, value, page, quote)
-        return result
+        matches = {field: {} for field in fields(doc)}
+        for page, passage in self.passages(doc):
+            candidates = self.generate_json(prompt, {"pages": [passage]})
+            for field, alternatives in matches.items():
+                item = candidates.get(field)
+                if not isinstance(item, dict) or item.get("page") != 1:
+                    continue
+                quote, value = item.get("quote"), item.get("value")
+                if (isinstance(quote, str) and quote.strip() and quote in passage
+                        and quote in doc["pages"][page - 1] and isinstance(value, str)
+                        and value.strip() and value.casefold() in quote.casefold()):
+                    alternatives[value] = citation(doc, value, page, quote)
+        return {field: next(iter(values.values())) for field, values in matches.items() if len(values) == 1}
+
 
 
 def score_extractor(documents, labels, extractor):
