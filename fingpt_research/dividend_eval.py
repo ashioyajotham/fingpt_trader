@@ -112,13 +112,13 @@ def score(predictions, labels):
 
 
 def evaluate(split, backend=None):
-    docs, membership, labels, digest = load_corpus()
+    docs, membership, labels, digest = load_corpus(reviewed=True)
     docs = [d for d in docs if membership[d["id"]]["split"] == split]
     if backend and len(docs) > getattr(backend, "max_calls", len(docs)):
         raise ValueError(f"split needs {len(docs)} requests; increase --max-calls or select a smaller split")
     base = {d["id"]: rules(d) for d in docs}
     result = {"corpus_sha256": digest, "split": split, "passages": len(docs),
-              "rules": score(base, labels), "reference_status": "single-reader"}
+              "rules": score(base, labels), "reference_status": "adjudicated"}
     if backend:
         model, hybrid, times = {}, {}, {}
         calls = 0

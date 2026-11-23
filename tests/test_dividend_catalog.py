@@ -51,7 +51,11 @@ def test_frozen_splits_and_model_input_boundary():
     assert predict(Dummy(), docs[0]) == {}
     result = evaluate("prospective")
     assert result["passages"] == 7
-    assert result["rules"]["totals"]["expected"] == 19
+    assert result["rules"]["totals"]["expected"] == 20
+    assert result["reference_status"] == "adjudicated"
+    assert load_corpus()[-1] != result["corpus_sha256"]
+    rows = query("--as-of", "2025-03-20", "--symbol", "SCBK", "--status", "paid")
+    assert next(r for r in rows if r["event"] == "SCBK-2024-interim")["fields"]["amount"]["value"] == "8"
 
 
 def test_blind_reconciliation_requires_verbatim_sources():

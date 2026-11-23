@@ -13,7 +13,7 @@ STATUSES = ("proposed", "declared", "approved", "paid", "cancelled")
 SNAPSHOT = "2026-11-23T16:05:00Z"
 
 
-def load_corpus(root=CORPUS):
+def load_corpus(root=CORPUS, *, reviewed=False):
     parts = {}
     digest = hashlib.sha256()
     for name in ("notices", "membership", "reference"):
@@ -21,6 +21,14 @@ def load_corpus(root=CORPUS):
         digest.update(name.encode() + b"\0" + raw)
         parts[name] = json.loads(raw)
     notices, membership, reference = (parts[k] for k in ("notices", "membership", "reference"))
+    if reviewed:
+        raw = (root / "adjudication.json").read_bytes()
+        review = json.loads(raw)
+        if review["original_corpus_sha256"] != digest.hexdigest():
+            raise ValueError("review belongs to a different frozen corpus")
+        for key, updates in review["accepted_fields"].items():
+            reference[key].update(updates)
+        digest.update(b"adjudication\0" + raw)
     ids = {row["id"] for row in notices}
     if len(ids) != len(notices) or ids != set(reference) or ids != set(membership):
         raise ValueError("notice, membership and reference IDs must match uniquely")
@@ -47,7 +55,7 @@ def cutoff(value):
 
 
 def actions(as_of, symbol=None, status=None, history=False, clock="disclosure", root=CORPUS):
-    docs, groups, labels, digest = load_corpus(root)
+    docs, groups, labels, digest = load_corpus(root, reviewed=True)
     locators = json.loads((root / "locators.json").read_text())
     until = cutoff(as_of)
     state, changes = {}, []
@@ -75,7 +83,7 @@ def actions(as_of, symbol=None, status=None, history=False, clock="disclosure", 
         state[event] = entry
         changes.append(entry)
     rows = changes if history else list(state.values())
-    return {"clock": clock, "as_of": until.isoformat(), "reference_status": "single-reader",
+    return {"clock": clock, "as_of": until.isoformat(), "reference_status": "adjudicated",
             "availability_basis": ("next Nairobi midnight after the dated issuer disclosure"
                                    if clock == "disclosure" else "conservative bound for this collected snapshot"),
             "corpus_sha256": digest, "rows": [r for r in rows if not status or

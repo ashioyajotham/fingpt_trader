@@ -1,6 +1,6 @@
 # Kenyan issuer dividend disclosures
 
-The research CLI includes 42 short passages from 38 distinct issuer documents across nine NSE issuers. It runs offline without a broker, price feed or model. The included catalog uses first-reader annotations. Model predictions are separate benchmark outputs and cannot change company actions, portfolio cash flows or orders.
+The research CLI includes 42 short passages from 38 distinct issuer documents across nine NSE issuers. It runs offline without a broker, price feed or model. The included catalog uses adjudicated annotations from two readers. Model predictions are separate benchmark outputs and cannot change company actions, portfolio cash flows or orders.
 
 ## Replay one decision
 
@@ -19,15 +19,15 @@ Each event is grouped by issuer, fiscal year and distribution. Earlier observati
 
 The five scored fields are status, per-share amount, currency, record date and payment date. Source selection, event linkage and passage segmentation were performed by the first reader. The benchmark evaluates extraction from selected fragments. Full-document discovery, issuer identification, splitting multi-event filings and financial returns require separate evaluation.
 
-The first collection contains 18 development passages and 17 passages from separate issuers. Both sets were available during rule design. The seven prospective passages cover BAT Kenya and Standard Chartered Kenya. They were collected and labeled after commit `6ab5c84` froze the rules, prompt and routing choice. All three splits have disjoint issuers. An event and its later disclosures stay together. This is a small, purposive sample with a single reader until independent annotation is reconciled.
+The first collection contains 18 development passages and 17 passages from separate issuers. Both sets were available during rule design. The seven prospective passages cover BAT Kenya and Standard Chartered Kenya. They were collected and labeled after commit `6ab5c84` froze the rules, prompt and routing choice. All three splits have disjoint issuers. An event and its later disclosures stay together. The second reader completed all 42 passages. Of 210 field decisions, the readers agreed on 209 normalized values or shared absences. On 51 of those agreements they chose different verbatim spans. The original citation anchors were retained for those fields. The table uses the saved predictions rescored against the adjudicated values. [Rescored runs](../results/dividend-benchmark/adjudicated.json)
 
-| Prospective passages, 19 reference fields | Correct | Returned | Correct with reference span | Missed (abstained) | False approvals |
+| Prospective passages, 20 reference fields | Correct | Returned | Correct with reference span | Missed (abstained) | False approvals |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Rules | 17 | 19 | 17 | 1 | 0 |
-| FinGPT-MT Llama 3 8B | 13 | 21 | 9 | 5 | 0 |
-| Rules + FinGPT | 18 | 23 | 18 | 0 | 0 |
-| Vertex Gemini 3.5 Flash-Lite | 16 | 17 | 16 | 3 | 0 |
-| Rules + Vertex | 18 | 20 | 18 | 0 | 0 |
+| Rules | 18 | 19 | 18 | 1 | 0 |
+| FinGPT-MT Llama 3 8B | 13 | 21 | 9 | 6 | 0 |
+| Rules + FinGPT | 19 | 23 | 19 | 0 | 0 |
+| Vertex Gemini 3.5 Flash-Lite | 17 | 17 | 17 | 3 | 0 |
+| Rules + Vertex | 19 | 20 | 19 | 0 | 0 |
 
 | Earlier issuer split, 54 reference fields | Correct | Returned | Correct with reference span | False approvals |
 | --- | ---: | ---: | ---: | ---: |
@@ -37,7 +37,7 @@ The first collection contains 18 development passages and 17 passages from separ
 | Vertex | 48 | 49 | 46 | 0 |
 | Rules + Vertex | 54 | 55 | 54 | 0 |
 
-Correct fields require equality to the normalized reference. A supported citation additionally contains the annotated span. A false approval is an approved status returned on a passage whose reference does not say approved. An abstention is a missing prediction on an expected field. Returned includes extra predictions on absent fields. Source-grounding filters require a verbatim quote. A copied quote can still support the wrong interpretation. In the prospective set, the rules read “declared and paid” as declared. Both hybrids retained that rule decision. The annotation also treats the per-share basis of the KShs 8.00 in that short fragment as unresolved. This is an item for the second reader.
+Correct fields require equality to the normalized reference. A supported citation additionally contains the annotated span. A false approval is an approved status returned on a passage whose reference does not say approved. An abstention is a missing prediction on an expected field. Returned includes extra predictions on absent fields. Source-grounding filters require a verbatim quote. A copied quote can still support the wrong interpretation. In the prospective set, the rules read “declared and paid” as declared. Both hybrids retained that rule decision. The second reader entered KES 8 for the interim per-share amount and flagged the omitted unit. The surrounding issuer disclosure confirms the basis by reconciling KES 37 final and KES 8 interim to KES 45 per ordinary share. The catalog accepts the amount. [Issuer release, page 2](https://av.sc.com/ke/content/docs/ke-press-release-standard-chartered-fy-2024-results.pdf#page=2)
 
 The hybrid keeps the rule values and uses the model to fill missing fields only when a core field (status, amount or currency) is missing. It routed 2 of 7 prospective passages and 2 of 17 in the other split. The comparison reused the standalone model's per-passage outputs for these routes. Timings and billing below cover the standalone calls. The model receives only the fragments, prompt and schema, without reference values, identifiers or the target event. Local decoding uses the installed FinGPT Q4_K_M checkpoint with temperature zero, JSON grammar and a 768-token completion cap. The Vertex backend requests the same task, schema, temperature and output cap through the global publisher endpoint. The service reported `gemini-3.5-flash-lite` on every call. A more specific immutable serving revision was unavailable.
 
@@ -51,4 +51,4 @@ python -m tools.dividend_review > blind-review.json
 python -m tools.dividend_review --returned dividend-review-return.json
 ```
 
-Vertex requires an authenticated Google Cloud CLI with model access in the supplied project. This research uses on-demand requests. The review export supplies empty fields, verbatim excerpts, source links and verified PDF pages where available. Some historical issuer PDFs block automated retrieval or have moved. The locator records the direct-fetch outcome or the current PDF address, hash and matched page where verified. The reviewer can record disagreements about the evidence or source in the notes. Reconciliation reports missing reviews, changed values and different spans. It leaves the frozen benchmark and catalog intact pending adjudication.
+Vertex requires an authenticated Google Cloud CLI with model access in the supplied project. This research uses on-demand requests. The review export supplies empty fields, verbatim excerpts, source links and verified PDF pages where available. Some historical issuer PDFs block automated retrieval or have moved. The locator records the direct-fetch outcome or the current PDF address, hash and matched page where verified. The reviewer can record disagreements about the evidence or source in the notes. Reconciliation reports missing reviews, changed values and different spans. The original reference file and prediction runs retain their original corpus hash. The reviewed catalog and the rescored runs use a distinct hash that includes the adjudication.
