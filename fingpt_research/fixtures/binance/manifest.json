@@ -8,5 +8,10 @@
   "source": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1d&startTime=1735689600000&limit=12",
   "calendar_version": "utc-24x7-daily-v1",
   "ingested_at": "2026-11-23T10:21:53Z",
-  "availability_basis": "Historical reconstruction assuming final daily bars available at close; capture time recorded separately."
+  "availability_basis": "Historical reconstruction assuming final daily bars available at close; capture time recorded separately.",
+  "evaluation": {
+    "first_test_session": "2025-01-06",
+    "fold_sessions": 3,
+    "horizon_sessions": 1
+  }
 }

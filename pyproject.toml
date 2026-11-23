@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fingpt_trader"
 version = "0.1.0"
-description = "FinGPT Market Inefficiency Detection System"
+description = "Point-in-time financial research and paper portfolio simulation"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
@@ -19,7 +19,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11"
 ]
 dependencies = [
-    # Dependencies will be read from requirements.txt
+    "tzdata; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
@@ -28,10 +28,15 @@ dev = [
     "black",
     "mypy",
     "flake8",
-    "pytest-asyncio"
+    "pytest-asyncio",
+    "numpy", "pandas", "scipy", "aiohttp", "requests",
+    "python-binance==1.0.27", "PyYAML", "rich", "python-dotenv"
 ]
 
+model = ["llama-cpp-python>=0.3.6,<0.4"]
+
 [project.scripts]
+fingpt-backtest = "fingpt_research.cli:backtest"
 fingpt-trade = "fingpt_research.cli:main"
 fingpt-analyze = "fingpt_research.cli:main"
 

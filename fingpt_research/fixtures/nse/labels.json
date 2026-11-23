@@ -1,0 +1,114 @@
+{
+  "statement": {
+    "period_end": {
+      "value": "2024-12-31",
+      "page": 1,
+      "span": "2024-12-31"
+    },
+    "revenue": {
+      "value": "2,500,000",
+      "page": 1,
+      "span": "2,500,000"
+    },
+    "currency": {
+      "value": "KES",
+      "page": 1,
+      "span": "KES"
+    }
+  },
+  "dividend-original": {
+    "issuer": {
+      "value": "Example Kenyan Issuer PLC",
+      "page": 1,
+      "span": "Example Kenyan Issuer PLC"
+    },
+    "status": {
+      "value": "approved",
+      "page": 1,
+      "span": "Approved dividend"
+    },
+    "currency": {
+      "value": "KES",
+      "page": 1,
+      "span": "KES"
+    },
+    "amount": {
+      "value": "1.00",
+      "page": 1,
+      "span": "KES 1.00 per share"
+    },
+    "ex_date": {
+      "value": "2025-01-13",
+      "page": 1,
+      "span": "2025-01-13"
+    },
+    "book_closure": {
+      "value": "2025-01-14",
+      "page": 1,
+      "span": "2025-01-14"
+    },
+    "pay_date": {
+      "value": "2025-01-16",
+      "page": 1,
+      "span": "2025-01-16"
+    }
+  },
+  "dividend-correction": {
+    "issuer": {
+      "value": "Example Kenyan Issuer PLC",
+      "page": 1,
+      "span": "Example Kenyan Issuer PLC"
+    },
+    "status": {
+      "value": "approved",
+      "page": 1,
+      "span": "Approved dividend"
+    },
+    "currency": {
+      "value": "KES",
+      "page": 1,
+      "span": "KES"
+    },
+    "amount": {
+      "value": "1.20",
+      "page": 1,
+      "span": "KES 1.20 per share"
+    },
+    "ex_date": {
+      "value": "2025-01-13",
+      "page": 1,
+      "span": "2025-01-13"
+    },
+    "book_closure": {
+      "value": "2025-01-14",
+      "page": 1,
+      "span": "2025-01-14"
+    },
+    "pay_date": {
+      "value": "2025-01-16",
+      "page": 1,
+      "span": "2025-01-16"
+    }
+  },
+  "claim": {
+    "claim": {
+      "value": "The claimant alleges that payment was delayed.",
+      "page": 1,
+      "span": "The claimant alleges that payment was delayed."
+    }
+  },
+  "finding": {
+    "claim": {
+      "value": "The court found that delivery occurred on 2024-12-20.",
+      "page": 1,
+      "span": "The court found that delivery occurred on 2024-12-20."
+    }
+  },
+  "news": {
+    "claim": {
+      "value": "The publisher reported that the company opened a new office.",
+      "page": 1,
+      "span": "The publisher reported that the company opened a new office."
+    }
+  }
+}

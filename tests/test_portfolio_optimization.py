@@ -49,3 +49,13 @@ def test_risk_management():
     assert 'var' in risk_metrics
     assert 'current_drawdown' in risk_metrics
     assert risk_metrics['var'] >= 0
+
+
+def test_drawdown_recovery_and_offsetting_positions():
+    manager = RiskManager()
+    for nav in (100, 80, 100):
+        metrics = manager.calculate_risk_metrics({"cash": nav, "values": {"long": 50, "short": -50}})
+    assert metrics["current_drawdown"] == 0
+    assert metrics["max_drawdown"] == pytest.approx(0.2)
+    assert metrics["gross_exposure"] == metrics["total_exposure"] == 1
+    assert metrics["net_exposure"] == 0

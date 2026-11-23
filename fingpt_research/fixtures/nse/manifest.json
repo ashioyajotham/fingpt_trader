@@ -1,0 +1,17 @@
+{
+  "adapter": "nse-daily",
+  "instrument": "XNAI:DEMO-001",
+  "venue": "Nairobi Securities Exchange (fixture)",
+  "issuer": "Example Kenyan Issuer PLC",
+  "currency": "KES",
+  "lot_size": "1",
+  "calendar_version": "synthetic-nairobi-2025-01-v1",
+  "ingested_at": "2025-02-01T00:00:00Z",
+  "price_basis": "raw",
+  "source": "Synthetic teaching fixture; fictional issuer, prices, documents and calendar.",
+  "evaluation": {
+    "first_test_session": "2025-01-09",
+    "fold_sessions": 3,
+    "horizon_sessions": 1
+  }
+}
