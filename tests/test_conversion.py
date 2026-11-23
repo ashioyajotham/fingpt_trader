@@ -1,7 +1,6 @@
 import logging
 from pathlib import Path
 import pytest
-from models.llm.convert import convert_model
 
 logging.basicConfig(level=logging.INFO)
 
@@ -11,6 +10,8 @@ def test_conversion():
     if not model_dir.exists():
         pytest.skip(f"Model checkpoint not available: {model_dir}")
     
+    from models.llm.convert import convert_model
+
     success = convert_model(
         model_dir=str(model_dir),
         output_path=str(output_path),
