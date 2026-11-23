@@ -68,14 +68,20 @@ class Dataset:
     def report(self, cutoff):
         from dataclasses import asdict
 
+        visible = [d for d in self.documents if cutoff is None or d["available_at"] <= cutoff]
+        superseded = {d["supersedes"] for d in visible if "supersedes" in d}
         return {"dataset": self.meta, "observations": [
             asdict(bar) for bar in self.bars if cutoff is None or bar.available_at <= cutoff
         ], "documents": [
-            doc for doc in self.documents if cutoff is None or doc["available_at"] <= cutoff
+            {**doc, "superseded": doc["id"] in superseded} for doc in visible
         ]}
 
 
-def load_dataset(root):
+def read_binance(root, meta):
+    return list(binance_bars(root, meta)), []
+
+
+def load_dataset(root, adapters=None):
     root = Path(root)
     meta = json.loads((root / "manifest.json").read_text())
     for key in ("instrument", "venue", "currency", "source", "calendar_version", "ingested_at"):
@@ -84,12 +90,16 @@ def load_dataset(root):
     captured = instant(meta["ingested_at"])
     if number(meta["lot_size"]) <= 0 or meta["price_basis"] != "raw":
         raise ValueError("positive lot size and raw prices required")
-    if meta["adapter"] != "binance-spot-daily":
-        raise ValueError("unsupported adapter")
-    bars = list(binance_bars(root, meta))
+    from .nse import read_nse
+
+    readers = {"nse-daily": read_nse, "binance-spot-daily": read_binance}
+    readers.update(adapters or {})
+    if meta["adapter"] not in readers:
+        raise ValueError(f"unsupported adapter: {meta['adapter']}")
+    bars, documents = readers[meta["adapter"]](root, meta)
     if not bars or any(a.session >= b.session or a.available_at >= b.available_at
                        for a, b in zip(bars, bars[1:])):
         raise ValueError("expected unique daily bars in observation order")
     if bars[-1].available_at > captured:
         raise ValueError("observation becomes available after capture")
-    return Dataset(meta, bars, [])
+    return Dataset(meta, bars, documents)

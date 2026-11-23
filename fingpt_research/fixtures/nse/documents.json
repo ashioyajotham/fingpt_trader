@@ -1,0 +1,94 @@
+[
+  {
+    "id": "statement",
+    "kind": "financial_statement",
+    "issuer": "Example Kenyan Issuer PLC",
+    "published": "2025-01-03",
+    "ingested_at": "2025-01-31T13:00:00Z",
+    "source": "fixture://nse/statement",
+    "attribution": "issuer financial statement",
+    "pages": [
+      "Example Kenyan Issuer PLC\nFor the period ended 2024-12-31, revenue was KES 2,500,000."
+    ],
+    "period_end": "2024-12-31"
+  },
+  {
+    "id": "dividend-original",
+    "kind": "dividend_notice",
+    "issuer": "Example Kenyan Issuer PLC",
+    "published": "2025-01-06T17:00:00+03:00",
+    "ingested_at": "2025-01-31T13:00:00Z",
+    "source": "fixture://nse/dividend-original",
+    "attribution": "issuer announcement",
+    "pages": [
+      "Example Kenyan Issuer PLC\nApproved dividend of KES 1.00 per share.\nEx-date: 2025-01-13. Book closure: 2025-01-14. Payment date: 2025-01-16."
+    ],
+    "dividend": {
+      "id": "FY24-final",
+      "amount": "1.00",
+      "currency": "KES",
+      "ex_date": "2025-01-13",
+      "book_closure": "2025-01-14",
+      "pay_date": "2025-01-16",
+      "status": "approved"
+    }
+  },
+  {
+    "id": "dividend-correction",
+    "supersedes": "dividend-original",
+    "kind": "dividend_notice",
+    "issuer": "Example Kenyan Issuer PLC",
+    "published": "2025-01-08T17:05:00+03:00",
+    "ingested_at": "2025-01-31T13:00:00Z",
+    "source": "fixture://nse/dividend-correction",
+    "attribution": "issuer announcement",
+    "pages": [
+      "Example Kenyan Issuer PLC\nApproved dividend of KES 1.20 per share.\nEx-date: 2025-01-13. Book closure: 2025-01-14. Payment date: 2025-01-16."
+    ],
+    "dividend": {
+      "id": "FY24-final",
+      "amount": "1.20",
+      "currency": "KES",
+      "ex_date": "2025-01-13",
+      "book_closure": "2025-01-14",
+      "pay_date": "2025-01-16",
+      "status": "approved"
+    }
+  },
+  {
+    "id": "claim",
+    "kind": "court_filing",
+    "issuer": "Example Kenyan Issuer PLC",
+    "published": "2025-01-14",
+    "ingested_at": "2025-01-31T13:00:00Z",
+    "source": "fixture://nse/claim",
+    "attribution": "claimant allegation",
+    "pages": [
+      "The claimant alleges that payment was delayed."
+    ]
+  },
+  {
+    "id": "finding",
+    "kind": "court_decision",
+    "issuer": "Example Kenyan Issuer PLC",
+    "published": "2025-01-16T09:30:00+03:00",
+    "ingested_at": "2025-01-31T13:00:00Z",
+    "source": "fixture://nse/finding",
+    "attribution": "court finding",
+    "pages": [
+      "The court found that delivery occurred on 2024-12-20."
+    ]
+  },
+  {
+    "id": "news",
+    "kind": "news",
+    "issuer": "Example Kenyan Issuer PLC",
+    "published": "2025-01-17T10:00:00+03:00",
+    "ingested_at": "2025-01-31T13:00:00Z",
+    "source": "fixture://nse/news",
+    "attribution": "news report",
+    "pages": [
+      "The publisher reported that the company opened a new office."
+    ]
+  }
+]

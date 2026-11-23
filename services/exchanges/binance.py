@@ -70,7 +70,8 @@ Dependencies:
 
 import logging
 from typing import Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from functools import partial
 import asyncio
 import hmac
 import hashlib
@@ -279,27 +280,19 @@ class BinanceClient:
     async def start_market_streams(self, symbols: List[str]) -> None:
         """Start real-time market data streams"""
         if not self.bsm:
-            if self.testnet:
-                # Override the default WebSocket URL pattern
-                self.bsm = BinanceSocketManager(
-                    self.client,
-                    user_timeout=60,
-                    url="wss://stream.testnet.binance.vision/ws/"
-                )
-            else:
-                self.bsm = BinanceSocketManager(self.client)
-            
+            self.bsm = BinanceSocketManager(self.client, user_timeout=60)
+
         for symbol in symbols:
             # Start order book stream
-            self.streams[f"{symbol}_book"] = await self.bsm.depth_socket(
+            self.streams[f"{symbol}_book"] = self.bsm.depth_socket(
                 symbol, depth=BinanceSocketManager.WEBSOCKET_DEPTH_20
             )
             
             # Start trade stream
-            self.streams[f"{symbol}_trade"] = await self.bsm.trade_socket(symbol)
+            self.streams[f"{symbol}_trade"] = self.bsm.trade_socket(symbol)
             
             # Start kline stream
-            self.streams[f"{symbol}_kline"] = await self.bsm.kline_socket(
+            self.streams[f"{symbol}_kline"] = self.bsm.kline_socket(
                 symbol, interval='1m'
             )
             
@@ -312,27 +305,13 @@ class BinanceClient:
             
             logger.info(f"Started market streams for {symbol}")
 
-    async def _handle_orderbook(self, msg: Dict) -> None:
-        """Process orderbook updates"""
-        symbol = msg['s']
-        
-        if 'b' in msg:  # Bids update
-            for bid in msg['b']:
-                price, qty = Decimal(bid[0]), Decimal(bid[1])
-                if qty == 0:
-                    self.orderbook_manager[symbol]['bids'].pop(price, None)
-                else:
-                    self.orderbook_manager[symbol]['bids'][price] = qty
-                    
-        if 'a' in msg:  # Asks update
-            for ask in msg['a']:
-                price, qty = Decimal(ask[0]), Decimal(ask[1])
-                if qty == 0:
-                    self.orderbook_manager[symbol]['asks'].pop(price, None)
-                else:
-                    self.orderbook_manager[symbol]['asks'][price] = qty
-                    
-        self.orderbook_manager[symbol]['last_update'] = datetime.now()
+    async def _handle_orderbook(self, msg: Dict, *, symbol: str) -> None:
+        """Depth-20 streams publish complete snapshots without a symbol field."""
+        self.orderbook_manager[symbol] = {
+            side: {Decimal(row[0]): Decimal(row[1]) for row in msg[side] if Decimal(row[1]) > 0}
+            for side in ("bids", "asks")
+        }
+        self.orderbook_manager[symbol].update(last_update=datetime.now(UTC), update_id=msg["lastUpdateId"])
 
     def get_orderbook_snapshot(self, symbol: str) -> Dict:
         """Get current orderbook snapshot"""
@@ -354,7 +333,7 @@ class BinanceClient:
             'symbol': msg['s'],
             'price': float(msg['p']),
             'quantity': float(msg['q']),
-            'time': pd.Timestamp(msg['T'], unit='ms'),
+            'time': pd.Timestamp(msg['T'], unit='ms', tz='UTC'),
             'is_buyer_maker': msg['m'],
             'trade_id': msg['t']
         }
@@ -365,7 +344,7 @@ class BinanceClient:
         return {
             'symbol': msg['s'],
             'interval': k['i'],
-            'time': pd.Timestamp(k['t'], unit='ms'),
+            'time': pd.Timestamp(k['t'], unit='ms', tz='UTC'),
             'open': float(k['o']),
             'high': float(k['h']),
             'low': float(k['l']),
@@ -384,7 +363,7 @@ class BinanceClient:
                 
                 if stream_type == 'book':
                     tasks.append(self._process_stream(
-                        stream, self._handle_orderbook
+                        stream, partial(self._handle_orderbook, symbol=symbol)
                     ))
                 elif stream_type == 'trade':
                     tasks.append(self._process_stream(
@@ -419,7 +398,8 @@ class BinanceClient:
             return {
                 'bids': [[price, qty] for price, qty in orderbook['bids']],
                 'asks': [[price, qty] for price, qty in orderbook['asks']],
-                'timestamp': orderbook['lastUpdateId']
+                'timestamp': datetime.now(UTC),
+                'update_id': orderbook['lastUpdateId']
             }
         except Exception as e:
             logger.error(f"Error fetching orderbook for {symbol}: {e}")
@@ -434,7 +414,7 @@ class BinanceClient:
                 'price': float(trade['price']),
                 'quantity': float(trade['qty']),
                 'timestamp': trade['time'],
-                'side': 'buy' if trade['isBuyerMaker'] else 'sell'
+                'side': 'sell' if trade['isBuyerMaker'] else 'buy'
             } for trade in trades]
         except Exception as e:
             logger.error(f"Error fetching trades for {symbol}: {e}")
@@ -460,7 +440,7 @@ class BinanceClient:
             
             # Handle different response formats between live and testnet
             if isinstance(ticker, list):  # Testnet often returns list
-                ticker = ticker[0] if ticker else {}
+                ticker = next((item for item in ticker if item.get("symbol") == symbol), {})
                 
             # Try different field names that Binance might use
             price = None

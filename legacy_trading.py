@@ -565,7 +565,7 @@ class TradingSystem:
         return consolidated
 
     async def _process_signals(self, signals: List[Dict]) -> int:
-        """Process trading signals with improved position sizing and confidence weighting"""
+        """Retain observations for the legacy display without routing orders."""
         self.recent_signals = list(signals)
         return 0
 
