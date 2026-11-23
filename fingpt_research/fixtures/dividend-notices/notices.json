@@ -363,5 +363,80 @@
     "passages": [
       "the Board has proposed a final dividend payout of KShs. 3 per share, subject to shareholder approval."
     ]
+  },
+  {
+    "id": "passage-36",
+    "symbol": "BAT",
+    "notice_date": "2025-02-21",
+    "source": "https://www.batkenya.com/content/dam/endmarkets/ke/en/download/investors-and-reporting/financial-statements/bat_kenya-2024_full_year_results.pdf",
+    "location": "FY2024 results, dividend section",
+    "passages": [
+      "proposed a final dividend in respect of the year ended 31 December 2024 of KShs 45.00 per share",
+      "close of business on 23 May 2025"
+    ]
+  },
+  {
+    "id": "passage-37",
+    "symbol": "BAT",
+    "notice_date": "2026-02-26",
+    "source": "https://www.batkenya.com/content/dam/endmarkets/ke/en/download/investors-and-reporting/financial-statements/bat_kenya-2025_full_year_results.pdf",
+    "location": "FY2025 results, dividend section",
+    "passages": [
+      "has proposed a final dividend in respect of the year ended 31 December 2025 of KShs 60 per share",
+      "on or about 12th June 2026"
+    ]
+  },
+  {
+    "id": "passage-38",
+    "symbol": "BAT",
+    "notice_date": "2024-07-25",
+    "source": "https://www.batkenya.com/content/dam/endmarkets/ke/en/download/investors-and-reporting/financial-statements/2024-Half-Year-Results.pdf",
+    "location": "Half-year results, interim dividend",
+    "passages": [
+      "has approved an interim dividend in respect of the year ending 31 December 2024 of KShs 5.00 per ordinary share"
+    ]
+  },
+  {
+    "id": "passage-39",
+    "symbol": "SCBK",
+    "notice_date": "2025-03-19",
+    "source": "https://av.sc.com/ke/content/docs/ke-press-release-standard-chartered-fy-2024-results.pdf",
+    "location": "Page 2, Dividend",
+    "passages": [
+      "will be recommending",
+      "a final dividend of KShs 37.00 for every ordinary share of KShs 5.00"
+    ]
+  },
+  {
+    "id": "passage-40",
+    "symbol": "SCBK",
+    "notice_date": "2025-03-19",
+    "source": "https://av.sc.com/ke/content/docs/ke-press-release-standard-chartered-fy-2024-results.pdf",
+    "location": "Page 2, Dividend",
+    "passages": [
+      "dividend of KShs 8.00 was declared and paid"
+    ]
+  },
+  {
+    "id": "passage-41",
+    "symbol": "SCBK",
+    "notice_date": "2022-03-14",
+    "source": "https://av.sc.com/ke/content/docs/ke-2021-standard-chartered-kenya-limited-full-year-results.pdf",
+    "location": "FY2021 results, Dividends",
+    "passages": [
+      "The Board has resolved to recommend",
+      "final dividend of KShs 14.00 for every ordinary share of KShs 5.00"
+    ]
+  },
+  {
+    "id": "passage-42",
+    "symbol": "SCBK",
+    "notice_date": "2025-11-25",
+    "source": "https://av.sc.com/ke/content/docs/ke-sc-financial-results-q3-2025.pdf",
+    "location": "Page 2, RBAT Orders",
+    "passages": [
+      "the Bank increased the employer",
+      "contributions to the Scheme by KShs 2.7 billion"
+    ]
   }
 ]

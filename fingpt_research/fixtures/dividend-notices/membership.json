@@ -138,5 +138,33 @@
   "passage-35": {
     "event": "KCB-2025-final",
     "split": "development"
+  },
+  "passage-36": {
+    "event": "BAT-2024-final",
+    "split": "prospective"
+  },
+  "passage-37": {
+    "event": "BAT-2025-final",
+    "split": "prospective"
+  },
+  "passage-38": {
+    "event": "BAT-2024-interim",
+    "split": "prospective"
+  },
+  "passage-39": {
+    "event": "SCBK-2024-final",
+    "split": "prospective"
+  },
+  "passage-40": {
+    "event": "SCBK-2024-interim",
+    "split": "prospective"
+  },
+  "passage-41": {
+    "event": "SCBK-2021-final",
+    "split": "prospective"
+  },
+  "passage-42": {
+    "event": null,
+    "split": "prospective"
   }
 }

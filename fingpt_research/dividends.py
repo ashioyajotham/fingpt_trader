@@ -10,7 +10,7 @@ CORPUS = FIXTURES / "dividend-notices"
 NAIROBI = ZoneInfo("Africa/Nairobi")
 FIELDS = ("status", "amount", "currency", "record_date", "payment_date")
 STATUSES = ("proposed", "declared", "approved", "paid", "cancelled")
-SNAPSHOT = "2026-11-23T15:55:00Z"
+SNAPSHOT = "2026-11-23T16:05:00Z"
 
 
 def load_corpus(root=CORPUS):
@@ -28,7 +28,7 @@ def load_corpus(root=CORPUS):
     for row in notices:
         key = row["id"]
         group = membership[key]
-        if group["split"] not in {"development", "holdout"}:
+        if group["split"] not in {"development", "holdout", "prospective"}:
             raise ValueError("unknown evaluation split")
         if group["event"] and events.setdefault(group["event"], group["split"]) != group["split"]:
             raise ValueError("dividend event appears on both sides of the split")
