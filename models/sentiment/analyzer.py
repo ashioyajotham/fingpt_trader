@@ -11,9 +11,9 @@ import pandas as pd
 # Add project root to path
 root_dir = str(Path(__file__).parent.parent)
 sys.path.insert(0, root_dir)
-from llm.utils.tokenizer import TokenizerConfig
 
-from models.llm.fingpt import FinGPT
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,8 @@ class SentimentAnalyzer:
         self.config = model_config or {} # gets from config/ directory
         self.fingpt = None
         if os.getenv("HUGGINGFACE_TOKEN") or self.config.get("fingpt_config", {}).get("offline"):
+            from models.llm.fingpt import FinGPT
+
             self.fingpt = FinGPT(self.config.get("fingpt_config", {}))
         self.min_confidence = self.config.get("min_confidence", 0.6)
         self.batch_size = model_config.get("batch_size", 16)

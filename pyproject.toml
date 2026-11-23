@@ -32,9 +32,15 @@ dev = [
 ]
 
 [project.scripts]
-fingpt-trade = "scripts.live_trade:main"
-fingpt-backtest = "scripts.backtest:main"
-fingpt-analyze = "scripts.analyze:main"
+fingpt-trade = "fingpt_research.cli:main"
+fingpt-analyze = "fingpt_research.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["fingpt_research*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+fingpt_research = ["fixtures/*/*"]
 
 [tool.black]
 line-length = 88
