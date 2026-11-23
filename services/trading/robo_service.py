@@ -398,29 +398,8 @@ class RoboService(BaseService):
             return None
         
     async def execute_trade(self, signal: Dict) -> Dict:
-        """Execute a trade based on signal"""
-        try:
-            # Extract signal details
-            symbol = signal.get('symbol')
-            side = signal.get('direction', 'BUY')
-            price = signal.get('price', 0.0)
-            
-            # Get exchange requirements
-            min_notional = 15.0  # Default min notional value for Binance
-            min_qty = 0.0001     # Default min quantity for Binance
-            
-            # Get exchange-specific limits
-            symbol_info = await self.get_exchange_minimum_requirements(symbol)
-            if symbol_info:
-                min_notional = symbol_info.get('min_notional', min_notional)
-                min_qty = symbol_info.get('min_qty', min_qty)
-                
-            logger.info(f"Exchange requirements for {symbol}: min_qty={min_qty}, min_notional={min_notional}")
-            
-            # Rest of the method continues...
-        except Exception as e:
-            logger.error(f"Error executing trade: {e}")
-            return {"success": False, "error": str(e)}
+        """Legacy signal callers cannot submit orders."""
+        return {"success": False, "action": "RESEARCH_ONLY"}
 
     def _update_accumulated_amount(self, symbol: str, new_amount: float, new_strength: float):
         """Update accumulated amount using weighted strategy based on signal strength"""

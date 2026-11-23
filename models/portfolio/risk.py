@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
+from fingpt_research.risk import drawdown, exposures
+
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -118,61 +120,34 @@ class RiskManager:
     def _initialize_state(self):
         """Initialize risk tracking state"""
         self.peak_value = 0.0
+        self.worst_drawdown = 0.0
         self.current_value = 0.0
         self.position_values = {}
         self.historical_values = []
 
     def calculate_risk_metrics(self, portfolio: Dict) -> Dict:
         """Calculate portfolio risk metrics"""
-        try:
-            # Extract values from portfolio
-            values = portfolio.get('values', {})
-            if isinstance(values, np.ndarray):
-                values = {f"asset_{i}": float(value) for i, value in enumerate(values)}
-            elif isinstance(values, list):
-                values = {f"asset_{i}": float(value) for i, value in enumerate(values)}
-            total_value = sum(float(v) for v in values.values())
-            
-            # Update historical tracking
-            self.historical_values.append(total_value)
-            if len(self.historical_values) > 1000:  # Limit history size
-                self.historical_values = self.historical_values[-1000:]
-            
-            # Update peak tracking
-            self.peak_value = max(self.peak_value, total_value)
-            self.current_value = total_value
-            
-            # Calculate metrics
-            position_values = {k: float(v) for k, v in values.items()}
-            
-            current_drawdown = self._calculate_drawdown()
-            return {
-                'max_drawdown': current_drawdown,
-                'current_drawdown': current_drawdown,
-                'var': self._calculate_var(),
-                'position_concentration': self._calculate_concentration(position_values),
-                'total_exposure': self._calculate_exposure(position_values)
-            }
-            
-        except Exception as e:
-            logger.error(f"Error calculating risk metrics: {e}")
-            return {
-                'max_drawdown': 0.0,
-                'current_drawdown': 0.0,
-                'var': 0.0,
-                'position_concentration': 0.0,
-                'total_exposure': 0.0
-            }
-
-    def _calculate_drawdown(self) -> float:
-        """Calculate current drawdown"""
-        if not self.historical_values:
-            return 0.0
-            
-        values = np.array(self.historical_values)
-        peak = np.maximum.accumulate(values)
-        drawdown = (peak - values) / peak
-        return float(np.max(drawdown))
+        values = portfolio.get("values", {})
+        if isinstance(values, (np.ndarray, list)):
+            values = dict(enumerate(values))
+        positions = {key: float(value) for key, value in values.items()}
+        nav = float(portfolio.get("nav", float(portfolio.get("cash", 0)) + sum(positions.values())))
+        gross, net = exposures(positions.values(), nav)
+        self.peak_value = max(self.peak_value, nav)
+        self.current_value = nav
+        current = drawdown(nav, self.peak_value)
+        self.worst_drawdown = max(self.worst_drawdown, current)
+        self.historical_values.append(nav)
+        self.historical_values = self.historical_values[-1000:]
+        return {
+            "current_drawdown": current,
+            "max_drawdown": self.worst_drawdown,
+            "var": self._calculate_var(),
+            "position_concentration": self._calculate_concentration(positions),
+            "total_exposure": gross,
+            "gross_exposure": gross,
+            "net_exposure": net,
+        }
 
     def _calculate_var(self, confidence: float = 0.95) -> float:
         """Calculate Value at Risk"""
@@ -180,31 +155,19 @@ class RiskManager:
             return 0.0
             
         returns = np.diff(self.historical_values) / self.historical_values[:-1]
-        return float(np.percentile(returns, (1 - confidence) * 100))
+        return max(0.0, -float(np.percentile(returns, (1 - confidence) * 100)))
 
     def _calculate_concentration(self, values: Dict[str, float]) -> float:
         """Calculate portfolio concentration (Herfindahl index)"""
         if not values:
             return 0.0
             
-        total = sum(values.values())
+        total = sum(abs(v) for v in values.values())
         if total == 0:
             return 0.0
             
         weights = np.array([v/total for v in values.values()])
         return float(np.sum(weights * weights))
-
-    def _calculate_exposure(self, values: Dict[str, float]) -> float:
-        """Calculate total portfolio exposure"""
-        if not values:
-            return 0.0
-            
-        total = sum(values.values())
-        if total == 0:
-            return 0.0
-            
-        exposure = sum(abs(v) for v in values.values())
-        return float(exposure / total)
 
     def check_risk_limits(self, metrics: Dict) -> bool:
         """Check if risk metrics are within limits"""

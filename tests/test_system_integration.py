@@ -1,63 +1,28 @@
-import pytest
-import asyncio
-import sys
-from pathlib import Path
+import io
+import json
+import os
+import socket
+import unittest
+from contextlib import redirect_stdout
+from unittest.mock import patch
 
-pytestmark = pytest.mark.skip(reason="Integration tests need mocked services before deployment smoke runs")
+from fingpt_research.cli import main
 
-# Add project root to path
-root_dir = str(Path(__file__).parent.parent)
-sys.path.insert(0, root_dir)
 
-from main import TradingSystem  # Changed from fingpt_trader import TradingSystem
+class OfflineReplay(unittest.TestCase):
+    def replay(self, *args):
+        output = io.StringIO()
+        with patch.dict(os.environ, {}, clear=True), patch.object(
+            socket, "socket", side_effect=AssertionError("network access")
+        ), redirect_stdout(output):
+            main(list(args))
+        return output.getvalue()
 
-@pytest.fixture
-async def trading_system():
-    system = TradingSystem(config_path="config/test_trading.yaml")
-    await system.initialize()
-    yield system
-    await system.shutdown()
-
-@pytest.mark.asyncio
-async def test_full_trading_cycle(trading_system):
-    # Test market data acquisition
-    market_data = await trading_system.get_market_data()
-    assert 'prices' in market_data
-    assert 'volume' in market_data
-    assert 'sentiment' in market_data
-    
-    # Test signal generation
-    signals = trading_system.detect_inefficiencies(market_data)
-    assert isinstance(signals, dict)
-    assert 'confidence' in signals
-    assert 'magnitude' in signals
-    
-    # Test trade generation
-    trades = trading_system.generate_trades(signals)
-    assert isinstance(trades, list)
-    for trade in trades:
-        assert 'symbol' in trade
-        assert 'size' in trade
-        assert 'direction' in trade
-
-@pytest.mark.asyncio
-async def test_risk_monitoring(trading_system):
-    # Setup mock portfolio
-    await trading_system.set_portfolio({
-        'positions': {'AAPL': 100, 'MSFT': 150},
-        'cash': 100000
-    })
-    
-    # Test risk metrics calculation
-    risk_metrics = trading_system.update_risk_metrics()
-    assert 'var' in risk_metrics
-    assert 'sharpe' in risk_metrics
-    assert 'max_drawdown' in risk_metrics
-
-@pytest.mark.asyncio
-async def test_error_handling(trading_system):
-    with pytest.raises(Exception):
-        await trading_system.execute_trades(None)
-    
-    with pytest.raises(ValueError):
-        await trading_system.get_market_data(symbol="INVALID")
+    def test_default_replay(self):
+        first = self.replay()
+        self.assertEqual(first, self.replay())
+        bars = json.loads(first)["observations"]
+        self.assertEqual(len(bars), 12)
+        self.assertEqual(bars[0]["close"], "94591.79000000")
+        early = self.replay("--as-of", "2025-01-01T12:00:00Z")
+        self.assertEqual(json.loads(early)["observations"], [])

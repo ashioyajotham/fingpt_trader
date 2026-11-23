@@ -1,0 +1,12 @@
+{
+  "adapter": "binance-spot-daily",
+  "instrument": "BINANCE:BTCUSDT",
+  "venue": "BINANCE",
+  "currency": "USDT",
+  "lot_size": "0.00001",
+  "price_basis": "raw",
+  "source": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1d&startTime=1735689600000&limit=12",
+  "calendar_version": "utc-24x7-daily-v1",
+  "ingested_at": "2026-11-23T10:21:53Z",
+  "availability_basis": "Historical reconstruction assuming final daily bars available at close; capture time recorded separately."
+}
