@@ -63,6 +63,8 @@ python3 -m pytest -q tests
 
 New read-only adapters can be supplied to `load_dataset(..., adapters={...})`. Custom signal producers can be passed to `PaperEngine` and receive the listing, current bar, previous tradable bar and available features. The original optimizer, strategy modules, Binance SDK integration and optional FinGPT code remain in the source tree. The legacy orchestrator is importable through `main.TradingSystem`; research signals cannot submit exchange orders through it.
 
+The legacy crypto news service reads publisher RSS feeds configured in `config/services.yaml`, with an optional NewsAPI fallback.
+
 ## License
 
 MIT License - See [LICENSE](LICENSE.md) for details.

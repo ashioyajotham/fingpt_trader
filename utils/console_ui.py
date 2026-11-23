@@ -581,6 +581,13 @@ class ConsoleUI:
     
     def _format_sentiment(self, sentiment: float) -> str:
         """Format sentiment with color and icon."""
+        if isinstance(sentiment, str):
+            lowered = sentiment.lower()
+            if "bull" in lowered:
+                return f"[green]{sentiment}[/green]"
+            if "bear" in lowered:
+                return f"[red]{sentiment}[/red]"
+            return f"[yellow]{sentiment}[/yellow]"
         if sentiment > 0.5:
             return f"[green]Bullish ↑[/green]"
         elif sentiment < -0.5:

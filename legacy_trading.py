@@ -181,7 +181,11 @@ class TradingSystem:
         # Create instances of required services and components
         self.robo_service = RoboService(self.config)
         self.market_data_service = MarketDataService(self.services_config.get('market_data', {}))
-        self.news_service = NewsService(self.services_config.get('news', {}))
+        self.news_config = {
+            **self.services_config.get('api', {}).get('news', {}),
+            **self.services_config.get('data_feeds', {}).get('news', {}),
+        }
+        self.news_service = NewsService(self.news_config)
         self.sentiment_analyzer = SentimentAnalyzer(self.strategies_config.get('sentiment', {}))
         self.market_detector = MarketInefficencyDetector(self.model_config.get('market', {}))
 
@@ -346,8 +350,8 @@ class TradingSystem:
 
             # Initialize or update news service
             if not hasattr(self, 'news_service') or self.news_service is None:
-                self.news_service = NewsService(self.services_config.get('news', {}))
-            await self.news_service.setup(self.services_config.get('news', {}))
+                self.news_service = NewsService(self.news_config)
+            await self.news_service.setup(self.news_config)
 
             # Initialize FinGPT model with verbosity setting
             self.fingpt_model = FinGPT(self.model_config.get('fingpt', {}))
@@ -909,6 +913,13 @@ class TradingSystem:
             news_data = await self.news_service.fetch_news(pairs)
 
             # Log summary of fetched news
+            if isinstance(news_data, dict):
+                news_count = sum(len(items) for items in news_data.values())
+                logger.info(f"Fetched {news_count} news items")
+                for pair in pairs:
+                    logger.info(f"Fetched {len(news_data.get(pair, []))} relevant news items for {pair}")
+                return news_data
+
             news_count = len(news_data)
             logger.info(f"Fetched {news_count} news items")
 
