@@ -3,8 +3,10 @@ import os
 import random
 import sys
 from datetime import datetime, timedelta
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Dict, List, Optional
+from xml.etree import ElementTree
 
 import aiohttp
 
@@ -19,6 +21,13 @@ from services.base_service import BaseService
 import logging
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_RSS_FEEDS = [
+    "https://www.coindesk.com/arc/outboundfeeds/rss/",
+    "https://cointelegraph.com/rss",
+    "https://cointelegraph.com/rss/tag/bitcoin",
+    "https://cointelegraph.com/rss/tag/ethereum",
+]
 
 class NewsDataFeed(BaseService):
     """Real-time news data feed handler"""
@@ -146,12 +155,13 @@ class NewsDataFeed(BaseService):
         """Fetch news from external API"""
         if not hasattr(self, 'api_key') or not self.api_key:
             self.api_key = os.environ.get('CRYPTOPANIC_API_KEY')
+        api_plan = os.environ.get('CRYPTOPANIC_API_PLAN', 'developer')
             
         if not self.api_key:
             logger.error("No API key available for news service")
             return
             
-        url = f"https://cryptopanic.com/api/v1/posts/?auth_token={self.api_key}&kind=news"
+        url = f"https://cryptopanic.com/api/{api_plan}/v2/posts/?auth_token={self.api_key}&kind=news"
         
         try:
             async with self.session.get(url) as response:
@@ -227,9 +237,10 @@ class NewsDataFeed(BaseService):
 class CryptoPanicClient:
     """Client for CryptoPanic API with enhanced reliability"""
     
-    def __init__(self, api_key):
+    def __init__(self, api_key, api_plan: str = "developer"):
         self.api_key = api_key
-        self.base_url = "https://cryptopanic.com/api/v1"
+        self.api_plan = api_plan
+        self.base_url = f"https://cryptopanic.com/api/{api_plan}/v2"
         self.session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=15),  # Add explicit timeout
             headers={"Accept": "application/json"}
@@ -238,9 +249,14 @@ class CryptoPanicClient:
         self.cache_timestamp = None
         self.max_retries = 3
         self.retry_delay = 2  # seconds
+        self.unavailable_until = None
         
     async def get_posts(self, currencies=None, kind="news", filter="hot", regions="en"):
         """Get posts from CryptoPanic API with retry logic and caching"""
+        if self.unavailable_until and datetime.now() < self.unavailable_until:
+            logger.info("CryptoPanic temporarily unavailable; using fallback provider")
+            return []
+
         # Return cached data if we had a recent failure (within 1 minute)
         if self.last_successful_response and self.cache_timestamp:
             cache_age = (datetime.now() - self.cache_timestamp).total_seconds()
@@ -253,7 +269,6 @@ class CryptoPanicClient:
             "kind": kind,
             "filter": filter,
             "regions": regions,
-            "public": "true"
         }
         
         if currencies:
@@ -298,6 +313,10 @@ class CryptoPanicClient:
                             backoff = (2 ** attempt) + (random.random() * 0.5)
                             await asyncio.sleep(backoff)
                             
+                        elif response.status == 404:
+                            logger.warning(f"CryptoPanic endpoint not found: {url}")
+                            self.unavailable_until = datetime.now() + timedelta(minutes=30)
+                            break
                         else:
                             response_text = await response.text()
                             logger.error(f"CryptoPanic API error: {response.status}, Response: {response_text[:200]}")
@@ -331,7 +350,7 @@ class NewsAPIClient:
     def __init__(self, api_key):
         self.api_key = api_key
         self.base_url = "https://newsapi.org/v2"
-        self.session = aiohttp.ClientSession()
+        self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
     
     async def get_top_headlines(self, q=None, category="business", language="en"):
         """Get top headlines from NewsAPI"""
@@ -351,8 +370,12 @@ class NewsAPIClient:
                     data = await response.json()
                     return data.get('articles', [])
                 else:
-                    logger.error(f"NewsAPI error: {response.status}")
+                    response_text = await response.text()
+                    logger.error(f"NewsAPI error: {response.status}, Response: {response_text[:200]}")
                     return []
+        except asyncio.TimeoutError:
+            logger.error("NewsAPI request timed out")
+            return []
         except Exception as e:
             logger.error(f"NewsAPI request failed: {str(e)}")
             return []
@@ -362,13 +385,85 @@ class NewsAPIClient:
         if self.session:
             await self.session.close()
 
+class RSSNewsClient:
+    """Client for publisher RSS feeds used as the primary crypto news source."""
+
+    def __init__(self, feeds: Optional[List[str]] = None):
+        self.feeds = feeds or DEFAULT_RSS_FEEDS
+        self.session = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=10),
+            headers={"User-Agent": "fingpt-trader/0.1"}
+        )
+
+    async def get_posts(self) -> List[Dict]:
+        articles = []
+        for feed_url in self.feeds:
+            try:
+                async with self.session.get(feed_url) as response:
+                    if response.status != 200:
+                        logger.warning(f"RSS feed error: {response.status} for {feed_url}")
+                        continue
+                    content = await response.text()
+                    articles.extend(self._parse_feed(content, feed_url))
+            except asyncio.TimeoutError:
+                logger.warning(f"RSS feed timed out: {feed_url}")
+            except Exception as e:
+                logger.warning(f"RSS feed failed for {feed_url}: {e}")
+        logger.info(f"Retrieved {len(articles)} items from RSS feeds")
+        return articles
+
+    def _parse_feed(self, content: str, feed_url: str) -> List[Dict]:
+        try:
+            root = ElementTree.fromstring(content)
+        except ElementTree.ParseError as e:
+            logger.warning(f"Invalid RSS XML from {feed_url}: {e}")
+            return []
+
+        channel_title = root.findtext("./channel/title") or feed_url
+        items = root.findall("./channel/item")
+        articles = []
+        for item in items:
+            title = item.findtext("title") or ""
+            body = (
+                item.findtext("description")
+                or item.findtext("{http://purl.org/rss/1.0/modules/content/}encoded")
+                or ""
+            )
+            link = item.findtext("link") or ""
+            published_at = item.findtext("pubDate") or item.findtext("published") or ""
+            articles.append({
+                "id": link or title,
+                "title": title,
+                "body": body,
+                "url": link,
+                "source": channel_title,
+                "published_at": self._parse_date(published_at),
+            })
+        return articles
+
+    def _parse_date(self, value: str):
+        if not value:
+            return None
+        try:
+            return parsedate_to_datetime(value).isoformat()
+        except Exception:
+            return value
+
+    async def close(self):
+        if self.session:
+            await self.session.close()
+
 
 class NewsService(BaseService):
     def __init__(self, config: Optional[Dict] = None):
         super().__init__(config or {})
+        self.sources = self.config.get("sources", ["rss", "newsapi"])
+        self.rss_feeds = self.config.get("rss_feeds", DEFAULT_RSS_FEEDS)
+        self.news_batch_size = int(self.config.get("batch_size", 10))
         self.cryptopanic_key = os.getenv("CRYPTOPANIC_API_KEY")
+        self.cryptopanic_plan = os.getenv("CRYPTOPANIC_API_PLAN", "developer")
         self.newsapi_key = os.getenv("NEWS_API_KEY")  # Fallback
-        self.base_url = "https://cryptopanic.com/api/v1"
+        self.base_url = f"https://cryptopanic.com/api/{self.cryptopanic_plan}/v2"
         self.fallback_url = "https://newsapi.org/v2"
         
         self.max_retries = 5  # Increased from 3
@@ -393,14 +488,18 @@ class NewsService(BaseService):
 
     async def _setup(self) -> None:
         """Initialize news service"""
-        if not self.cryptopanic_key:
-            raise ValueError("CRYPTOPANIC_API_KEY not set")
         self.session = aiohttp.ClientSession()
 
     async def _cleanup(self) -> None:
         """Cleanup resources"""
         if self.session:
             await self.session.close()
+        if hasattr(self, 'rss_client'):
+            await self.rss_client.close()
+        if hasattr(self, 'cryptopanic_client'):
+            await self.cryptopanic_client.close()
+        if hasattr(self, 'news_api_client'):
+            await self.news_api_client.close()
         self.cache.clear()
 
     async def setup(self, config=None):
@@ -409,10 +508,15 @@ class NewsService(BaseService):
             self.config.update(config)
         
         try:
-            # Initialize CryptoPanic client
+            # Initialize RSS client as the default crypto-native news source
+            if "rss" in self.sources:
+                self.rss_client = RSSNewsClient(self.config.get("rss_feeds", self.rss_feeds))
+
+            # Initialize CryptoPanic client only when explicitly enabled
             api_key = self.config.get('cryptopanic_api_key') or os.getenv('CRYPTOPANIC_API_KEY')
-            if api_key:
-                self.cryptopanic_client = CryptoPanicClient(api_key)
+            if "cryptopanic" in self.sources and api_key:
+                api_plan = self.config.get('cryptopanic_api_plan') or os.getenv('CRYPTOPANIC_API_PLAN', 'developer')
+                self.cryptopanic_client = CryptoPanicClient(api_key, api_plan)
                 
             # Initialize NewsAPI client as fallback
             news_api_key = self.config.get('news_api_key') or os.getenv('NEWS_API_KEY')
@@ -562,11 +666,21 @@ class NewsService(BaseService):
             raise ValueError("NEWS_API_KEY not configured")
 
     async def fetch_news(self, pairs: List[str]) -> Dict[str, List[Dict]]:
-        """Fetch news for multiple currency pairs with improved reliability"""
+        """Fetch news for multiple currency pairs with RSS first and API fallback."""
         news_items = []
+
+        # Try RSS first: publisher-owned crypto feeds avoid paid API gating.
+        if hasattr(self, 'rss_client') and self.rss_client:
+            try:
+                logger.info("Fetching news from RSS feeds")
+                rss_news = await self.rss_client.get_posts()
+                if rss_news:
+                    news_items.extend(rss_news)
+            except Exception as e:
+                logger.error(f"RSS news error: {str(e)}")
         
-        # Try CryptoPanic first
-        if hasattr(self, 'cryptopanic_client') and self.cryptopanic_client:
+        # Try CryptoPanic only when configured and RSS did not provide enough items.
+        if len(news_items) < 5 and hasattr(self, 'cryptopanic_client') and self.cryptopanic_client:
             try:
                 logger.info("Fetching news from CryptoPanic API")
                 crypto_news = await self.cryptopanic_client.get_posts()
@@ -576,16 +690,16 @@ class NewsService(BaseService):
             except Exception as e:
                 logger.error(f"CryptoPanic API error: {str(e)}")
         
-        # Try NewsAPI as fallback if needed
+        # Try NewsAPI as fallback if needed.
         if len(news_items) < 5 and hasattr(self, 'news_api_client') and self.news_api_client:
             try:
-                logger.info("Insufficient news from CryptoPanic, trying NewsAPI fallback")
+                logger.info("Insufficient RSS/CryptoPanic news, trying NewsAPI fallback")
                 # Construct query for crypto news
                 query = " OR ".join([pair.replace("USDT", "") for pair in pairs])
                 news_api_results = await self.news_api_client.get_top_headlines(q=query)
+                logger.info(f"Retrieved {len(news_api_results)} items from NewsAPI")
                 if news_api_results:
                     news_items.extend(news_api_results)
-                    logger.info(f"Retrieved {len(news_api_results)} items from NewsAPI")
             except Exception as e:
                 logger.error(f"NewsAPI fallback error: {str(e)}")
         
@@ -595,6 +709,7 @@ class NewsService(BaseService):
             news_items = self.cached_news
         
         # Process and categorize news by trading pair
+        normalized_news = [self._normalize_news_item(item) for item in news_items if isinstance(item, dict)]
         result = {}
         for pair in pairs:
             # Extract base token (remove USDT)
@@ -602,17 +717,32 @@ class NewsService(BaseService):
             
             # Filter news for this specific pair
             pair_news = [
-                item for item in news_items 
+                item for item in normalized_news
                 if self.is_relevant(item, base_token)
-            ]
+            ][:self.news_batch_size]
             
             result[pair] = pair_news
         
         # Cache the raw news for future fallback
-        self.cached_news = news_items
+        self.cached_news = normalized_news
         self.cached_timestamp = datetime.now()
         
         return result
+
+    def _normalize_news_item(self, item: Dict) -> Dict:
+        """Normalize supported news provider payloads into one shape."""
+        source = item.get('source', 'Unknown')
+        if isinstance(source, dict):
+            source = source.get('title') or source.get('name') or 'Unknown'
+        return {
+            'id': item.get('id') or item.get('url') or item.get('title'),
+            'title': item.get('title', ''),
+            'body': item.get('body') or item.get('text') or item.get('description') or item.get('content') or '',
+            'url': item.get('url', ''),
+            'source': source,
+            'published_at': item.get('published_at') or item.get('publishedAt'),
+            'currencies': item.get('currencies', []),
+        }
         
     def is_relevant(self, item: Dict, pair: str) -> bool:
         """Check if a news item is relevant to a specific trading pair"""
@@ -620,8 +750,14 @@ class NewsService(BaseService):
         currency = pair.replace("USDT", "").lower()
         
         # Check title and content
-        title = item.get('title', '').lower()
-        body = item.get('body', '').lower()
+        title = str(item.get('title', '')).lower()
+        body = str(
+            item.get('body')
+            or item.get('text')
+            or item.get('description')
+            or item.get('content')
+            or ''
+        ).lower()
         content = title + ' ' + body
         
         # Check if currency name or common names appear in content

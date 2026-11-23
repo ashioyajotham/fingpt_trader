@@ -10,6 +10,8 @@ python3 -m unittest tests.test_system_integration
 
 Each dataset manifest identifies its listing, venue, currency, raw price basis, calendar version, capture time and source. Replay uses the documented historical availability assumption. The optional legacy model, exchange clients, strategies and optimizer remain available in their original Python modules. Model confidence requires held-out calibration.
 
+The legacy crypto news service reads publisher RSS feeds configured in `config/services.yaml`, with an optional NewsAPI fallback.
+
 ## License
 
 MIT License - See [LICENSE](LICENSE.md) for details.
