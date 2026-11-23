@@ -1,0 +1,465 @@
+{
+  "backend": {
+    "diagnostics": {
+      "calls": 7,
+      "finish_stop": 7
+    },
+    "model": "4bebb8b47fc9d113f01ab5113152074a806600017ea12040e547acce0a35922a",
+    "provider": "llama.cpp",
+    "tokens": 2278
+  },
+  "corpus_sha256": "1d93d4559cb0fce1dc54e9e548599473b77dd2a7b8fe4710a9fcc2594357a542",
+  "hybrid": {
+    "false_approvals": 0,
+    "fields": {
+      "amount": {
+        "abstentions": 0,
+        "cited": 5,
+        "correct": 5,
+        "expected": 5,
+        "returned": 6
+      },
+      "currency": {
+        "abstentions": 0,
+        "cited": 6,
+        "correct": 6,
+        "expected": 6,
+        "returned": 7
+      },
+      "payment_date": {
+        "abstentions": 0,
+        "cited": 1,
+        "correct": 1,
+        "expected": 1,
+        "returned": 2
+      },
+      "record_date": {
+        "abstentions": 0,
+        "cited": 1,
+        "correct": 1,
+        "expected": 1,
+        "returned": 2
+      },
+      "status": {
+        "abstentions": 0,
+        "cited": 5,
+        "correct": 5,
+        "expected": 6,
+        "returned": 6
+      }
+    },
+    "predictions": {
+      "passage-36": {
+        "amount": {
+          "quote": "KShs 45.00",
+          "value": "45"
+        },
+        "currency": {
+          "quote": "KShs 45.00",
+          "value": "KES"
+        },
+        "record_date": {
+          "quote": "close of business on 23 May 2025",
+          "value": "2025-05-23"
+        },
+        "status": {
+          "quote": "proposed",
+          "value": "proposed"
+        }
+      },
+      "passage-37": {
+        "amount": {
+          "quote": "KShs 60",
+          "value": "60"
+        },
+        "currency": {
+          "quote": "KShs 60",
+          "value": "KES"
+        },
+        "payment_date": {
+          "quote": "about 12th June 2026",
+          "value": "2026-06-12"
+        },
+        "status": {
+          "quote": "proposed",
+          "value": "proposed"
+        }
+      },
+      "passage-38": {
+        "amount": {
+          "quote": "KShs 5.00",
+          "value": "5"
+        },
+        "currency": {
+          "quote": "KShs 5.00",
+          "value": "KES"
+        },
+        "status": {
+          "quote": "has approved",
+          "value": "approved"
+        }
+      },
+      "passage-39": {
+        "amount": {
+          "quote": "KShs 37.00",
+          "value": "37"
+        },
+        "currency": {
+          "quote": "KShs 37.00",
+          "value": "KES"
+        },
+        "payment_date": {
+          "quote": "for every ordinary share of KShs 5.00",
+          "value": "2020-10-30"
+        },
+        "record_date": {
+          "quote": "for every ordinary share of KShs 5.00",
+          "value": "2020-09-30"
+        },
+        "status": {
+          "quote": "will be recommending",
+          "value": "proposed"
+        }
+      },
+      "passage-40": {
+        "amount": {
+          "quote": "KShs 8.00",
+          "value": "8"
+        },
+        "currency": {
+          "quote": "KShs 8.00",
+          "value": "KES"
+        },
+        "status": {
+          "quote": "declared",
+          "value": "declared"
+        }
+      },
+      "passage-41": {
+        "amount": {
+          "quote": "KShs 14.00",
+          "value": "14"
+        },
+        "currency": {
+          "quote": "KShs 14.00",
+          "value": "KES"
+        },
+        "status": {
+          "quote": "recommend",
+          "value": "proposed"
+        }
+      },
+      "passage-42": {
+        "currency": {
+          "quote": "KShs",
+          "value": "KES"
+        }
+      }
+    },
+    "totals": {
+      "abstentions": 0,
+      "cited": 18,
+      "correct": 18,
+      "expected": 19,
+      "returned": 23
+    }
+  },
+  "hybrid_routed": 2,
+  "latency_seconds": {
+    "passage-36": 11.080176707997452,
+    "passage-37": 5.076882000001206,
+    "passage-38": 3.6342356669993023,
+    "passage-39": 7.620722999999998,
+    "passage-40": 6.7245101669977885,
+    "passage-41": 7.679134749996592,
+    "passage-42": 7.29123241599882
+  },
+  "model": {
+    "false_approvals": 0,
+    "fields": {
+      "amount": {
+        "abstentions": 2,
+        "cited": 1,
+        "correct": 3,
+        "expected": 5,
+        "returned": 3
+      },
+      "currency": {
+        "abstentions": 1,
+        "cited": 3,
+        "correct": 5,
+        "expected": 6,
+        "returned": 6
+      },
+      "payment_date": {
+        "abstentions": 1,
+        "cited": 0,
+        "correct": 0,
+        "expected": 1,
+        "returned": 3
+      },
+      "record_date": {
+        "abstentions": 0,
+        "cited": 1,
+        "correct": 1,
+        "expected": 1,
+        "returned": 4
+      },
+      "status": {
+        "abstentions": 1,
+        "cited": 4,
+        "correct": 4,
+        "expected": 6,
+        "returned": 5
+      }
+    },
+    "predictions": {
+      "passage-36": {
+        "payment_date": {
+          "quote": "close of business on 23 May 2025",
+          "value": "2025-06-30"
+        },
+        "record_date": {
+          "quote": "close of business on 23 May 2025",
+          "value": "2025-05-23"
+        }
+      },
+      "passage-37": {
+        "amount": {
+          "quote": "per share",
+          "value": "60"
+        },
+        "currency": {
+          "quote": "in respect of the year ended 31 December 2025",
+          "value": "KES"
+        },
+        "record_date": {
+          "quote": "on or about 12th June 2026",
+          "value": "2026-06-12"
+        },
+        "status": {
+          "quote": "has proposed",
+          "value": "proposed"
+        }
+      },
+      "passage-38": {
+        "amount": {
+          "quote": "in respect of the year ending 31 December 2024 of KShs",
+          "value": "5"
+        },
+        "currency": {
+          "quote": "per ordinary share",
+          "value": "KES"
+        },
+        "status": {
+          "quote": "has approved",
+          "value": "approved"
+        }
+      },
+      "passage-39": {
+        "currency": {
+          "quote": "KShs",
+          "value": "KES"
+        },
+        "payment_date": {
+          "quote": "for every ordinary share of KShs 5.00",
+          "value": "2020-10-30"
+        },
+        "record_date": {
+          "quote": "for every ordinary share of KShs 5.00",
+          "value": "2020-09-30"
+        },
+        "status": {
+          "quote": "will be recommending",
+          "value": "proposed"
+        }
+      },
+      "passage-40": {
+        "currency": {
+          "quote": "KShs",
+          "value": "KES"
+        },
+        "status": {
+          "quote": "dividend of KShs 8.00 was declared and paid",
+          "value": "declared"
+        }
+      },
+      "passage-41": {
+        "amount": {
+          "quote": "final dividend of KShs 14.00 for every ordinary share of KShs 5.00",
+          "value": "14"
+        },
+        "currency": {
+          "quote": "KShs 14.00",
+          "value": "KES"
+        },
+        "payment_date": {
+          "quote": "The Board has resolved to recommend",
+          "value": "2019-10-31"
+        },
+        "record_date": {
+          "quote": "for every ordinary share of KShs 5.00",
+          "value": "2019-09-30"
+        },
+        "status": {
+          "quote": "The Board has resolved to recommend",
+          "value": "proposed"
+        }
+      },
+      "passage-42": {
+        "currency": {
+          "quote": "KShs",
+          "value": "KES"
+        }
+      }
+    },
+    "totals": {
+      "abstentions": 5,
+      "cited": 9,
+      "correct": 13,
+      "expected": 19,
+      "returned": 21
+    }
+  },
+  "passages": 7,
+  "reference_status": "single-reader",
+  "rules": {
+    "false_approvals": 0,
+    "fields": {
+      "amount": {
+        "abstentions": 0,
+        "cited": 5,
+        "correct": 5,
+        "expected": 5,
+        "returned": 6
+      },
+      "currency": {
+        "abstentions": 0,
+        "cited": 6,
+        "correct": 6,
+        "expected": 6,
+        "returned": 6
+      },
+      "payment_date": {
+        "abstentions": 0,
+        "cited": 1,
+        "correct": 1,
+        "expected": 1,
+        "returned": 1
+      },
+      "record_date": {
+        "abstentions": 0,
+        "cited": 1,
+        "correct": 1,
+        "expected": 1,
+        "returned": 1
+      },
+      "status": {
+        "abstentions": 1,
+        "cited": 4,
+        "correct": 4,
+        "expected": 6,
+        "returned": 5
+      }
+    },
+    "predictions": {
+      "passage-36": {
+        "amount": {
+          "quote": "KShs 45.00",
+          "value": "45"
+        },
+        "currency": {
+          "quote": "KShs 45.00",
+          "value": "KES"
+        },
+        "record_date": {
+          "quote": "close of business on 23 May 2025",
+          "value": "2025-05-23"
+        },
+        "status": {
+          "quote": "proposed",
+          "value": "proposed"
+        }
+      },
+      "passage-37": {
+        "amount": {
+          "quote": "KShs 60",
+          "value": "60"
+        },
+        "currency": {
+          "quote": "KShs 60",
+          "value": "KES"
+        },
+        "payment_date": {
+          "quote": "about 12th June 2026",
+          "value": "2026-06-12"
+        },
+        "status": {
+          "quote": "proposed",
+          "value": "proposed"
+        }
+      },
+      "passage-38": {
+        "amount": {
+          "quote": "KShs 5.00",
+          "value": "5"
+        },
+        "currency": {
+          "quote": "KShs 5.00",
+          "value": "KES"
+        },
+        "status": {
+          "quote": "has approved",
+          "value": "approved"
+        }
+      },
+      "passage-39": {
+        "amount": {
+          "quote": "KShs 37.00",
+          "value": "37"
+        },
+        "currency": {
+          "quote": "KShs 37.00",
+          "value": "KES"
+        }
+      },
+      "passage-40": {
+        "amount": {
+          "quote": "KShs 8.00",
+          "value": "8"
+        },
+        "currency": {
+          "quote": "KShs 8.00",
+          "value": "KES"
+        },
+        "status": {
+          "quote": "declared",
+          "value": "declared"
+        }
+      },
+      "passage-41": {
+        "amount": {
+          "quote": "KShs 14.00",
+          "value": "14"
+        },
+        "currency": {
+          "quote": "KShs 14.00",
+          "value": "KES"
+        },
+        "status": {
+          "quote": "recommend",
+          "value": "proposed"
+        }
+      },
+      "passage-42": {}
+    },
+    "totals": {
+      "abstentions": 1,
+      "cited": 17,
+      "correct": 17,
+      "expected": 19,
+      "returned": 19
+    }
+  },
+  "split": "prospective"
+}

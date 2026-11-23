@@ -48,6 +48,7 @@ def cutoff(value):
 
 def actions(as_of, symbol=None, status=None, history=False, clock="disclosure", root=CORPUS):
     docs, groups, labels, digest = load_corpus(root)
+    locators = json.loads((root / "locators.json").read_text())
     until = cutoff(as_of)
     state, changes = {}, []
     for doc in sorted(docs, key=lambda d: (d["notice_date"], d["id"])):
@@ -59,17 +60,23 @@ def actions(as_of, symbol=None, status=None, history=False, clock="disclosure", 
             available = max(instant(SNAPSHOT), available)
         if available > until or not event or (symbol and doc["symbol"] != symbol.upper()):
             continue
+        locator = locators.get(key, {})
+        source = locator.get("current_url", doc["source"])
+        if locator.get("page"):
+            source = source.split("#")[0] + f"#page={locator['page']}"
         prior = state.get(event, {})
         fields = prior.get("fields", {}).copy()
         for field, item in labels[key].items():
             fields[field] = {**item, "passage_id": key, "location": doc["location"],
-                             "source": doc["source"], "notice_date": doc["notice_date"]}
+                             "source": source, "notice_date": doc["notice_date"]}
         entry = {"event": event, "symbol": doc["symbol"], "available_at": available.isoformat(),
                  "notice_date": doc["notice_date"], "passage_id": key, "fields": fields,
-                 "passages": doc["passages"], "source": doc["source"], "location": doc["location"]}
+                 "passages": doc["passages"], "source": source, "locator": locator, "location": doc["location"]}
         state[event] = entry
         changes.append(entry)
     rows = changes if history else list(state.values())
     return {"clock": clock, "as_of": until.isoformat(), "reference_status": "single-reader",
+            "availability_basis": ("next Nairobi midnight after the dated issuer disclosure"
+                                   if clock == "disclosure" else "conservative bound for this collected snapshot"),
             "corpus_sha256": digest, "rows": [r for r in rows if not status or
                                               r["fields"].get("status", {}).get("value") == status]}

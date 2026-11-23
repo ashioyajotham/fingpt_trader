@@ -1,5 +1,4 @@
 """Compare passage extractors on identical frozen excerpts without execution access."""
-import json
 import re
 import unicodedata
 from collections import Counter
@@ -115,6 +114,8 @@ def score(predictions, labels):
 def evaluate(split, backend=None):
     docs, membership, labels, digest = load_corpus()
     docs = [d for d in docs if membership[d["id"]]["split"] == split]
+    if backend and len(docs) > getattr(backend, "max_calls", len(docs)):
+        raise ValueError(f"split needs {len(docs)} requests; increase --max-calls or select a smaller split")
     base = {d["id"]: rules(d) for d in docs}
     result = {"corpus_sha256": digest, "split": split, "passages": len(docs),
               "rules": score(base, labels), "reference_status": "single-reader"}
