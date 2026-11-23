@@ -1,0 +1,142 @@
+{
+  "passage-01": {
+    "event": "EQTY-2025-final",
+    "split": "development"
+  },
+  "passage-02": {
+    "event": "EQTY-2025-final",
+    "split": "development"
+  },
+  "passage-03": {
+    "event": "EQTY-2024-final",
+    "split": "development"
+  },
+  "passage-04": {
+    "event": "EQTY-2024-final",
+    "split": "development"
+  },
+  "passage-05": {
+    "event": "EQTY-2023-final",
+    "split": "development"
+  },
+  "passage-06": {
+    "event": null,
+    "split": "development"
+  },
+  "passage-07": {
+    "event": "EABL-2025-final",
+    "split": "holdout"
+  },
+  "passage-08": {
+    "event": "EABL-2025-final",
+    "split": "holdout"
+  },
+  "passage-09": {
+    "event": "EABL-2025-interim",
+    "split": "holdout"
+  },
+  "passage-10": {
+    "event": "EABL-2025-interim",
+    "split": "holdout"
+  },
+  "passage-11": {
+    "event": "EABL-2023-final",
+    "split": "holdout"
+  },
+  "passage-12": {
+    "event": "EABL-2023-final",
+    "split": "holdout"
+  },
+  "passage-13": {
+    "event": "EABL-2024-final",
+    "split": "holdout"
+  },
+  "passage-14": {
+    "event": "KPLC-2026-final",
+    "split": "development"
+  },
+  "passage-15": {
+    "event": "KPLC-2026-interim",
+    "split": "development"
+  },
+  "passage-16": {
+    "event": "KPLC-2025-final",
+    "split": "development"
+  },
+  "passage-17": {
+    "event": "KPLC-2025-interim",
+    "split": "development"
+  },
+  "passage-18": {
+    "event": "KPLC-2024-final",
+    "split": "development"
+  },
+  "passage-19": {
+    "event": "KPLC-2026-interim",
+    "split": "development"
+  },
+  "passage-20": {
+    "event": "KPLC-2026-final",
+    "split": "development"
+  },
+  "passage-21": {
+    "event": "IMH-2021-annual",
+    "split": "holdout"
+  },
+  "passage-22": {
+    "event": "IMH-2022-annual",
+    "split": "holdout"
+  },
+  "passage-23": {
+    "event": "IMH-2025-final",
+    "split": "holdout"
+  },
+  "passage-24": {
+    "event": "IMH-2025-interim",
+    "split": "holdout"
+  },
+  "passage-25": {
+    "event": "IMH-2024-final",
+    "split": "holdout"
+  },
+  "passage-26": {
+    "event": "KEGN-2026-final",
+    "split": "holdout"
+  },
+  "passage-27": {
+    "event": "KEGN-2025-final",
+    "split": "holdout"
+  },
+  "passage-28": {
+    "event": "KEGN-2025-final",
+    "split": "holdout"
+  },
+  "passage-29": {
+    "event": "KEGN-2024-final",
+    "split": "holdout"
+  },
+  "passage-30": {
+    "event": "KEGN-2023-final",
+    "split": "holdout"
+  },
+  "passage-31": {
+    "event": "SCOM-2024-final",
+    "split": "development"
+  },
+  "passage-32": {
+    "event": "SCOM-2025-final",
+    "split": "development"
+  },
+  "passage-33": {
+    "event": "SCOM-2025-final",
+    "split": "development"
+  },
+  "passage-34": {
+    "event": "KCB-2024-final",
+    "split": "development"
+  },
+  "passage-35": {
+    "event": "KCB-2025-final",
+    "split": "development"
+  }
+}

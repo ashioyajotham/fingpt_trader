@@ -1,0 +1,367 @@
+[
+  {
+    "id": "passage-01",
+    "symbol": "EQTY",
+    "notice_date": "2026-03-18",
+    "source": "https://equitygroupholdings.com/equity-group-records-historic-results-reporting-a-55-growth-in-profit-after-tax-of-kshs-75-5-billion-underscoring-the-success-of-its-strategic-transformation/",
+    "location": "FY2025 results, dividend paragraph",
+    "passages": [
+      "the Directors have recommended a dividend of Kshs 5.75 per share"
+    ]
+  },
+  {
+    "id": "passage-02",
+    "symbol": "EQTY",
+    "notice_date": "2026-06-24",
+    "source": "https://equitygroupholdings.com/nairobi-24th-june-2026-equity-group-holdings-plc-shareholders-have-approved-all-proposed-resolutions-tabled-at-the-22nd-annual-general-meeting-agm-including-dividend-payout-board-appointments-a/",
+    "location": "22nd AGM, payout paragraph",
+    "passages": [
+      "Shareholders approved a first and final dividend of Kshs. 21.70 billion (Kshs. 5.75 per share)",
+      "will be paid on or about 30th June 2026"
+    ]
+  },
+  {
+    "id": "passage-03",
+    "symbol": "EQTY",
+    "notice_date": "2025-03-27",
+    "source": "https://equitygroupholdings.com/equity-group-reports-kshs-60-7-billion-profits-before-tax-driven-by-strategic-diversified-growth/",
+    "location": "FY2024 results, payout paragraph",
+    "passages": [
+      "proposing a dividend of Kshs 4.25 per share"
+    ]
+  },
+  {
+    "id": "passage-04",
+    "symbol": "EQTY",
+    "notice_date": "2025-06-25",
+    "source": "https://equitygroupholdings.com/equity-group-holds-21st-annual-general-meeting-approves-dividend-directors-elections-governance-policies-and-uae-representative-office/",
+    "location": "21st AGM, dividend paragraph",
+    "passages": [
+      "Shareholders approved a dividend of Kshs. 16 billion at an enhanced rate of Kshs. 4.25 per share"
+    ]
+  },
+  {
+    "id": "passage-05",
+    "symbol": "EQTY",
+    "notice_date": "2024-06-26",
+    "source": "https://equitygroupholdings.com/wp-content/uploads/2024/06/Equity-AGM-Voting-Results-26th-June-.pdf",
+    "location": "AGM voting results, dividend resolution",
+    "passages": [
+      "To declare a first and final dividend of KES 4/- per share",
+      "Passed"
+    ]
+  },
+  {
+    "id": "passage-06",
+    "symbol": "EQTY",
+    "notice_date": "2021-06-24",
+    "source": "https://equitygroupholdings.com/equity-group-shareholders-resolve-to-reinforce-the-groups-governance-structure-through-amendments-of-its-articles-of-association/",
+    "location": "17th AGM, dividend policy bullet",
+    "passages": [
+      "The Group to pay out between 30% to 50% of its Profit After Tax as dividends to shareholders."
+    ]
+  },
+  {
+    "id": "passage-07",
+    "symbol": "EABL",
+    "notice_date": "2025-08-20",
+    "source": "https://www.eabl.com/~/media/Files/E/eabl/documents/investor/agm/2025/eabl-2025-agm-notice-and-agenda-english.pdf",
+    "location": "AGM agenda, resolution 2(b)",
+    "passages": [
+      "To approve a final dividend of Kshs 5.50"
+    ]
+  },
+  {
+    "id": "passage-08",
+    "symbol": "EABL",
+    "notice_date": "2025-09-11",
+    "source": "https://www.eabl.com/~/media/Files/E/eabl/documents/investor/agm/2025/eabl-2025-agm-polling-results.pdf",
+    "location": "Polling results, resolution 2(b) and verdict",
+    "passages": [
+      "To approve a final dividend of Kshs 5.50 per ordinary share",
+      "Verdict PASSED"
+    ]
+  },
+  {
+    "id": "passage-09",
+    "symbol": "EABL",
+    "notice_date": "2025-01-30",
+    "source": "https://www.eabl.com/sites/default/files/documents/EABL-F25-Half-Year-Results-Press-Ad_Final.pdf",
+    "location": "Half-year results, dividend paragraph",
+    "passages": [
+      "The Board of Directors recommends an interim dividend of Kshs 2.50 per share",
+      "about 30th April 2025",
+      "close of business on 21st February 2025"
+    ]
+  },
+  {
+    "id": "passage-10",
+    "symbol": "EABL",
+    "notice_date": "2025-08-20",
+    "source": "https://www.eabl.com/~/media/Files/E/eabl/documents/investor/agm/2025/eabl-2025-agm-notice-and-agenda-english.pdf",
+    "location": "AGM agenda, resolution 2(a)",
+    "passages": [
+      "was paid",
+      "on or about 28th April 2025",
+      "close of business on 16th February 2025"
+    ]
+  },
+  {
+    "id": "passage-11",
+    "symbol": "EABL",
+    "notice_date": "2023-08-22",
+    "source": "https://www.eabl.com/sites/default/files/documents/Notice_of_EABL_2023_Annual_General_Meeting.pdf",
+    "location": "AGM notice, dividend item 2(b)",
+    "passages": [
+      "To approve a final dividend of Kshs 1.75 per ordinary share",
+      "close of business on 14th September 2023"
+    ]
+  },
+  {
+    "id": "passage-12",
+    "symbol": "EABL",
+    "notice_date": "2023-07-27",
+    "source": "https://www.eabl.com/sites/default/files/documents/EABLFull2023YearFinancialResultsPressAd.pdf",
+    "location": "Full-year results, dividend paragraph",
+    "passages": [
+      "recommended a final dividend of Kshs 1.75 per share"
+    ]
+  },
+  {
+    "id": "passage-13",
+    "symbol": "EABL",
+    "notice_date": "2024-09-13",
+    "source": "https://www.eabl.com/sites/default/files/documents/EABL-AGM-Polling-Results.pdf",
+    "location": "Polling results, resolution 2 and verdict",
+    "passages": [
+      "To approve a final dividend of Kshs 6 per ordinary share",
+      "PASSED",
+      "will be payable on or about 28th October 2024"
+    ]
+  },
+  {
+    "id": "passage-14",
+    "symbol": "KPLC",
+    "notice_date": "2026-09-18",
+    "source": "https://newsroom.kplc.co.ke/articles/kenya-power-posts-kshs2499-billion-profit-after-tax-on-the-back-of-higher-electricity-revenue-and-reduction-in-finance-costs",
+    "location": "FY2026 results, dividend paragraph",
+    "passages": [
+      "the Board of Directors has recommended a final dividend of Kshs.1.20 per ordinary share, bringing the total dividend payout to Kshs.1.50 per share"
+    ]
+  },
+  {
+    "id": "passage-15",
+    "symbol": "KPLC",
+    "notice_date": "2026-02-03",
+    "source": "https://newsroom.kplc.co.ke/articles/kenya-power-records-kshs14-billion-in-half-year-gross-profit",
+    "location": "Half-year results, closing paragraph",
+    "passages": [
+      "the Board of Directors at Kenya Power have also announce an interim dividend of KSh.0.30 per share"
+    ]
+  },
+  {
+    "id": "passage-16",
+    "symbol": "KPLC",
+    "notice_date": "2025-10-06",
+    "source": "https://www.kplc.co.ke/storage/01K6Z8XAY9BAVJP0EQY2RYRS13.pdf",
+    "location": "Audited results, dividend section",
+    "passages": [
+      "recommend a final dividend of KShs.0.80 per ordinary share"
+    ]
+  },
+  {
+    "id": "passage-17",
+    "symbol": "KPLC",
+    "notice_date": "2025-10-06",
+    "source": "https://www.kplc.co.ke/storage/01K6Z8XAY9BAVJP0EQY2RYRS13.pdf",
+    "location": "Audited results, dividend section",
+    "passages": [
+      "an interim dividend of KShs.0.20 per ordinary share was paid during the year"
+    ]
+  },
+  {
+    "id": "passage-18",
+    "symbol": "KPLC",
+    "notice_date": "2024-10-28",
+    "source": "https://www.kplc.co.ke/storage/01JBBBBHR4WNEZJST4AN0TS0MG.pdf",
+    "location": "Audited results, dividend section",
+    "passages": [
+      "recommend to shareholders, a first and final dividend of KShs.0.70 per ordinary share"
+    ]
+  },
+  {
+    "id": "passage-19",
+    "symbol": "KPLC",
+    "notice_date": "2026-11-05",
+    "source": "https://www.kplc.co.ke/storage/01M7M7PJEYK32F5F93PBZ3Q2W2.pdf",
+    "location": "105th AGM agenda, resolution 3(a)",
+    "passages": [
+      "which was paid subject to withholding tax, on 27ᵗʰ March 2026"
+    ]
+  },
+  {
+    "id": "passage-20",
+    "symbol": "KPLC",
+    "notice_date": "2026-11-05",
+    "source": "https://www.kplc.co.ke/storage/01M7M7PJEYK32F5F93PBZ3Q2W2.pdf",
+    "location": "105th AGM agenda, final dividend item",
+    "passages": [
+      "To approve a final dividend of Shs. 1.20 per ordinary share"
+    ]
+  },
+  {
+    "id": "passage-21",
+    "symbol": "IMH",
+    "notice_date": "2022-03-31",
+    "source": "https://www.imbankgroup.com/press-release/im-group-plc-delivers-consistent-growth-in-its-2021-full-year-financials/",
+    "location": "FY2021 results, payout ratio paragraph",
+    "passages": [
+      "the Board has recommended a dividend payout of 29% up from 22% in the previous year"
+    ]
+  },
+  {
+    "id": "passage-22",
+    "symbol": "IMH",
+    "notice_date": "2023-03-29",
+    "source": "https://www.imbankgroup.com/ke/news/2022-financial-results/",
+    "location": "FY2022 results, dividend paragraph",
+    "passages": [
+      "the Board has proposed a total dividend of KES 2.25 per share"
+    ]
+  },
+  {
+    "id": "passage-23",
+    "symbol": "IMH",
+    "notice_date": "2026-05-21",
+    "source": "https://www.imbankgroup.com/wp-content/uploads/2026/05/IMGP-AGM-Polling-Results-2026.pdf",
+    "location": "AGM poll, resolution 3 and verdict",
+    "passages": [
+      "To approve payment of a final dividend of Kshs. 2.25 per share",
+      "PASSED"
+    ]
+  },
+  {
+    "id": "passage-24",
+    "symbol": "IMH",
+    "notice_date": "2025-11-20",
+    "source": "https://www.imbankgroup.com/press-release/im-group-plc-reports-26-growth-in-profit-before-tax-for-q3-2025/",
+    "location": "Q3 2025 results, interim dividend paragraph",
+    "passages": [
+      "the Board of Directors has approved an interim dividend of KES 1.50 per share"
+    ]
+  },
+  {
+    "id": "passage-25",
+    "symbol": "IMH",
+    "notice_date": "2025-03-26",
+    "source": "https://www.imbankgroup.com/press-release/im-group-plc-delivers-23-growth-in-operating-income-with-a-significant-growth-of-28-in-the-retail-segment-copy/",
+    "location": "FY2024 results, chairman's statement",
+    "passages": [
+      "the Board of Directors has proposed a KES 1.70 final dividend"
+    ]
+  },
+  {
+    "id": "passage-26",
+    "symbol": "KEGN",
+    "notice_date": "2026-10-29",
+    "source": "https://www.kengen.co.ke/kengen-invests-ksh-15-5bn-in-power-infrastructure-as-kenyas-electricity-demand-rises/",
+    "location": "AGM release, dividend paragraph",
+    "passages": [
+      "shareholders approved a first and final dividend of Ksh.0.75 a share",
+      "payment is expected on or about January 21, 2027"
+    ]
+  },
+  {
+    "id": "passage-27",
+    "symbol": "KEGN",
+    "notice_date": "2025-12-04",
+    "source": "https://www.kengen.co.ke/kengen-raises-dividend-as-shareholders-back-ambitious-growth-strategy-at-73rd-annual-meeting/",
+    "location": "73rd AGM, opening paragraph",
+    "passages": [
+      "shareholders endorsed a first and final dividend of Ksh.0.90 per ordinary share"
+    ]
+  },
+  {
+    "id": "passage-28",
+    "symbol": "KEGN",
+    "notice_date": "2025-10-30",
+    "source": "https://www.kengen.co.ke/images/KenGen_Financial_Results_2025.pdf",
+    "location": "Audited results, dividend section",
+    "passages": [
+      "recommend a first and final dividend for the year of KShs 0.90 (2024: KShs 0.65) per ordinary share"
+    ]
+  },
+  {
+    "id": "passage-29",
+    "symbol": "KEGN",
+    "notice_date": "2024-10-28",
+    "source": "https://www.kengen.co.ke/images/2024/new/KenGen-Full-Year-2024-Financial-Results-Release.pdf",
+    "location": "Audited results, dividend section",
+    "passages": [
+      "recommend a first and final dividend for the year of KShs 0.65 (2023: KShs 0.30) per ordinary share"
+    ]
+  },
+  {
+    "id": "passage-30",
+    "symbol": "KEGN",
+    "notice_date": "2024-02-16",
+    "source": "https://www.kengen.co.ke/kengen-delivers-generous-dividends-to-private-shareholders-injecting-excitement-at-the-bourse/",
+    "location": "Payout to private shareholders, opening and distribution paragraphs",
+    "passages": [
+      "successful payout of dividends to its private shareholders",
+      "first and final dividend payment of Ksh.0.3 per share"
+    ]
+  },
+  {
+    "id": "passage-31",
+    "symbol": "SCOM",
+    "notice_date": "2024-07-25",
+    "source": "https://www.safaricom.co.ke/images/Downloads/Safaricom-PLC-2024-AGM-Resolutions.pdf",
+    "location": "AGM resolutions, dividend item",
+    "passages": [
+      "resolved by majority",
+      "to approve a final dividend of KShs 0.65 per share"
+    ]
+  },
+  {
+    "id": "passage-32",
+    "symbol": "SCOM",
+    "notice_date": "2025-05-09",
+    "source": "https://www.safaricom.co.ke/images/Downloads/FY25-Earnings-Booklet_May-9-2025.pdf",
+    "location": "FY25 earnings booklet, Dividends",
+    "passages": [
+      "recommend to the shareholders at the forthcoming AGM in July 2025 a final dividend of KShs 0.65 per ordinary share"
+    ]
+  },
+  {
+    "id": "passage-33",
+    "symbol": "SCOM",
+    "notice_date": "2025-07-04",
+    "source": "https://www.safaricom.co.ke/annualreport_2025/wp-content/uploads/2025/08/safaricom-financial-statements.pdf",
+    "location": "FY25 AGM notice, resolution 2(b)",
+    "passages": [
+      "To approve a final dividend of KShs 0.65 per share"
+    ]
+  },
+  {
+    "id": "passage-34",
+    "symbol": "KCB",
+    "notice_date": "2025-05-22",
+    "source": "https://kcbgroup.com/download-report?document=kcb-group-press-release---2025-agm--shareholders-approve-kshs.9.6b-dividend-payout..pdf.pdf",
+    "location": "FY2024 AGM release, dividend paragraph",
+    "passages": [
+      "The shareholders approved a final dividend of KShs 1.50 per share",
+      "shall be paid on or about May 23, 2025"
+    ]
+  },
+  {
+    "id": "passage-35",
+    "symbol": "KCB",
+    "notice_date": "2026-03-11",
+    "source": "https://kcbgroup.com/download-report?document=kcb-group-press-release--fy-2025-performance--final.pdf#page=1",
+    "location": "FY2025 results, page 1",
+    "passages": [
+      "the Board has proposed a final dividend payout of KShs. 3 per share, subject to shareholder approval."
+    ]
+  }
+]
