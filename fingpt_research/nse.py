@@ -30,8 +30,9 @@ def read_nse(root, meta):
         day = row["session"]
         close_time = calendar[day][1]
         bars.append(Bar(day, close_time, instant(row["available_at"]),
-                        *(number(row[k]) for k in ("open", "high", "low", "close", "volume")),
-                        status=row["status"]))
+                        number(row["open"]) if row["open"] else None,
+                        *(number(row[k]) for k in ("high", "low", "close", "volume")),
+                        status=row["status"], price_type=row.get("price_type", "close")))
     if [b.session for b in bars] != sorted(calendar):
         raise ValueError("each calendar session requires a raw price row, including suspensions")
     documents = json.loads((root / "documents.json").read_text(encoding="utf-8"))
@@ -43,7 +44,12 @@ def read_nse(root, meta):
             raise ValueError("issuer or source pages invalid")
         ids.add(doc["id"])
         published = doc["published"]
-        if len(published) == 10:
+        received = instant(doc["ingested_at"])
+        if len(published) == 10 and received.astimezone(nairobi).date() < date.fromisoformat(published):
+            raise ValueError("document ingested before its publication date")
+        if doc.get("availability_basis") == "verified at capture":
+            doc["available_at"] = received
+        elif len(published) == 10:
             day = date.fromisoformat(published).isoformat()
             following = [opening for session, (opening, _) in calendar.items() if session > day]
             if not following:
@@ -53,10 +59,9 @@ def read_nse(root, meta):
         else:
             doc["available_at"] = instant(published)
             doc["availability_basis"] = "timestamped publication"
-        received = instant(doc["ingested_at"])
         if received > instant(meta["ingested_at"]):
             raise ValueError("document ingestion after dataset capture")
-        if len(published) != 10 and received < doc["available_at"]:
+        if len(published) != 10 and received < instant(published):
             raise ValueError("document ingested before publication")
         if "dividend" in doc:
             action = doc["dividend"]

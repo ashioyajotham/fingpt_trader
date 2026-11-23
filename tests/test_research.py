@@ -142,7 +142,8 @@ class ResearchRelease(unittest.TestCase):
         self.assertIn("KShs", claims["currency"]["quote"])
 
     def test_model_feature_timing_and_comparison(self):
-        model = Mock(version="test-stub")
+        model = Mock(version="test-stub", provider="stub")
+        model.name = "test"
         model.sentiment.return_value = -1
         rows = model_features(model, self.ds, instant("2024-01-01T00:00:00Z"), 60)
         with tempfile.TemporaryDirectory() as tmp:

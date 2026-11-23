@@ -1,0 +1,80 @@
+[
+  {
+    "evidence": [
+      "statement"
+    ],
+    "horizon_sessions": 1,
+    "instrument": "XNAI:DEMO-001",
+    "model_available_at": "2024-10-07T14:50:58+00:00",
+    "observed_at": "2025-01-06T06:31:00+00:00",
+    "producer": "FinGPT-llama.cpp-schema-sentiment-v1",
+    "timing_basis": "reconstructed using declared model availability and inference delay",
+    "value": 0,
+    "version": "4bebb8b47fc9d113f01ab5113152074a806600017ea12040e547acce0a35922a"
+  },
+  {
+    "evidence": [
+      "dividend-original"
+    ],
+    "horizon_sessions": 1,
+    "instrument": "XNAI:DEMO-001",
+    "model_available_at": "2024-10-07T14:50:58+00:00",
+    "observed_at": "2025-01-06T14:01:00+00:00",
+    "producer": "FinGPT-llama.cpp-schema-sentiment-v1",
+    "timing_basis": "reconstructed using declared model availability and inference delay",
+    "value": 1,
+    "version": "4bebb8b47fc9d113f01ab5113152074a806600017ea12040e547acce0a35922a"
+  },
+  {
+    "evidence": [
+      "dividend-correction"
+    ],
+    "horizon_sessions": 1,
+    "instrument": "XNAI:DEMO-001",
+    "model_available_at": "2024-10-07T14:50:58+00:00",
+    "observed_at": "2025-01-08T14:06:00+00:00",
+    "producer": "FinGPT-llama.cpp-schema-sentiment-v1",
+    "timing_basis": "reconstructed using declared model availability and inference delay",
+    "value": 1,
+    "version": "4bebb8b47fc9d113f01ab5113152074a806600017ea12040e547acce0a35922a"
+  },
+  {
+    "evidence": [
+      "claim"
+    ],
+    "horizon_sessions": 1,
+    "instrument": "XNAI:DEMO-001",
+    "model_available_at": "2024-10-07T14:50:58+00:00",
+    "observed_at": "2025-01-15T06:31:00+00:00",
+    "producer": "FinGPT-llama.cpp-schema-sentiment-v1",
+    "timing_basis": "reconstructed using declared model availability and inference delay",
+    "value": -1,
+    "version": "4bebb8b47fc9d113f01ab5113152074a806600017ea12040e547acce0a35922a"
+  },
+  {
+    "evidence": [
+      "finding"
+    ],
+    "horizon_sessions": 1,
+    "instrument": "XNAI:DEMO-001",
+    "model_available_at": "2024-10-07T14:50:58+00:00",
+    "observed_at": "2025-01-16T06:31:00+00:00",
+    "producer": "FinGPT-llama.cpp-schema-sentiment-v1",
+    "timing_basis": "reconstructed using declared model availability and inference delay",
+    "value": 0,
+    "version": "4bebb8b47fc9d113f01ab5113152074a806600017ea12040e547acce0a35922a"
+  },
+  {
+    "evidence": [
+      "news"
+    ],
+    "horizon_sessions": 1,
+    "instrument": "XNAI:DEMO-001",
+    "model_available_at": "2024-10-07T14:50:58+00:00",
+    "observed_at": "2025-01-17T07:01:00+00:00",
+    "producer": "FinGPT-llama.cpp-schema-sentiment-v1",
+    "timing_basis": "reconstructed using declared model availability and inference delay",
+    "value": 1,
+    "version": "4bebb8b47fc9d113f01ab5113152074a806600017ea12040e547acce0a35922a"
+  }
+]

@@ -31,17 +31,21 @@ class Bar:
     session: str
     close_time: datetime
     available_at: datetime
-    open: Decimal
+    open: Decimal | None
     high: Decimal
     low: Decimal
     close: Decimal
     volume: Decimal
     status: str = "trading"
+    price_type: str = "close"
 
     def __post_init__(self):
         if self.available_at < self.close_time:
             raise ValueError("closed bar available before close")
-        if not 0 < self.low <= min(self.open, self.close) <= max(self.open, self.close) <= self.high:
+        if self.price_type not in {"close", "vwap"} or (self.open is None and self.price_type == "close"):
+            raise ValueError("raw OHLC bars require an opening price")
+        marks = [self.close] if self.open is None else [self.open, self.close]
+        if not 0 < self.low <= min(marks) <= max(marks) <= self.high:
             raise ValueError(f"invalid OHLC for {self.session}")
         if self.volume < 0 or self.status not in {"trading", "suspended"}:
             raise ValueError(f"invalid volume or status for {self.session}")

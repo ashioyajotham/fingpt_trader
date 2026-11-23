@@ -1,6 +1,6 @@
 # FinGPT Trader
 
-FinGPT Trader replays market data and issuer documents as they became available, preserves source citations, and simulates long-only paper portfolios. Each run covers one listing in its quote currency. Python 3.11 or later runs the research commands with the standard library.
+FinGPT Trader replays market data and issuer documents as they became available, preserves source citations, and simulates paper portfolios. Individual books use their listing currency. A portfolio study can combine separately funded books in one base currency. Python 3.11 or later runs the research commands with the standard library.
 
 ## Try the replay
 
@@ -17,7 +17,7 @@ The default replay contains 12 captured Binance BTC/USDT daily bars. The NSE exa
 
 ## Import local data
 
-Copy a [sample dataset](fingpt_research/fixtures/nse) and pass its directory to `--dataset`. Keep privately licensed source files locally. One manifest identifies the stable listing, issuer, currency, venue, lot size, adapter, source, capture time and calendar version. Use raw prices with separately recorded dividends. Quote currencies remain distinct across portfolios.
+Copy a [sample dataset](fingpt_research/fixtures/nse) and pass its directory to `--dataset`. Keep privately licensed source files locally. One manifest identifies the stable listing, issuer, currency, venue, lot size, adapter, source, capture time and calendar version. Use raw prices with separately recorded dividends. A single-listing report uses its listing currency. The portfolio command translates the funded books using dated FX observations.
 
 | File | Contents |
 | --- | --- |
@@ -40,19 +40,35 @@ python3 main.py paper --dataset /data/initial-snapshot --policy price --follow
 
 In follow mode, a local publisher writes the directory of each completed snapshot to standard input, one per line. Standard output emits a JSON portfolio report for each extension. Repeated snapshots are idempotent. Publish each snapshot atomically, append corrections as new documents, and retain the snapshot sequence for recovery. A changed historical bar or backdated source requires a fresh historical replay.
 
-The comparison reads the fixed test start, one-session horizon and fold length from the manifest. Earlier prices warm up the factor. The book carries through consecutive test folds. Cash, buy-and-hold including dividends, and one-session price momentum use the same costs and liquidity rules. A second scenario doubles fee and slippage and halves participation. Reports include drawdown, turnover, exposure, fees and net returns. Single-listing results omit FX translation, settlement lags, taxes and stock borrow. A larger licensed universe and borrow records would be needed for portfolio-wide or short-selling studies.
+The comparison reads the fixed test start, one-session horizon and fold length from the manifest. Earlier prices warm up the factor. The book carries through consecutive test folds. Cash, buy-and-hold including dividends, and one-session price momentum use the same costs and liquidity rules. A second scenario doubles fee and slippage and halves participation. Reports include drawdown, turnover, exposure, fees and net returns. The historical comparison uses long-only policies. For a borrow or cross-currency study, use the portfolio command below.
+
+### Cross-currency and borrow studies
+
+```sh
+python3 main.py replay --dataset nse-public-sample
+python3 main.py portfolio --spec examples/kes-portfolio.json
+```
+
+The public sample is a single Safaricom observation checked against the NSE price list dated September 2, 2026. Its opening price is unknown. Its VWAP can value a holding but cannot execute a paper order. The captured document gives the dividend amount and book closure. Posting a payment requires separately verified entitlement terms.
+
+The [example study](examples/kes-portfolio.json) pre-funds two books in KES and USDT. FX is quoted as base currency per unit of listing currency. Each translation uses a rate available at the valuation time. Missing rates, stale rates and stale held-position marks stop the study. Weights must total one. Books have separate cash and position limits. This first version assumes frictionless initial FX conversion and excludes collateral transfers, settlement lags and taxes.
+
+A short sale requires explicit dated loan inventory. A schedule sets maximum outstanding units, an annual rate, expiry and a buy-in premium. Loan fees accrue ACT/365 on the preceding mark, including weekends. A reduction in the allowed outstanding quantity or an expiry triggers a buy-in subject to tradable volume. The last known loan rate continues on overdue units. Short holders owe any eligible dividend. For a single book pass `paper --policy short_hold --borrow loan.json`, with `instrument` and a `records` array using the example's borrow fields. The included FX and borrowing terms are synthetic scenario assumptions.
 
 ## FinGPT experiments
 
 Supply a locally merged FinGPT GGUF for model experiments. Install `.[model]` in a virtual environment. The model file digest identifies the weights. The evaluator compares FinGPT and the deterministic parser against the same reference fields with field accuracy, citation precision, abstentions, elapsed time and model tokens.
 
 ```sh
-python3 main.py evaluate --dataset nse --gguf /models/fingpt.gguf
-python3 main.py features --dataset nse --gguf /models/fingpt.gguf --model-available-at 2024-12-01T00:00:00Z --latency-seconds 60 > features.json
+python3 main.py evaluate --dataset nse --gguf /models/fingpt.gguf --structured
+python3 main.py evaluate --corpus fingpt_research/fixtures/issuer-excerpts --gguf /models/fingpt.gguf --structured
+python3 main.py features --dataset nse --gguf /models/fingpt.gguf --structured --model-available-at 2024-12-01T00:00:00Z --latency-seconds 60 > features.json
 python3 main.py compare --dataset nse --features features.json
 ```
 
 Use the actual model availability date and a defensible inference delay in an experiment. The example arguments illustrate the format. The additional policy applies the same price factor with a sentiment filter on its first eligible observation. Treat generated sentiment as a hypothesis. Assess its incremental value on a separately frozen, reviewed sample before drawing conclusions.
+
+[Local model evaluation and provider design](docs/research-validation.md)
 
 ## Development
 

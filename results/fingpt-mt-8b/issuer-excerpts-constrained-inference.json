@@ -1,0 +1,183 @@
+{
+  "corpus": "issuer-excerpts",
+  "model": "second-state/FinGPT-MT-Llama-3-8B-LoRA-GGUF",
+  "revision": "bd23528d188976308fe113f53179954514997c21",
+  "quantization": "Q4_K_M",
+  "decoding": "schema-constrained",
+  "runtime": "0.3.38",
+  "ended_at": "2026-11-23T15:26:38.378507+00:00",
+  "input_hashes": {
+    "documents.json": "15c168baf6fff4f891b1913824e96c2b0d38c985d8d064a7eee455875394a685",
+    "labels.json": "785bf378f863c65df06f3b706875ab673421c19b3e07e53bd43704f290194f13"
+  },
+  "extractors": {
+    "rules": {
+      "expected": 6,
+      "returned": 5,
+      "correct": 5,
+      "supported": 5,
+      "abstentions": 1,
+      "field_accuracy": 0.8333333333333334,
+      "citation_precision": 1.0,
+      "wall_seconds": 5.3582996770273894e-05,
+      "rows": [
+        {
+          "document": "kcb-fy25-proposal",
+          "field": "status",
+          "prediction": {
+            "value": "proposed",
+            "source": "https://kcbgroup.com/download-report?document=kcb-group-press-release--fy-2025-performance--final.pdf#page=1",
+            "page": 1,
+            "quote": "proposed a final dividend",
+            "attribution": "issuer press release, 11 March 2026, page 1"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "kcb-fy25-proposal",
+          "field": "currency",
+          "prediction": {
+            "value": "KES",
+            "source": "https://kcbgroup.com/download-report?document=kcb-group-press-release--fy-2025-performance--final.pdf#page=1",
+            "page": 1,
+            "quote": "KShs. 3 per share",
+            "attribution": "issuer press release, 11 March 2026, page 1"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "kcb-fy25-proposal",
+          "field": "amount",
+          "prediction": {
+            "value": "3",
+            "source": "https://kcbgroup.com/download-report?document=kcb-group-press-release--fy-2025-performance--final.pdf#page=1",
+            "page": 1,
+            "quote": "KShs. 3 per share",
+            "attribution": "issuer press release, 11 March 2026, page 1"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "equity-fy25-approval",
+          "field": "status",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "equity-fy25-approval",
+          "field": "currency",
+          "prediction": {
+            "value": "KES",
+            "source": "https://equitygroupholdings.com/nairobi-24th-june-2026-equity-group-holdings-plc-shareholders-have-approved-all-proposed-resolutions-tabled-at-the-22nd-annual-general-meeting-agm-including-dividend-payout-board-appointments-a/",
+            "page": 1,
+            "quote": "Kshs. 5.75 per share",
+            "attribution": "issuer AGM release, 24 June 2026, dividend paragraph; HTML passage 1"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "equity-fy25-approval",
+          "field": "amount",
+          "prediction": {
+            "value": "5.75",
+            "source": "https://equitygroupholdings.com/nairobi-24th-june-2026-equity-group-holdings-plc-shareholders-have-approved-all-proposed-resolutions-tabled-at-the-22nd-annual-general-meeting-agm-including-dividend-payout-board-appointments-a/",
+            "page": 1,
+            "quote": "Kshs. 5.75 per share",
+            "attribution": "issuer AGM release, 24 June 2026, dividend paragraph; HTML passage 1"
+          },
+          "correct": true,
+          "supported": true
+        }
+      ]
+    },
+    "FinGPT": {
+      "expected": 6,
+      "returned": 4,
+      "correct": 3,
+      "supported": 3,
+      "abstentions": 2,
+      "field_accuracy": 0.5,
+      "citation_precision": 0.75,
+      "wall_seconds": 17.70985174999805,
+      "rows": [
+        {
+          "document": "kcb-fy25-proposal",
+          "field": "status",
+          "prediction": {
+            "value": "proposed",
+            "source": "https://kcbgroup.com/download-report?document=kcb-group-press-release--fy-2025-performance--final.pdf#page=1",
+            "page": 1,
+            "quote": "the Board has proposed a final dividend payout of KShs. 3 per share, subject to shareholder approval.",
+            "attribution": "issuer press release, 11 March 2026, page 1"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "kcb-fy25-proposal",
+          "field": "currency",
+          "prediction": {
+            "value": "KShs.",
+            "source": "https://kcbgroup.com/download-report?document=kcb-group-press-release--fy-2025-performance--final.pdf#page=1",
+            "page": 1,
+            "quote": "the Board has proposed a final dividend payout of KShs. 3 per share, subject to shareholder approval.",
+            "attribution": "issuer press release, 11 March 2026, page 1"
+          },
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "kcb-fy25-proposal",
+          "field": "amount",
+          "prediction": {
+            "value": "3",
+            "source": "https://kcbgroup.com/download-report?document=kcb-group-press-release--fy-2025-performance--final.pdf#page=1",
+            "page": 1,
+            "quote": "the Board has proposed a final dividend payout of KShs. 3 per share, subject to shareholder approval.",
+            "attribution": "issuer press release, 11 March 2026, page 1"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "equity-fy25-approval",
+          "field": "status",
+          "prediction": {
+            "value": "approved",
+            "source": "https://equitygroupholdings.com/nairobi-24th-june-2026-equity-group-holdings-plc-shareholders-have-approved-all-proposed-resolutions-tabled-at-the-22nd-annual-general-meeting-agm-including-dividend-payout-board-appointments-a/",
+            "page": 1,
+            "quote": "Shareholders approved a first and final dividend of Kshs. 21.70 billion (Kshs. 5.75 per share)",
+            "attribution": "issuer AGM release, 24 June 2026, dividend paragraph; HTML passage 1"
+          },
+          "correct": true,
+          "supported": true
+        },
+        {
+          "document": "equity-fy25-approval",
+          "field": "currency",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        },
+        {
+          "document": "equity-fy25-approval",
+          "field": "amount",
+          "prediction": null,
+          "correct": false,
+          "supported": false
+        }
+      ],
+      "model_sha256": "4bebb8b47fc9d113f01ab5113152074a806600017ea12040e547acce0a35922a",
+      "tokens": 500,
+      "diagnostics": {
+        "calls": 2,
+        "finish_stop": 2
+      }
+    }
+  }
+}

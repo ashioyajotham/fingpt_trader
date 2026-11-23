@@ -4,8 +4,8 @@ from .paper import PaperEngine
 
 
 class ForwardBook:
-    def __init__(self, dataset, policy, config, features):
-        self.engine = PaperEngine(dataset.meta, policy, config)
+    def __init__(self, dataset, policy, config, features, borrow=None):
+        self.engine = PaperEngine(dataset.meta, policy, config, borrow)
         self.bars = []
         self.documents = {}
         self.features = []

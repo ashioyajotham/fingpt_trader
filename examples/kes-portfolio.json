@@ -1,0 +1,63 @@
+{
+  "description": "Synthetic FX and loan assumptions for accounting verification. No issuer borrow history is represented.",
+  "base_currency": "KES",
+  "initial_base_cash": "100000",
+  "start": "2025-01-01T00:00:00Z",
+  "end": "2025-01-16T12:00:00Z",
+  "max_fx_age_hours": 240,
+  "max_mark_age_hours": 120,
+  "assumptions": {
+    "fee_bps": "10",
+    "slippage_bps": "5",
+    "participation": "0.01",
+    "max_exposure": "0.8"
+  },
+  "fx": [
+    {
+      "currency": "USDT",
+      "observed_at": "2025-01-01T00:00:00Z",
+      "available_at": "2025-01-01T00:00:00Z",
+      "base_per_unit": "130",
+      "source": "Explicit synthetic FX assumption"
+    },
+    {
+      "currency": "USDT",
+      "observed_at": "2025-01-09T00:00:00Z",
+      "available_at": "2025-01-09T00:00:00Z",
+      "base_per_unit": "135",
+      "source": "Explicit synthetic FX assumption"
+    }
+  ],
+  "sleeves": [
+    {
+      "dataset": "binance",
+      "weight": "0.5",
+      "policy": "buy_hold"
+    },
+    {
+      "dataset": "nse",
+      "weight": "0.5",
+      "policy": "short_hold",
+      "borrow": [
+        {
+          "available_at": "2025-01-01T09:00:00Z",
+          "effective_at": "2025-01-01T09:00:00Z",
+          "expires_at": "2025-02-01T00:00:00Z",
+          "max_units": "100",
+          "annual_rate": "0.12",
+          "buy_in_bps": "25",
+          "source": "Synthetic loan scenario; amounts are maximum outstanding units. No historical locate."
+        },
+        {
+          "available_at": "2025-01-09T09:00:00Z",
+          "effective_at": "2025-01-09T09:00:00Z",
+          "expires_at": "2025-02-01T00:00:00Z",
+          "max_units": "0",
+          "annual_rate": "0.12",
+          "buy_in_bps": "25",
+          "source": "Synthetic loan scenario; amounts are maximum outstanding units. No historical locate."
+        }
+      ]
+    }
+  ]
+}

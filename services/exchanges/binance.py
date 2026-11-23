@@ -327,7 +327,8 @@ class BinanceClient:
             'timestamp': ob.get('last_update')
         }
 
-    async def process_trade(self, msg: Dict) -> Dict:
+    @staticmethod
+    async def process_trade(msg: Dict) -> Dict:
         """Normalize trade data"""
         return {
             'symbol': msg['s'],
@@ -338,7 +339,8 @@ class BinanceClient:
             'trade_id': msg['t']
         }
 
-    async def process_kline(self, msg: Dict) -> Dict:
+    @staticmethod
+    async def process_kline(msg: Dict) -> Dict:
         """Normalize kline/candlestick data"""
         k = msg['k']
         return {

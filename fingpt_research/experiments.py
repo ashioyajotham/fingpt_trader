@@ -42,7 +42,8 @@ def model_features(model, dataset, model_available_at, latency_seconds):
         score = model.sentiment(doc)
         if score is None:
             continue
-        rows.append({"instrument": dataset.meta["instrument"], "producer": "FinGPT-local-sentiment-v1",
+        mode = "schema" if getattr(model, "structured", False) is True else "raw"
+        rows.append({"instrument": dataset.meta["instrument"], "producer": f"{model.name}-{model.provider}-{mode}-sentiment-v1",
                      "version": model.version, "evidence": [doc["id"]], "horizon_sessions": 1,
                      "model_available_at": model_available_at, "value": score,
                      "observed_at": doc["available_at"] + timedelta(seconds=latency_seconds),
@@ -50,8 +51,8 @@ def model_features(model, dataset, model_available_at, latency_seconds):
     return rows
 
 
-def simulate(dataset, policy, config, features=(), start=None):
-    engine = PaperEngine(dataset.meta, policy, config)
+def simulate(dataset, policy, config, features=(), start=None, borrow=None):
+    engine = PaperEngine(dataset.meta, policy, config, borrow)
     for bar in dataset.bars:
         engine.observe(bar, dataset.documents, features, trading=start is None or bar.session >= start)
     return engine

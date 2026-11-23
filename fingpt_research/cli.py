@@ -8,7 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from .data import FIXTURES, instant, load_dataset, number
-from .evidence import LocalFinGPT, extract_rules, score_extractor
+from .evidence import LocalFinGPT, extract_rules, evaluate_documents
 from .experiments import compare, dataset_hash, load_features, model_features, simulate
 from .forward import ForwardBook
 from .paper import Assumptions
@@ -29,15 +29,19 @@ def emit(value, streaming=False):
 def get_parser():
     parser = argparse.ArgumentParser(description="Point-in-time market research and paper simulation")
     commands = parser.add_subparsers(dest="command", required=True)
+    basket = commands.add_parser("portfolio", help="aggregate separately funded listings in a base currency")
+    basket.add_argument("--spec", type=Path, required=True)
     for name in ("replay", "evidence", "evaluate", "features", "paper", "compare"):
         cmd = commands.add_parser(name)
         cmd.add_argument("--dataset", default="binance" if name in {"replay", "paper"} else "nse",
                          help="nse, binance, or a local dataset directory")
         cmd.add_argument("--as-of", type=instant, help="inclusive ISO timestamp with UTC offset")
         if name in {"evaluate", "evidence", "features"}:
+            cmd.add_argument("--structured", action="store_true", help="use schema-constrained local model decoding")
             cmd.add_argument("--gguf", type=Path, required=name == "features",
                              help="local FinGPT weights for optional inference")
         if name == "evaluate":
+            cmd.add_argument("--corpus", type=Path, help="standalone directory with source documents and reference labels")
             cmd.add_argument("--labels", type=Path, help="reviewed JSON references (default: dataset labels.json)")
         if name == "features":
             cmd.add_argument("--model-available-at", type=instant, required=True)
@@ -50,14 +54,27 @@ def get_parser():
             cmd.add_argument("--participation", type=number, default=Assumptions.participation)
             cmd.add_argument("--max-exposure", type=number, default=Assumptions.max_exposure)
         if name == "paper":
-            cmd.add_argument("--policy", choices=["cash", "buy_hold", "price", "price_ml"], default="cash")
+            cmd.add_argument("--policy", choices=["cash", "buy_hold", "price", "price_ml", "short_hold"], default="cash")
+            cmd.add_argument("--borrow", type=Path, help="listing-specific JSON borrow history")
             cmd.add_argument("--follow", action="store_true",
                              help="consume subsequent append-only dataset directory paths on stdin, one per line")
     return parser
 
 
 def run(args):
-    root = FIXTURES / args.dataset if args.dataset in {"binance", "nse"} else Path(args.dataset)
+    if args.command == "portfolio":
+        from .portfolio import portfolio
+        return portfolio(args.spec)
+    if getattr(args, "structured", False) and not args.gguf:
+        raise ValueError("--structured requires a local model")
+    if args.command == "evaluate" and args.corpus:
+        if args.as_of:
+            raise ValueError("standalone excerpt evaluation does not use a market replay clock")
+        documents = json.loads((args.corpus / "documents.json").read_text())
+        labels = json.loads((args.labels or args.corpus / "labels.json").read_text())
+        model = LocalFinGPT(args.gguf, structured=args.structured) if args.gguf else None
+        return {"corpus": args.corpus.name, "extractors": evaluate_documents(documents, labels, model)}
+    root = FIXTURES / args.dataset if args.dataset in {"binance", "nse", "nse-public-sample"} else Path(args.dataset)
     dataset = load_dataset(root)
     full_dataset = dataset
     if args.as_of:
@@ -68,7 +85,7 @@ def run(args):
     if args.command == "replay":
         return dataset.report(None)
     if args.command in {"evidence", "evaluate", "features"}:
-        model = LocalFinGPT(args.gguf) if args.gguf else None
+        model = LocalFinGPT(args.gguf, structured=args.structured) if args.gguf else None
         if args.command == "features":
             return model_features(model, dataset, args.model_available_at, args.latency_seconds)
         if args.command == "evidence":
@@ -78,11 +95,7 @@ def run(args):
                      "extractor": model.version if model else "rules-v1",
                      "fields": extract(d)} for d in dataset.documents]
         labels = json.loads((args.labels or root / "labels.json").read_text())
-        scores = {"rules": score_extractor(dataset.documents, labels, extract_rules)}
-        if model:
-            scores["FinGPT"] = score_extractor(dataset.documents, labels, model.extract)
-            scores["FinGPT"].update(model_sha256=model.version, tokens=model.tokens)
-        return {"dataset": dataset.meta["source"], "extractors": scores}
+        return {"dataset": dataset.meta["source"], "extractors": evaluate_documents(dataset.documents, labels, model)}
     config = Assumptions(args.cash, args.fee_bps, args.slippage_bps, args.participation, args.max_exposure)
     features = load_features(args.features, full_dataset)
     if args.as_of:
@@ -91,10 +104,15 @@ def run(args):
         return compare(dataset, config, features, dataset_hash(root))
     if args.policy == "price_ml" and not args.features:
         raise ValueError("price_ml requires a timestamped feature input")
+    borrow = None
+    if args.borrow:
+        from .borrow import BorrowSchedule
+        history = json.loads(args.borrow.read_text())
+        borrow = BorrowSchedule(history["instrument"], history["records"])
     if args.follow:
         if args.as_of:
             raise ValueError("use an initial snapshot directory for forward simulation")
-        book = ForwardBook(dataset, args.policy, config, features)
+        book = ForwardBook(dataset, args.policy, config, features, borrow)
         emit(book.engine.report(), streaming=True)
         for line in sys.stdin:
             if line.strip():
@@ -102,7 +120,7 @@ def run(args):
                 if book.advance(next_dataset, load_features(args.features, next_dataset)):
                     emit(book.engine.report(), streaming=True)
         return None
-    return simulate(dataset, args.policy, config, features).report()
+    return simulate(dataset, args.policy, config, features, borrow=borrow).report()
 
 
 def main(argv=None):

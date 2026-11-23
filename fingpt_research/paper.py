@@ -2,7 +2,7 @@
 
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
 
 from .data import number
 from .risk import drawdown, exposures
@@ -44,16 +44,17 @@ class Assumptions:
             raise ValueError("invalid initial capital, cost, participation or exposure")
 
 
-def approve(signal, bar, nav, units, lot, config):
+def approve(signal, bar, nav, units, lot, config, allow_short=False):
     """Map a research value to a long-only target and size in whole lots."""
-    weight = min(config.max_exposure, max(ZERO, signal.value))
+    floor = -config.max_exposure if allow_short else ZERO
+    weight = min(config.max_exposure, max(floor, signal.value))
     target = (weight * nav / bar.close // lot) * lot
     return ApprovedIntent(signal.instrument, signal.observed_at, target - units)
 
 
 def baseline(name):
     """Return a signal producer. Custom callables use the same four arguments."""
-    if name not in {"cash", "buy_hold", "price", "price_ml"}:
+    if name not in {"cash", "buy_hold", "price", "price_ml", "short_hold"}:
         raise ValueError("unknown portfolio policy")
 
     def produce(instrument, bar, previous, features):
@@ -69,6 +70,8 @@ def baseline(name):
                     bullish = bullish and sum(f.value for f in eligible) >= 0
                     evidence.extend(ref for f in eligible for ref in f.evidence)
             weight = ONE if bullish else ZERO
+        elif name == "short_hold":
+            weight = -ONE
         else:
             weight = ONE if name == "buy_hold" else ZERO
         return Signal(instrument, name, "1", bar.available_at, 1, weight, tuple(evidence))
@@ -77,9 +80,16 @@ def baseline(name):
 
 
 class PaperEngine:
-    def __init__(self, meta, policy, config):
+    def __init__(self, meta, policy, config, borrow=None):
         self.producer = baseline(policy) if isinstance(policy, str) else policy
         self.instrument = meta["instrument"]
+        if borrow is not None and borrow.instrument != self.instrument:
+            raise ValueError("borrow schedule listing mismatch")
+        if policy == "short_hold" and borrow is None:
+            raise ValueError("short_hold requires a dated borrow schedule")
+        self.borrow = borrow
+        self.last_mark = None
+        self.borrow_cost = ZERO
         self.lot = number(meta["lot_size"])
         self.policy = policy if isinstance(policy, str) else policy.__name__
         self.config = config
@@ -125,48 +135,72 @@ class PaperEngine:
 
     def fill(self, bar, receivable):
         order = self.pending
-        if (order is None or order.instrument != self.instrument or order.decided_at >= bar.close_time
-                or not order.quantity or bar.volume == 0 or bar.status != "trading"):
+        if bar.price_type != "close" or bar.volume <= 0 or bar.status != "trading":
+            return
+        term = self.borrow.at_close(bar.close_time) if self.borrow else None
+        capacity = term.quantity if term and bar.close_time < term.expires else ZERO
+        recalled = max(ZERO, -self.units - capacity)
+        if recalled:
+            # A fractional locate reduction must cover the next whole trading lot.
+            requested = (recalled / self.lot).to_integral_value(rounding=ROUND_CEILING) * self.lot
+            decided = term.starts if bar.close_time < term.expires else term.expires
+        elif order and order.instrument == self.instrument and order.decided_at < bar.close_time:
+            requested, decided = order.quantity, order.decided_at
+        else:
+            return
+        self.pending = None
+        if not requested:
             return
         cfg = self.config
-        buying = order.quantity > 0
-        sign = ONE if buying else -ONE
-        price = bar.close * (1 + sign * cfg.slippage_bps / BPS)
-        limit = min(abs(order.quantity), bar.volume * cfg.participation)
-        if buying:
-            unit_cost = price * (1 + cfg.fee_bps / BPS)
-            nav = self.cash + self.units * bar.close + receivable
-            # Fees and impact reduce NAV as the buy fills.
-            headroom = cfg.max_exposure * nav - self.units * bar.close
-            risk_cap = headroom / (bar.close + cfg.max_exposure * (unit_cost - bar.close))
-            limit = min(limit, self.cash / unit_cost, risk_cap)
+        sign = ONE if requested > 0 else -ONE
+        premium = term.buy_in_bps if recalled else ZERO
+        price = bar.close * (1 + (sign * cfg.slippage_bps + premium) / BPS)
+        fee_per_unit = price * cfg.fee_bps / BPS
+        limit = min(abs(requested), bar.volume * cfg.participation)
+        if self.units * sign < 0:
+            # Reducing risk remains possible after a gap breaches a limit.
+            limit = min(limit, abs(self.units))
         else:
-            limit = min(limit, self.units)
+            nav = self.cash + self.units * bar.close + receivable
+            headroom = cfg.max_exposure * nav - abs(self.units) * bar.close
+            drag = sign * (price - bar.close) + fee_per_unit
+            limit = min(limit, headroom / (bar.close + cfg.max_exposure * drag))
+            if sign > 0:
+                limit = min(limit, self.cash / (price + fee_per_unit))
+            else:
+                limit = min(limit, capacity + self.units)
         quantity = sign * (max(ZERO, limit) // self.lot) * self.lot
         if quantity:
-            fee = abs(quantity) * price * cfg.fee_bps / BPS
+            fee = abs(quantity) * fee_per_unit
             self.cash -= quantity * price + fee
             self.units += quantity
-            self.fills.append({"session": bar.session, "decided_at": order.decided_at,
-                               "filled_at": bar.close_time, "quantity": quantity, "price": price, "fee": fee})
-        self.pending = None
+            self.fills.append({"session": bar.session, "decided_at": decided, "filled_at": bar.close_time,
+                               "quantity": quantity, "price": price, "fee": fee,
+                               "reason": "forced_buy_in" if recalled else "policy"})
 
     def observe(self, bar, documents=(), features=(), *, trading=True):
-        if self.ledger and self.ledger[-1]["session"] >= bar.session:
+        if self.last_mark and (bar.session <= self.last_mark.session or bar.close_time <= self.last_mark.close_time
+                               or bar.available_at < self.last_mark.available_at):
             raise ValueError("paper sessions must advance exactly once")
+        fee = ZERO
+        if self.borrow and self.units < 0:
+            fee = self.borrow.charge(self.last_mark.close_time, bar.close_time, -self.units * self.last_mark.close)
+            self.cash -= fee
+            self.borrow_cost += fee
+        self.last_mark = bar
         accrued = self.dividends(bar, documents)
         self.fill(bar, accrued)
         position = self.units * bar.close
         nav = self.cash + position + accrued
-        gross, net = exposures([position], nav)
+        gross, net = exposures([position], nav) if nav > 0 else (None, None)
         self.peak = max(self.peak, nav)
         dd = drawdown(nav, self.peak)
         self.worst = max(self.worst, dd)
         self.held[bar.session] = self.units
         self.ledger.append({"session": bar.session, "cash": self.cash, "quantity": self.units,
                             "receivable": accrued, "nav": nav, "gross_exposure": gross, "net_exposure": net,
-                            "drawdown": dd, "max_drawdown": self.worst})
-        if bar.status != "trading" or not bar.volume:
+                            "borrow_fee": fee, "insolvent": nav <= 0, "drawdown": dd, "max_drawdown": self.worst})
+        if nav <= 0 or bar.status != "trading" or not bar.volume:
             return
         visible = tuple(f for f in features if f.instrument == self.instrument and f.observed_at <= bar.available_at)
         signal = self.producer(self.instrument, bar, self.previous, visible)
@@ -176,13 +210,13 @@ class PaperEngine:
                     signal.observed_at != bar.available_at or not signal.evidence or not signal.value.is_finite()):
                 raise ValueError("policy produced an invalid research signal")
             self.signals.append(signal)
-            self.pending = approve(signal, bar, nav, self.units, self.lot, self.config)
+            self.pending = approve(signal, bar, nav, self.units, self.lot, self.config, self.borrow is not None)
 
     def report(self):
         nav = self.ledger[-1]["nav"] if self.ledger else self.config.cash
         turnover = sum(abs(f["quantity"]) * f["price"] for f in self.fills)
         return {"mode": "paper", "policy": self.policy, "assumptions": asdict(self.config),
                 "net_return": nav / self.config.cash - 1, "max_drawdown": self.worst,
-                "turnover_over_initial_nav": turnover / self.config.cash, "ledger": self.ledger,
+                "currency_borrow_fees": self.borrow_cost, "turnover_over_initial_nav": turnover / self.config.cash, "ledger": self.ledger,
                 "fills": self.fills, "dividends": self.cash_events,
                 "signals": [asdict(s) for s in self.signals]}
