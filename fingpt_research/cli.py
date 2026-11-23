@@ -57,7 +57,7 @@ def get_parser():
 
 
 def run(args):
-    root = FIXTURES / args.dataset if args.dataset in {"binance", "nse"} else Path(args.dataset)
+    root = FIXTURES / args.dataset if args.dataset in {"binance", "nse", "nse-public-sample"} else Path(args.dataset)
     dataset = load_dataset(root)
     full_dataset = dataset
     if args.as_of:

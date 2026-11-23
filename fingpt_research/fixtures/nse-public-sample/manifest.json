@@ -1,0 +1,15 @@
+{
+  "adapter": "nse-daily",
+  "instrument": "XNAI:KE1000001402",
+  "venue": "Nairobi Securities Exchange",
+  "issuer": "Safaricom PLC",
+  "currency": "KES",
+  "price_basis": "raw",
+  "lot_size": "1",
+  "calendar_version": "single documented session 2026-09-02; regular local session bounds",
+  "source": "https://www.imbankgroup.com/ke/wp-content/uploads/sites/2/2026/09/02-SEP-26.pdf",
+  "source_sha256": "c310c745350b38b07175355081b902bc62b2e8395a31a847ac164bd9a0b4c174",
+  "source_page": 2,
+  "ingested_at": "2026-11-23T10:57:34Z",
+  "coverage": "One public price list. VWAP is a valuation mark; opening price and precise dissemination time are unavailable."
+}

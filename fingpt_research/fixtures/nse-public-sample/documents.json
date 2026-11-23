@@ -1,0 +1,15 @@
+[
+  {
+    "id": "nse-20260902-scom-distribution",
+    "issuer": "Safaricom PLC",
+    "kind": "market_summary",
+    "attribution": "Manually transcribed corporate-action facts from NSE daily price list, page 2",
+    "published": "2026-09-02",
+    "ingested_at": "2026-11-23T10:57:34Z",
+    "availability_basis": "verified at capture",
+    "source": "https://www.imbankgroup.com/ke/wp-content/uploads/sites/2/2026/09/02-SEP-26.pdf#page=2",
+    "pages": [
+      "Safaricom final dividend. KES 1.15 per share. Announcement 2026-05-07. Book closure 2026-08-04. Scheduled payment 2026-09-04."
+    ]
+  }
+]

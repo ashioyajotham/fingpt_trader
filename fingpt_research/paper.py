@@ -126,7 +126,7 @@ class PaperEngine:
     def fill(self, bar, receivable):
         order = self.pending
         if (order is None or order.instrument != self.instrument or order.decided_at >= bar.close_time
-                or not order.quantity or bar.volume == 0 or bar.status != "trading"):
+                or bar.price_type != "close" or not order.quantity or bar.volume == 0 or bar.status != "trading"):
             return
         cfg = self.config
         buying = order.quantity > 0
