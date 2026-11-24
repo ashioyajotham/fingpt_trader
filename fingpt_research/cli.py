@@ -36,6 +36,11 @@ def get_parser():
     actions.add_argument("--status", choices=STATUSES)
     actions.add_argument("--history", action="store_true")
     actions.add_argument("--clock", choices=("disclosure", "observed"), default="disclosure")
+    filing = commands.add_parser("filing-extract", help="extract cited dividend events from a complete local PDF")
+    filing.add_argument("--pdf", type=Path, required=True)
+    filing.add_argument("--symbol", required=True)
+    filing.add_argument("--source", required=True, help="issuer URL or source reference for this local file")
+    filing.add_argument("--gguf", type=Path, help="use a local FinGPT checkpoint with constrained decoding")
     bench = commands.add_parser("notice-eval", help="evaluate frozen dividend passages")
     bench.add_argument("--split", choices=("development", "holdout", "prospective"), default="prospective")
     backend = bench.add_mutually_exclusive_group()
@@ -76,6 +81,11 @@ def get_parser():
 
 
 def run(args):
+    if args.command == "filing-extract":
+        from .filings import extract_filing, prepare_filing
+        prepared = prepare_filing(args.pdf, args.symbol, args.source)
+        model = LocalFinGPT(args.gguf, structured=True) if args.gguf else None
+        return extract_filing(prepared, model)
     if args.command == "actions":
         from .dividends import actions
         return actions(args.as_of, args.symbol, args.status, args.history, args.clock)
