@@ -28,11 +28,11 @@ dev = [
     "black",
     "mypy",
     "flake8",
-    "pytest-asyncio",
-    "numpy", "pandas", "scipy", "aiohttp", "requests",
-    "python-binance==1.0.27", "PyYAML", "rich", "python-dotenv"
 ]
-
+filings = [
+    "pypdf>=5",
+    "pypdfium2>=4",
+]
 model = ["llama-cpp-python>=0.3.6,<0.4"]
 
 [project.scripts]

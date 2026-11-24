@@ -10,6 +10,6 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - run: python -m pip install '.[dev]'
+      - run: python -m pip install '.[dev,filings]'
       - run: python -m pytest -q tests
       - run: python -I -m fingpt_research replay --dataset nse --as-of 2025-01-08T12:00:00Z

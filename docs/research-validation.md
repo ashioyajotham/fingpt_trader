@@ -2,7 +2,7 @@
 
 ## A. Public exchange connectivity
 
-The read-only Binance probe retrieved twelve historical BTC/USDT daily candles and received a current public WebSocket trade through the repository's trade parser. The REST response matched the pinned fixture. Its SHA-256 was `8668ce75fc2341affc8e7cb214376c870ad5fd9c7144420b1ceb2f97c83c41f2`. The stream returned trade 6900340914 at 10:58:16.938 UTC. Reproduce with `python tools/verify_public_binance.py`. The probe exercises public data only.
+The read-only Binance probe retrieves the twelve historical BTC/USDT daily candles from the public REST endpoint and checks byte-level equality against the pinned fixture (`8668ce75fc2341affc8e7cb214376c870ad5fd9c7144420b1ceb2f97c83c41f2`). Reproduce with `python3 tools/verify_public_binance.py` using only the Python standard library. The probe exercises public data only.
 
 ## B. NSE source coverage
 
@@ -41,4 +41,4 @@ The constrained model produced six dated sentiment features. We used the selecte
 
 The separate two-currency scenario allocates independent KES and USDT books. With the example's assumed loan terms, the KES book borrowed 100 fictional shares. Its recall was blocked by zero volume and then suspension. The January 13 buy-in covered all 100 shares with the specified premium. The book incurred KES 33.5342 in loan fees and owed the KES 120 dividend. These numbers verify cash-flow and timing mechanics. Empirical short-performance work needs dated loan inventory, fees, recall terms and executable market observations.
 
-The [study specification](../examples/kes-portfolio.json) fixes rates and assumptions. The [recorded evaluations](../results/fingpt-mt-8b/) include field-level predictions, abstentions and supporting passages.
+The [study specification](../examples/kes-portfolio.json) fixes rates and assumptions. Raw historical FinGPT-MT 8B JSON evaluation dumps from this baseline check are archived at git tag `v0.1-legacy-crypto`. For full-filing PDF ingestion using deterministic rules with optional hosted Gemini fallback, see [Full-filing PDF extraction and NSE market data ingestion](full-filing-ingestion.md).

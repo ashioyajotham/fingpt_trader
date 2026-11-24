@@ -36,6 +36,28 @@ def get_parser():
     actions.add_argument("--status", choices=STATUSES)
     actions.add_argument("--history", action="store_true")
     actions.add_argument("--clock", choices=("disclosure", "observed"), default="disclosure")
+    actions.add_argument("--catalog", type=Path, help="optional local catalog directory (default: bundled fixture)")
+    filing = commands.add_parser("filing-extract", help="extract cited dividend events from a complete issuer PDF")
+    filing.add_argument("--pdf", type=Path, required=True)
+    filing.add_argument("--symbol", required=True)
+    filing.add_argument("--source", required=True, help="immutable issuer URL or source identifier")
+    filing_backend = filing.add_mutually_exclusive_group()
+    filing_backend.add_argument("--vertex-project", help="optional hosted Gemini fallback for uncertain candidates")
+    filing_backend.add_argument("--gguf", type=Path, help="optional local GGUF fallback for uncertain candidates")
+    filing.add_argument("--vertex-model", default="gemini-3.5-flash-lite")
+    filing.add_argument("--max-calls", type=int, default=12, help="maximum hosted Gemini fallback requests")
+    promote = commands.add_parser("catalog-add", help="promote filing-extract output into a local dividend catalog")
+    promote.add_argument("--report", type=Path, required=True, help="JSON report produced by filing-extract")
+    promote.add_argument("--notice-date", required=True, help="issuer disclosure date (YYYY-MM-DD)")
+    promote.add_argument("--catalog", type=Path, required=True, help="target local catalog directory")
+    nse_imp = commands.add_parser("nse-import", help="import NSE Daily Price List PDF(s) into an nse-daily dataset")
+    nse_imp.add_argument("--pdf", type=Path, required=True, help="NSE daily price list PDF file or directory")
+    nse_imp.add_argument("--symbol", required=True, help="NSE ticker symbol, e.g. SCOM, EQTY, SCBK")
+    nse_imp.add_argument("--out", type=Path, required=True, help="target dataset directory")
+    nse_imp.add_argument("--issuer", help="override issuer legal name")
+    nse_imp.add_argument("--isin", help="override security ISIN")
+    nse_imp.add_argument("--session", help="override session date (YYYY-MM-DD) for single PDF")
+    nse_imp.add_argument("--source", help="provenance URL for the price list")
     bench = commands.add_parser("notice-eval", help="evaluate frozen dividend passages")
     bench.add_argument("--split", choices=("development", "holdout", "prospective"), default="prospective")
     backend = bench.add_mutually_exclusive_group()
@@ -77,8 +99,29 @@ def get_parser():
 
 def run(args):
     if args.command == "actions":
-        from .dividends import actions
-        return actions(args.as_of, args.symbol, args.status, args.history, args.clock)
+        from .dividends import CORPUS, actions
+        return actions(args.as_of, args.symbol, args.status, args.history, args.clock,
+                       root=args.catalog or CORPUS)
+    if args.command == "filing-extract":
+        from .filings import extract_filing, prepare_filing
+        prepared = prepare_filing(args.pdf, args.symbol, args.source)
+        model = None
+        if args.vertex_project:
+            from .vertex import VertexModel
+            model = VertexModel(args.vertex_project, args.vertex_model, args.max_calls)
+        elif args.gguf:
+            model = LocalFinGPT(args.gguf, structured=True)
+        return extract_filing(prepared, model=model, fallback_only=True)
+    if args.command == "catalog-add":
+        from .dividends import promote_filing
+        report = json.loads(args.report.read_text())
+        return promote_filing(report, args.notice_date, args.catalog)
+    if args.command == "nse-import":
+        from .nse_pricelist import import_nse_pricelist
+        return import_nse_pricelist(
+            args.pdf, args.symbol, args.out,
+            issuer=args.issuer, isin=args.isin, session_date=args.session, source_url=args.source,
+        )
     if args.command == "notice-eval":
         from .dividend_eval import evaluate
         model = None
