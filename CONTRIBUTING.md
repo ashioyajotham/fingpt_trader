@@ -40,6 +40,7 @@ asof/
 ├── borrow.py           # ACT/365 short borrow schedules & forced buy-ins
 ├── portfolio.py        # Multi-currency portfolio aggregation, periodic rebalancing & benchmark attribution
 ├── experiments.py      # Walk-forward baseline comparisons & timestamped model features
+├── factors.py          # Point-in-time cross-sectional factors, Spearman Rank-IC & NSE universe snapshots
 ├── forward.py          # Append-only streaming paper book
 ├── risk.py             # Drawdown, exposure, Sharpe/Sortino, concentration, attribution & liquidity metrics
 ├── web.py              # Local read-only stdlib web workstation (asof serve)

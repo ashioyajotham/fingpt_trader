@@ -12,11 +12,14 @@ from urllib.parse import parse_qs, urlparse
 from .data import FIXTURES, instant, load_dataset, number
 from .dividends import CORPUS, actions, promote_filing
 from .experiments import compare, dataset_hash, simulate
+from .factors import evaluate_factors, load_universe, universe_snapshot
 from .filings import extract_filing, prepare_filing
+from .financials import query_financials
 from .paper import Assumptions
 from .risk import days_to_exit
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 HTML = """<!doctype html>
 <html lang="en">
@@ -135,8 +138,15 @@ HTML = """<!doctype html>
     </section>
 
     <section id="tab-market" class="hidden">
+      <div id="uni-section" class="hidden" style="margin-bottom:18px">
+        <h3>Multi-Ticker NSE Market &amp; Liquidity Board</h3>
+        <table>
+          <thead><tr><th>Symbol</th><th>ISIN</th><th>Latest</th><th>Close / VWAP</th><th>Volume</th><th>20D ADV (KES)</th><th>DTE (100k)</th><th>Div / Earn Yld</th><th>State</th></tr></thead>
+          <tbody id="uni-rows" class="mono"></tbody>
+        </table>
+      </div>
       <div class="controls">
-        <label>Dataset<select id="mkt-ds"><option value="nse">nse (example KES)</option><option value="nse-public-sample">nse-public-sample (SCOM VWAP)</option><option value="binance">binance (BTC/USDT)</option></select></label>
+        <label>Single-Ticker Tape<select id="mkt-ds"><option value="nse">nse (example KES)</option><option value="nse-public-sample">nse-public-sample (SCOM VWAP)</option><option value="binance">binance (BTC/USDT)</option></select></label>
         <button class="primary" onclick="loadMarket()">Load Tape</button>
       </div>
       <div id="mkt-meta" class="grid"></div>
@@ -270,6 +280,19 @@ async function loadActions() {
   }).join("") || `<tr><td colspan="7" style="color:var(--muted)">No disclosures visible as of ${esc(d)}.</td></tr>`;
 }
 async function loadMarket() {
+  try {
+    const uni = await api("/api/universe");
+    const sec = document.getElementById("uni-section");
+    if (uni.rows && uni.rows.length) {
+      sec.classList.remove("hidden");
+      document.getElementById("uni-rows").innerHTML = uni.rows.map(r => {
+        const ylds = `${fmtPct(r.dividend_yield)} / ${fmtPct(r.earnings_yield)}`;
+        const st = r.stale ? `<span class="badge b-partial">STALE</span>` : `<span class="badge b-readable">ACTIVE</span>`;
+        const dte = r.days_to_exit_100k == null ? "—" : Number(r.days_to_exit_100k).toFixed(2) + "d";
+        return `<tr><td><b>${esc(r.symbol)}</b></td><td>${esc(r.instrument)}</td><td>${esc(r.latest_session)}</td><td>${esc(r.close)}</td><td>${fmtNum(r.volume)}</td><td>${fmtNum(r.adv20_kes)}</td><td>${dte}</td><td>${ylds}</td><td>${st}</td></tr>`;
+      }).join("");
+    } else { sec.classList.add("hidden"); }
+  } catch (_) {}
   const ds = document.getElementById("mkt-ds").value;
   const data = await api(`/api/replay?dataset=${encodeURIComponent(ds)}`);
   const meta = data.dataset;
@@ -332,7 +355,7 @@ def _is_writable_catalog(catalog_root):
     return Path(catalog_root).resolve() != CORPUS.resolve()
 
 
-def dispatch(path, query, *, catalog_root=CORPUS):
+def dispatch(path, query, *, catalog_root=CORPUS, universe_root=None):
     """Pure GET request dispatcher returning (status_code, content_type, body_bytes)."""
     try:
         if path in {"/", "/index.html"}:
@@ -343,6 +366,7 @@ def dispatch(path, query, *, catalog_root=CORPUS):
             payload = {
                 "app": "AsOf", "mode": "paper-only", "broker_connected": False,
                 "catalog_writable": _is_writable_catalog(catalog_root),
+                "universe_configured": universe_root is not None,
             }
         elif path == "/api/actions":
             as_of = query.get("as_of", ["2026-06-25"])[0]
@@ -351,6 +375,25 @@ def dispatch(path, query, *, catalog_root=CORPUS):
             clock = query.get("clock", ["disclosure"])[0]
             history = query.get("history", ["0"])[0] in {"1", "true", "yes"}
             payload = actions(as_of, symbol=symbol, status=status, history=history, clock=clock, root=catalog_root)
+        elif path == "/api/financials":
+            as_of = query.get("as_of", ["2026-06-25"])[0]
+            symbol = query.get("symbol", [""])[0] or None
+            metric = query.get("metric", [""])[0] or None
+            clock = query.get("clock", ["disclosure"])[0]
+            history = query.get("history", ["0"])[0] in {"1", "true", "yes"}
+            payload = query_financials(as_of, root=catalog_root, symbol=symbol, metric=metric, history=history, clock=clock)
+        elif path == "/api/universe":
+            if universe_root is None:
+                payload = {"as_of_session": None, "tickers_count": 0, "rows": []}
+            else:
+                payload = universe_snapshot(load_universe(universe_root), catalog_dir=catalog_root)
+        elif path == "/api/factors":
+            if universe_root is None:
+                raise ValueError("start `asof serve --universe DIR` to evaluate cross-sectional factors")
+            horizons = tuple(int(h.strip()) for h in query.get("horizons", ["1,5,20"])[0].split(",") if h.strip())
+            min_adv = float(query.get("min_adv", ["0"])[0])
+            payload = evaluate_factors(load_universe(universe_root), catalog_dir=catalog_root,
+                                       horizons=horizons, min_adv=min_adv)
         elif path == "/api/replay":
             ds_name = query.get("dataset", ["nse"])[0]
             dataset = load_dataset(_resolve_dataset(ds_name))
@@ -413,8 +456,14 @@ def dispatch_post(path, query, body, *, catalog_root=CORPUS):
         return HTTPStatus.BAD_REQUEST, "application/json", json.dumps({"error": str(exc)}).encode("utf-8")
 
 
-def serve(host="127.0.0.1", port=8765, catalog_root=CORPUS):
-    """Run the local AsOf Workstation HTTP server."""
+def serve(host="127.0.0.1", port=8765, catalog_root=CORPUS, *, universe_root=None, allow_remote=False):
+    """Run the local AsOf Workstation HTTP server (loopback-only unless allow_remote=True)."""
+    if host not in LOOPBACK_HOSTS and not allow_remote:
+        raise ValueError(
+            f"refusing to bind unauthenticated AsOf workstation to non-loopback host {host!r}; "
+            "use 127.0.0.1 or pass --allow-remote explicitly"
+        )
+
     class Handler(BaseHTTPRequestHandler):
         def _send(self, code, ctype, body):
             self.send_response(code)
@@ -426,7 +475,8 @@ def serve(host="127.0.0.1", port=8765, catalog_root=CORPUS):
 
         def do_GET(self):
             parsed = urlparse(self.path)
-            self._send(*dispatch(parsed.path, parse_qs(parsed.query), catalog_root=catalog_root))
+            self._send(*dispatch(parsed.path, parse_qs(parsed.query),
+                                 catalog_root=catalog_root, universe_root=universe_root))
 
         def do_POST(self):
             parsed = urlparse(self.path)
@@ -445,6 +495,7 @@ def serve(host="127.0.0.1", port=8765, catalog_root=CORPUS):
     print(json.dumps({
         "app": "AsOf", "url": f"http://{host}:{port}", "mode": "paper-only",
         "catalog_writable": _is_writable_catalog(catalog_root),
+        "universe_configured": universe_root is not None,
     }), flush=True)
     try:
         server.serve_forever()

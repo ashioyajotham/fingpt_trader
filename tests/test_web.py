@@ -3,7 +3,7 @@ from http import HTTPStatus
 
 import pytest
 
-from asof.web import dispatch, dispatch_post
+from asof.web import dispatch, dispatch_post, serve
 
 
 def _make_filing_pdf(path):
@@ -58,7 +58,8 @@ def test_web_workstation_routes_offline():
     code, _, body = dispatch("/api/health", {})
     assert code == HTTPStatus.OK
     assert json.loads(body) == {
-        "app": "AsOf", "broker_connected": False, "catalog_writable": False, "mode": "paper-only",
+        "app": "AsOf", "broker_connected": False, "catalog_writable": False,
+        "mode": "paper-only", "universe_configured": False,
     }
 
     code, _, body = dispatch("/api/actions", {"as_of": ["2026-06-25"], "symbol": ["EQTY"]})
@@ -121,3 +122,45 @@ def test_web_filing_workbench_extract_and_catalog_promotion(tmp_path):
     assert code == HTTPStatus.OK
     events = {r["event"] for r in json.loads(body)["rows"]}
     assert events == {"SCBK-2024-final", "SCBK-2024-interim"}
+
+
+def test_web_universe_financials_factors_and_loopback_guard(tmp_path):
+    from asof.financials import promote_financials
+    from asof.nse_pricelist import import_nse_universe
+
+    csv_path = tmp_path / "uni.csv"
+    csv_path.write_text(
+        "Date,Code,Name,Day Low,Day High,Day Price,Previous,Volume\n"
+        "2025-01-02,SCOM,Safaricom Plc,17.00,17.50,17.25,17.10,5000000\n"
+        "2025-01-03,SCOM,Safaricom Plc,17.20,17.80,17.60,17.25,4100000\n"
+        "2025-01-02,EQTY,Equity Group,47.00,48.50,48.00,47.50,1300000\n"
+        "2025-01-03,EQTY,Equity Group,48.00,49.00,48.50,48.00,1200000\n"
+        "2025-01-02,KCB,KCB Group,34.00,35.00,34.50,34.00,900000\n"
+        "2025-01-03,KCB,KCB Group,34.50,35.50,35.00,34.50,850000\n"
+    )
+    uni_dir = tmp_path / "universe"
+    import_nse_universe(csv_path, uni_dir)
+    cat_dir = tmp_path / "catalog"
+    promote_financials({
+        "symbol": "SCOM", "source": "https://example.test/scom.pdf", "pdf_sha256": "abc",
+        "financials": {"eps": {"value": "2.0", "raw_value": "2.0", "currency": "KES",
+                               "unit": "KES/share", "scale": "1", "period": "2024",
+                               "citations": [{"page": 1, "quote": "EPS 2.00"}]}},
+    }, "2025-01-01", cat_dir)
+
+    code, _, body = dispatch("/api/universe", {}, catalog_root=cat_dir, universe_root=uni_dir)
+    assert code == HTTPStatus.OK
+    uni = json.loads(body)
+    assert uni["tickers_count"] == 3
+
+    code, _, body = dispatch("/api/financials", {"as_of": ["2025-01-05"], "symbol": ["SCOM"]}, catalog_root=cat_dir)
+    assert code == HTTPStatus.OK
+    assert json.loads(body)["rows"][0]["metrics"]["eps"]["value"] == "2.0"
+
+    code, _, body = dispatch("/api/factors", {"horizons": ["1"]}, catalog_root=cat_dir, universe_root=uni_dir)
+    assert code == HTTPStatus.OK
+    assert "liquidity_adv20" in json.loads(body)["factors"]
+
+    # Non-loopback host binding must be rejected unless allow_remote=True.
+    with pytest.raises(ValueError, match="non-loopback"):
+        serve(host="0.0.0.0", port=0)
