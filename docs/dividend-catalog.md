@@ -5,10 +5,10 @@ The research CLI includes 42 short passages from 38 distinct issuer documents ac
 ## Replay one decision
 
 ```sh
-python -m fingpt_research actions --as-of 2026-06-24 --symbol EQTY
-python -m fingpt_research actions --as-of 2026-06-25 --symbol EQTY --status approved
-python -m fingpt_research actions --as-of 2026-06-30 --status approved
-python -m fingpt_research actions --as-of 2025-09-12 --symbol EABL --history
+python3 -m asof actions --as-of 2026-06-24 --symbol EQTY
+python3 -m asof actions --as-of 2026-06-25 --symbol EQTY --status approved
+python3 -m asof actions --as-of 2026-06-30 --status approved
+python3 -m asof actions --as-of 2025-09-12 --symbol EABL --history
 ```
 
 Equity Group reported a KES 5.75 proposal for FY2025 on March 18. Shareholders approved it on June 24. Under the disclosure clock the approval becomes visible at the start of June 25 in Nairobi. A date-only cutoff includes the entire named Nairobi day. An intraday cutoff requires a UTC offset. The default disclosure clock reconstructs history from the date on each release, applying the following midnight as a uniform availability convention. A board signature, an AGM date and a web publication can occur on different days. Historical website arrival times were unavailable. For simulations requiring witnessed availability use `--clock observed`, which withholds the whole collected snapshot until its verification bound. [Results release](https://equitygroupholdings.com/equity-group-records-historic-results-reporting-a-55-growth-in-profit-after-tax-of-kshs-75-5-billion-underscoring-the-success-of-its-strategic-transformation/) · [AGM release](https://equitygroupholdings.com/nairobi-24th-june-2026-equity-group-holdings-plc-shareholders-have-approved-all-proposed-resolutions-tabled-at-the-22nd-annual-general-meeting-agm-including-dividend-payout-board-appointments-a/)
@@ -44,11 +44,11 @@ The hybrid keeps the rule values and uses the model to fill missing fields only 
 The 24 Vertex calls consumed 13,812 input and 2,175 output tokens with zero reported cache or reasoning tokens. Estimated global standard list-price cost was **USD 0.00958**, before credits or taxes. Median prospective request time was 1.50 seconds for Vertex and 7.29 seconds on local Metal for FinGPT. These measurements exclude model initialization. [Google pricing](https://cloud.google.com/model-garden/pricing)
 
 ```sh
-python -m fingpt_research notice-eval --split prospective
-python -m fingpt_research notice-eval --split prospective --gguf /path/to/fingpt.gguf
-python -m fingpt_research notice-eval --split prospective --vertex-project YOUR_PROJECT --max-calls 7
-python -m tools.dividend_review > blind-review.json
-python -m tools.dividend_review --returned dividend-review-return.json
+python3 -m asof notice-eval --split prospective
+python3 -m asof notice-eval --split prospective --gguf /path/to/fingpt.gguf
+python3 -m asof notice-eval --split prospective --vertex-project YOUR_PROJECT --max-calls 7
+python3 -m tools.dividend_review > blind-review.json
+python3 -m tools.dividend_review --returned dividend-review-return.json
 ```
 
 Vertex requires an authenticated Google Cloud CLI with model access in the supplied project. This research uses on-demand requests. The review export supplies empty fields, verbatim excerpts, source links and verified PDF pages where available. Some historical issuer PDFs block automated retrieval or have moved. The locator records the direct-fetch outcome or the current PDF address, hash and matched page where verified. The reviewer can record disagreements about the evidence or source in the notes. Reconciliation reports missing reviews, changed values and different spans. The original reference file and prediction runs retain their original corpus hash. The reviewed catalog and the rescored runs use a distinct hash that includes the adjudication.

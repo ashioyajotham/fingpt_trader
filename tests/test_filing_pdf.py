@@ -2,7 +2,7 @@ import hashlib
 
 import pytest
 
-from fingpt_research.filing_pdf import read_pdf
+from asof.filing_pdf import read_pdf
 
 
 def _write_pdf(path, page_specs):

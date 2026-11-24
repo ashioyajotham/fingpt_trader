@@ -1,6 +1,6 @@
 # Full-Filing PDF Extraction and NSE Market Data Ingestion
 
-FinGPT Trader includes an offline ingestion pipeline for Kenyan/NSE issuer filings and daily equity price lists so you can build real, point-in-time local datasets and corporate-action catalogs without a broker or commercial feed.
+**AsOf** includes an offline ingestion pipeline for Kenyan/NSE issuer filings and daily equity price lists so you can build real, point-in-time local datasets and corporate-action catalogs without a broker or commercial feed.
 
 Install the optional PDF dependencies:
 
@@ -13,7 +13,7 @@ python3 -m pip install -e '.[filings]'
 ## 1. Extract Dividend Events from a Complete Issuer PDF
 
 ```sh
-python3 -m fingpt_research filing-extract \
+python3 -m asof filing-extract \
   --pdf scbk-fy24.pdf \
   --symbol SCBK \
   --source "https://av.sc.com/ke/content/docs/ke-press-release-standard-chartered-fy-2024-results.pdf" \
@@ -39,12 +39,12 @@ Running `filing-extract` offline on Standard Chartered Kenya's four-page FY2024 
 Model or rule extractions from `filing-extract` are research reports — they never mutate portfolio accounting automatically. After reviewing a report, promote it into a local, append-only corporate-actions catalog:
 
 ```sh
-python3 -m fingpt_research catalog-add \
+python3 -m asof catalog-add \
   --report scbk-fy24-report.json \
   --notice-date 2025-03-19 \
   --catalog ./local-catalog
 
-python3 -m fingpt_research actions \
+python3 -m asof actions \
   --as-of 2025-03-20 \
   --symbol SCBK \
   --catalog ./local-catalog
@@ -54,21 +54,28 @@ Promotion is idempotent by `(symbol, notice_date, event_id)`. Point-in-time quer
 
 ---
 
-## 3. Import NSE Daily Equity Price List PDFs
+## 3. Import NSE Daily Equity Price Lists (PDF, CSV, or OCR)
 
-Build or append to a point-in-time `nse-daily` dataset from one PDF or a directory of selectable-text NSE Daily Equity Price List PDFs:
+Build or append to a point-in-time `nse-daily` dataset from one file or a directory of selectable-text NSE Daily Equity Price List PDFs or CSV exports:
 
 ```sh
-python3 -m fingpt_research nse-import \
-  --pdf ./nse-daily-lists \
+python3 -m asof nse-import \
+  --input ./nse-daily-lists \
   --symbol SCOM \
   --out ./datasets/scom
 
-python3 -m fingpt_research replay --dataset ./datasets/scom
-python3 -m fingpt_research paper --dataset ./datasets/scom --policy buy_hold
+# Optional OCR fallback for scanned/image-only distributor PDFs:
+python3 -m asof nse-import \
+  --input ./02-SEP-26.pdf \
+  --symbol SCOM \
+  --out ./datasets/scom \
+  --ocr-cmd "ocrmypdf --force-ocr {in} {out}"
+
+python3 -m asof replay --dataset ./datasets/scom
+python3 -m asof paper --dataset ./datasets/scom --policy buy_hold
 ```
 
-### Important notes on real NSE PDFs
-- **VWAP valuation marks:** Standard NSE daily lists publish High, Low, VWAP, Previous, and Volume without an opening price. `nse-import` preserves the blank open and sets `price_type="vwap"`, matching `fingpt_research/fixtures/nse-public-sample`.
-- **Scanned / image-only PDFs:** Some distributor-hosted NSE price lists (for example, I&M Bank's hosted `02-SEP-26.pdf`) are flattened raster images with no embedded text layer. `nse-import` detects image-only PDFs via `filing_pdf.py` and fails fast rather than silently producing empty datasets; run OCR first or use a selectable-text PDF.
+### Important notes on real NSE price lists
+- **CSV & PDF support:** Accepts both multi-ticker NSE daily price list CSVs (`Date,Symbol,ISIN,High,Low,VWAP,Prev,Volume`) and single-ticker OHLC CSVs (`Date,Open,High,Low,Close,Volume`), preserving `price_type="close"` when an opening price is present and `price_type="vwap"` when absent (matching `asof/fixtures/nse-public-sample`).
+- **Scanned / image-only PDFs:** Some distributor-hosted NSE price lists (for example, I&M Bank's hosted `02-SEP-26.pdf`) are flattened raster images with no embedded text layer. `nse-import` detects image-only PDFs via `filing_pdf.py` and fails fast unless `--ocr-cmd` is supplied.
 - **Built-in ticker & ISIN mapping:** Recognizes major NSE tickers (`SCOM`, `EQTY`, `KCB`, `SCBK`, `EABL`, `BAT`, `KPLC`, `KEGN`, `IMH`, `ABSA`, `COOP`, `NCBA`) out of the box, and accepts `--isin` and `--issuer` overrides for any other NSE-listed security.

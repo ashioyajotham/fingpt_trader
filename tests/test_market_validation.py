@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from fingpt_research.borrow import BorrowSchedule
-from fingpt_research.data import FIXTURES, instant, load_dataset
-from fingpt_research.experiments import simulate
-from fingpt_research.forward import ForwardBook
-from fingpt_research.paper import Assumptions, PaperEngine
-from fingpt_research.portfolio import FX, portfolio
+from asof.borrow import BorrowSchedule
+from asof.data import FIXTURES, instant, load_dataset
+from asof.experiments import simulate
+from asof.forward import ForwardBook
+from asof.paper import Assumptions, PaperEngine
+from asof.portfolio import FX, portfolio
 
 SPEC = Path(__file__).resolve().parents[1] / "examples/kes-portfolio.json"
 
@@ -90,7 +90,7 @@ def test_locate_timing_expiry_and_partial_buy_in():
 
 
 def test_evaluation_accepts_another_backend_with_shared_citation_checks():
-    from fingpt_research.evidence import EvidenceModel, evaluate_documents
+    from asof.evidence import EvidenceModel, evaluate_documents
 
     class RecordedCandidate(EvidenceModel):
         name = "recorded"

@@ -8,13 +8,13 @@ from decimal import Decimal as D
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from fingpt_research.cli import main
-from fingpt_research.data import FIXTURES, instant, load_dataset
-from fingpt_research.evidence import LocalFinGPT, extract_rules, score_extractor
-from fingpt_research.experiments import compare, load_features, model_features, simulate
-from fingpt_research.forward import ForwardBook
-from fingpt_research.paper import Assumptions, PaperEngine, Signal
-from fingpt_research.risk import drawdown, exposures
+from asof.cli import main
+from asof.data import FIXTURES, instant, load_dataset
+from asof.evidence import LocalFinGPT, extract_rules, score_extractor
+from asof.experiments import compare, load_features, model_features, simulate
+from asof.forward import ForwardBook
+from asof.paper import Assumptions, PaperEngine, Signal
+from asof.risk import drawdown, exposures
 
 
 class ResearchRelease(unittest.TestCase):

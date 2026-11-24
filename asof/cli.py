@@ -50,14 +50,16 @@ def get_parser():
     promote.add_argument("--report", type=Path, required=True, help="JSON report produced by filing-extract")
     promote.add_argument("--notice-date", required=True, help="issuer disclosure date (YYYY-MM-DD)")
     promote.add_argument("--catalog", type=Path, required=True, help="target local catalog directory")
-    nse_imp = commands.add_parser("nse-import", help="import NSE Daily Price List PDF(s) into an nse-daily dataset")
-    nse_imp.add_argument("--pdf", type=Path, required=True, help="NSE daily price list PDF file or directory")
+    nse_imp = commands.add_parser("nse-import", help="import NSE Daily Price List PDF/CSV file(s) into an nse-daily dataset")
+    nse_imp.add_argument("--input", "--pdf", dest="input_path", type=Path, required=True,
+                         help="NSE daily price list PDF/CSV file or directory")
     nse_imp.add_argument("--symbol", required=True, help="NSE ticker symbol, e.g. SCOM, EQTY, SCBK")
     nse_imp.add_argument("--out", type=Path, required=True, help="target dataset directory")
     nse_imp.add_argument("--issuer", help="override issuer legal name")
     nse_imp.add_argument("--isin", help="override security ISIN")
-    nse_imp.add_argument("--session", help="override session date (YYYY-MM-DD) for single PDF")
+    nse_imp.add_argument("--session", help="override session date (YYYY-MM-DD) for single file")
     nse_imp.add_argument("--source", help="provenance URL for the price list")
+    nse_imp.add_argument("--ocr-cmd", help="optional OCR shell template for image-only PDFs using {in} and {out}")
     bench = commands.add_parser("notice-eval", help="evaluate frozen dividend passages")
     bench.add_argument("--split", choices=("development", "holdout", "prospective"), default="prospective")
     backend = bench.add_mutually_exclusive_group()
@@ -119,8 +121,9 @@ def run(args):
     if args.command == "nse-import":
         from .nse_pricelist import import_nse_pricelist
         return import_nse_pricelist(
-            args.pdf, args.symbol, args.out,
-            issuer=args.issuer, isin=args.isin, session_date=args.session, source_url=args.source,
+            args.input_path, args.symbol, args.out,
+            issuer=args.issuer, isin=args.isin, session_date=args.session,
+            source_url=args.source, ocr_cmd=args.ocr_cmd,
         )
     if args.command == "notice-eval":
         from .dividend_eval import evaluate
