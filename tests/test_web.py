@@ -161,6 +161,15 @@ def test_web_universe_financials_factors_and_loopback_guard(tmp_path):
     assert code == HTTPStatus.OK
     assert "liquidity_adv20" in json.loads(body)["factors"]
 
+    code, _, body = dispatch(
+        "/api/factor-backtest",
+        {"factor": ["liquidity_adv20"], "direction": ["top"], "top_n": ["2"], "rebalance": ["daily"]},
+        catalog_root=cat_dir, universe_root=uni_dir,
+    )
+    assert code == HTTPStatus.OK
+    fbt = json.loads(body)
+    assert fbt["mode"] == "factor_backtest" and fbt["trades_count"] >= 1
+
     # Non-loopback host binding must be rejected unless allow_remote=True.
     with pytest.raises(ValueError, match="non-loopback"):
         serve(host="0.0.0.0", port=0)

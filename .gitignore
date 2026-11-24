@@ -54,3 +54,4 @@ ENV/
 config/*.local.yaml
 .mypy_cache/
 .pytest_cache
+local-data/

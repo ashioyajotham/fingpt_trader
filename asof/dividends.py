@@ -109,6 +109,13 @@ def promote_filing(report, notice_date, catalog_dir):
     symbol = report["symbol"].strip().upper()
     source = report["source"]
     pdf_sha = report.get("pdf_sha256", "")
+    adjudication_path = root / "adjudication.json"
+    if adjudication_path.exists():
+        # Preserve accepted adjudications when turning a frozen corpus copy into a mutable local catalog.
+        _, _, reviewed_ref, _ = load_corpus(root, reviewed=True)
+        reference = reviewed_ref
+        adjudication_path.unlink()
+    existing_splits = {m["event"]: m["split"] for m in membership.values() if m.get("event")}
     by_id = {row["id"]: row for row in notices}
     promoted = []
 
@@ -138,7 +145,7 @@ def promote_filing(report, notice_date, catalog_dir):
             "id": passage_id, "symbol": symbol, "notice_date": day,
             "source": source, "location": location, "passages": passages,
         }
-        membership[passage_id] = {"event": event_key, "split": "prospective"}
+        membership[passage_id] = {"event": event_key, "split": existing_splits.get(event_key, "prospective")}
         reference[passage_id] = ref_entry
         locators[passage_id] = {"current_url": source, "page": first_page, "pdf_sha256": pdf_sha}
         promoted.append({"id": passage_id, "event": event_key, "fields": sorted(ref_entry)})
