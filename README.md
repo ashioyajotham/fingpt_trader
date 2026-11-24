@@ -2,6 +2,54 @@
 
 FinGPT Trader replays market data and issuer documents as they became available, preserves source citations, and simulates paper portfolios. Individual books use their listing currency. A portfolio study can combine separately funded books in one base currency. Python 3.11 or later runs the research commands with the standard library.
 
+## Architecture
+
+Research ingestion, point-in-time storage, and paper simulation are strictly separated from live broker execution. Deterministic rules run first; hosted Gemini fallback is invoked only when a filing candidate misses a core field, and every claim requires a verbatim source quote.
+
+```mermaid
+flowchart TB
+    subgraph Sources["1. External Sources (Raw)"]
+        PDF["Issuer PDFs (Results, AGMs, Notices)"]
+        PL["NSE Daily Price Lists (PDF / CSV)"]
+        CRYPTO["Binance Public Spot REST"]
+        FX["FX & Borrow Schedules"]
+    end
+
+    subgraph Ingest["2. Offline Ingestion & Verification"]
+        FE["filing-extract (pypdf + pypdfium2 + rules)"]
+        LLM["Optional Gemini Fallback (Vertex AI, uncertainty-routed)"]
+        NSE_IMP["nse-import (PDF parser + scanned-PDF guard)"]
+        BIN_AD["binance-spot-daily (stdlib REST adapter)"]
+        FE -.->|"missing core field only"| LLM
+    end
+
+    subgraph Store["3. Point-in-Time Store (No Look-Ahead)"]
+        CAT["Corporate Actions Catalog (actions + catalog-add)"]
+        MKT["Raw OHLCV / VWAP Datasets (sessions + prices)"]
+        FEAT["Timestamped Features (observed_at + latency)"]
+    end
+
+    subgraph Engine["4. Paper Research & Risk Engine"]
+        PAPER["PaperEngine (Decimal fills, fees, dividends, borrow)"]
+        PORT["Portfolio & Risk (FX marks, drawdown, exposures)"]
+        COMP["Walk-Forward Comparisons (baseline vs stressed costs)"]
+    end
+
+    PDF --> FE
+    PL --> NSE_IMP
+    CRYPTO --> BIN_AD
+    FE -->|"reviewed promotion"| CAT
+    NSE_IMP --> MKT
+    BIN_AD --> MKT
+    FX --> PORT
+
+    CAT --> PAPER
+    MKT --> PAPER
+    FEAT --> PAPER
+    PAPER --> PORT
+    PAPER --> COMP
+```
+
 ## Try the replay
 
 ```sh
@@ -74,16 +122,30 @@ Use the actual model availability date and a defensible inference delay in an ex
 
 [Local model evaluation and provider design](docs/research-validation.md)
 
+## Full-filing PDF extraction and NSE price lists
+
+Extract cited dividend events directly from complete issuer PDFs, promote reviewed outputs into a local corporate-actions catalog, and import standard NSE Daily Equity Price List PDFs into `nse-daily` datasets:
+
+```sh
+python3 -m pip install -e '.[filings]'
+python3 -m fingpt_research filing-extract --pdf scbk-fy24.pdf --symbol SCBK --source "$ISSUER_URL" > scbk.json
+python3 -m fingpt_research filing-extract --pdf scbk-fy24.pdf --symbol SCBK --source "$ISSUER_URL" --vertex-project YOUR_PROJECT
+python3 -m fingpt_research catalog-add --report scbk.json --notice-date 2025-03-19 --catalog ./my-catalog
+python3 -m fingpt_research actions --as-of 2025-03-20 --symbol SCBK --catalog ./my-catalog
+python3 -m fingpt_research nse-import --pdf ./nse-daily-lists --symbol SCOM --out ./datasets/scom
+python3 -m fingpt_research replay --dataset ./datasets/scom
+```
+
+Deterministic rules run first. When `--vertex-project` (hosted Gemini) or `--gguf` is supplied, the model is invoked only as a fallback for candidates missing a core field. See [Full-filing PDF extraction and NSE price lists](docs/full-filing-ingestion.md) for coverage checks, live examples, and scanned-PDF handling.
+
 ## Development
 
 ```sh
-python3 -m pip install -e '.[dev]'
+python3 -m pip install -e '.[dev,filings]'
 python3 -m pytest -q tests
 ```
 
-New read-only adapters can be supplied to `load_dataset(..., adapters={...})`. Custom signal producers can be passed to `PaperEngine` and receive the listing, current bar, previous tradable bar and available features. The original optimizer, strategy modules, Binance SDK integration and optional FinGPT code remain in the source tree. The legacy orchestrator is importable through `main.TradingSystem`; research signals cannot submit exchange orders through it.
-
-The legacy crypto news service reads publisher RSS feeds configured in `config/services.yaml`, with an optional NewsAPI fallback.
+New read-only adapters can be supplied to `load_dataset(..., adapters={...})`. Custom signal producers can be passed to `PaperEngine` and receive the listing, current bar, previous tradable bar and available features. The legacy async crypto bot was archived at git tag `v0.1-legacy-crypto`.
 
 ## License
 
@@ -91,15 +153,12 @@ MIT License - See [LICENSE](LICENSE.md) for details.
 
 ## Acknowledgements
 
-This project builds on the foundation of several important open-source projects and research:
+This project builds on the foundation of several open-source projects and research:
 
-- **FinGPT Research**: Core ideas on financial sentiment analysis and market prediction using large language models were inspired by research from the [FinGPT paper](https://arxiv.org/abs/2306.06031).
-
-- **llama.cpp**: Our inferencing pipeline leverages the [llama.cpp](https://github.com/ggml-org/llama.cpp) framework for running language models with minimal computational resources.
-
-- **Binance API**: Trading functionality is built on the [Binance exchange API](https://binance-docs.github.io/apidocs/spot/en/#public-rest-api) and Python client libraries.
-
-- **Python AsyncIO**: The asynchronous architecture is powered by [Python's AsyncIO framework](https://docs.python.org/3/library/asyncio.html).
+- **FinGPT Research**: Financial NLP concepts inspired by the [FinGPT paper](https://arxiv.org/abs/2306.06031).
+- **pypdf & pypdfium2**: Offline layout text extraction and dual-decoder PDF coverage verification.
+- **llama.cpp & Vertex AI**: Optional local GGUF and hosted Gemini structured-output backends.
+- **Binance Public Spot REST API**: Secondary crypto market data adapter demonstrating asset-agnostic replay.
 
 ## Contributing
 

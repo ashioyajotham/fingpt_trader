@@ -2,231 +2,66 @@
 
 ## Development Setup
 
-1. **Fork and Clone**
-   ```bash
-   git clone https://github.com/ashioyajotham/fingpt-trader.git
-   cd fingpt-trader
-   ```
+Python 3.11 or later runs the core research CLI using the standard library. Optional extras add PDF parsing (`filings`), local GGUF inference (`model`), and test/lint tooling (`dev`).
 
-2. **Environment Setup**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # Linux/Mac
-   # or
-   .\venv\Scripts\activate  # Windows
-   pip install -r requirements.txt
-   ```
-
-3. **Install Development Dependencies**
-   ```bash
-   pip install -r requirements-dev.txt
-   pre-commit install
-   ```
-
-## Development Workflow
-
-### 1. Branching Strategy
-
-- `main`: Production-ready code
-- `build`: Development branch
-- Feature branches: `feature/your-feature`
-- Bugfix branches: `fix/issue-description`
-
-```bash
-# Create feature branch
-git checkout -b feature/your-feature build
-
-# Create bugfix branch
-git checkout -b fix/issue-description build
+```sh
+git clone https://github.com/ashioyajotham/fingpt_trader.git
+cd fingpt_trader
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -e '.[dev,filings]'
 ```
 
-### 2. Code Style
+## Architecture Principles
 
-We follow PEP 8 with these modifications:
+1. **Research and execution stay separated:** The CLI runs offline and paper-only. Model outputs and extracted filings never submit live orders or mutate portfolio accounting directly.
+2. **Point-in-time discipline:** Every market observation, FX quote, borrow schedule, and issuer disclosure carries explicit timezone-aware availability semantics. Never introduce look-ahead bias.
+3. **Deterministic baselines first:** Prefer stdlib-only deterministic rules and explicit provenance. Optional hosted Gemini (`vertex.py`) or local GGUF inference is routed only as a fallback when rules cannot resolve a core field, and every model claim must be backed by a verbatim source quote.
+4. **Asset-agnostic core, explicit venue adapters:** Market replay, paper accounting, and risk calculations live in `fingpt_research/` without venue lock-in; NSE equities and Binance spot sit behind clean adapters.
 
-```python
-# Maximum line length
-max_line_length = 88  # Black formatter default
+## Project Layout
 
-# Import ordering
-import numpy as np
-import pandas as pd
-from typing import Dict, List, Optional
-
-# Class definitions
-class YourClass:
-    """Docstring following Google style."""
-    
-    def __init__(self, param: str):
-        """
-        Args:
-            param: Description
-        """
-        self.param = param
+```text
+fingpt_research/
+├── cli.py              # CLI entry point (replay, actions, filing-extract, catalog-add, nse-import, paper, compare, portfolio)
+├── data.py             # Immutable bars, Binance adapter, dataset loader
+├── nse.py              # NSE daily listing loader & corporate action validation
+├── nse_pricelist.py    # Standard NSE Daily Equity Price List PDF parser & dataset importer
+├── filing_pdf.py       # Dual-decoder (pypdf + pypdfium2) PDF text & coverage checker
+├── filing_events.py    # Full-filing dividend discovery, rules extraction & uncertainty-routed model fallback
+├── filings.py          # Single-filing extraction orchestration
+├── dividends.py        # Point-in-time dividend catalog queries & filing promotion
+├── dividend_eval.py    # Frozen passage benchmark scoring
+├── evidence.py         # Passage-grounded extraction & optional LocalFinGPT backend
+├── vertex.py           # Optional hosted Vertex AI Gemini fallback backend
+├── paper.py            # Single-listing Decimal paper ledger
+├── borrow.py           # ACT/365 short borrow schedules & forced buy-ins
+├── portfolio.py        # Multi-currency sleeve aggregation with FX staleness checks
+├── experiments.py      # Walk-forward baseline comparisons & timestamped model features
+├── forward.py          # Append-only streaming paper book
+├── risk.py             # Drawdown & exposure metrics
+└── fixtures/           # Bundled offline test fixtures (binance, nse, nse-public-sample, dividend-notices)
+tests/                  # Fast offline pytest suite
+docs/                   # Design notes, validation logs & ingestion guides
+tools/                  # Standalone helper scripts (blind review reconciliation, public Binance check)
 ```
 
-### 3. Testing
+## Testing & Verification
 
-All code must include tests:
+All pull requests must keep the offline test suite green with zero network calls:
 
-```python
-# test_your_feature.py
-import pytest
-from your_module import YourClass
-
-def test_your_feature():
-    obj = YourClass("test")
-    assert obj.method() == expected_result
-    
-@pytest.mark.parametrize("input,expected", [
-    ("case1", result1),
-    ("case2", result2)
-])
-def test_parametrized(input, expected):
-    assert function(input) == expected
+```sh
+python3 -m pytest -q tests
+python3 -I -m fingpt_research replay --dataset nse --as-of 2025-01-08T12:00:00Z
 ```
 
-Run tests:
-```bash
-pytest tests/
-pytest tests/your_specific_test.py -v
-```
+## Branching & Pull Requests
 
-### 4. Documentation
-
-1. **Docstrings**: Google style
-   ```python
-   def function(param1: str, param2: int) -> Dict[str, Any]:
-       """Short description.
-       
-       Longer description if needed.
-       
-       Args:
-           param1: Description of param1
-           param2: Description of param2
-           
-       Returns:
-           Dict containing processed results
-           
-       Raises:
-           ValueError: If param1 is invalid
-       """
-   ```
-
-2. **README Updates**: Keep module READMEs updated
-3. **API Documentation**: Update API docs for public interfaces
-
-### 5. Pull Request Process
-
-1. **Before Submitting**
-   - Run all tests
-   - Update documentation
-   - Add changelog entry
-   - Rebase on latest develop
-
-2. **PR Template**
-   ```markdown
-   ## Description
-   Brief description of changes
-   
-   ## Type of Change
-   - [ ] Bug fix
-   - [ ] New feature
-   - [ ] Breaking change
-   
-   ## Testing
-   - [ ] Added unit tests
-   - [ ] Updated existing tests
-   
-   ## Documentation
-   - [ ] Updated docstrings
-   - [ ] Updated README
-   - [ ] Updated API docs
-   ```
-
-3. **Review Process**
-   - Two approvals required
-   - All tests must pass
-   - Documentation must be complete
-
-### 6. Performance Considerations
-
-1. **Profiling**
-   ```python
-   import cProfile
-   import pstats
-   
-   def profile_code():
-       profiler = cProfile.Profile()
-       profiler.enable()
-       # Your code here
-       profiler.disable()
-       stats = pstats.Stats(profiler).sort_stats('cumtime')
-       stats.print_stats()
-   ```
-
-2. **Benchmarks**
-   ```python
-   import timeit
-   
-   def benchmark_function():
-       setup = "from your_module import your_function"
-       stmt = "your_function(test_data)"
-       return timeit.timeit(stmt, setup, number=1000)
-   ```
-
-## Project Structure
-
-When adding new features, follow the existing structure:
-
-```
-models/
-├── new_feature/
-│   ├── __init__.py
-│   ├── core.py
-│   ├── utils.py
-│   └── README.md  # Feature documentation
-tests/
-└── new_feature/
-    ├── __init__.py
-    ├── test_core.py
-    └── test_utils.py
-```
-
-## Common Tasks
-
-### Adding a New Model
-
-1. Create model structure:
-   ```bash
-   mkdir models/your_model
-   touch models/your_model/{__init__,core,utils}.py
-   ```
-
-2. Create tests:
-   ```bash
-   mkdir tests/your_model
-   touch tests/your_model/test_{core,utils}.py
-   ```
-
-3. Update documentation:
-   - Add model README
-   - Update API docs
-   - Add examples
-
-### Fixing Bugs
-
-1. Create issue if none exists
-2. Create fix branch
-3. Add regression test
-4. Update changelog
-5. Submit PR
-
-## Getting Help
-
-- Check [Discussions](https://github.com/ashioyajotham/fingpt-trader/discussions)
-- Tag maintainers in issues
+- Branch from `main` using `feat/<topic>` or `fix/<topic>`.
+- Include unit or regression tests for every behavior change.
+- Keep documentation in `README.md` and `docs/` synchronized with CLI flags and schemas.
+- Do not commit raw multi-megabyte model dumps or copyrighted full issuer PDFs to git.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License. Read more in [LICENSE](LICENSE).
+By contributing, you agree that your contributions will be licensed under the MIT License. See [LICENSE.md](LICENSE.md).
