@@ -26,11 +26,17 @@ python3 -m asof filing-extract \
 3. **Optional hosted Gemini fallback (`--vertex-project`):** When `--vertex-project YOUR_PROJECT` is passed, deterministic rules still run first. Hosted Gemini (`gemini-3.5-flash-lite` via `vertex.py`) is called **only** for candidates missing a core field (`distribution_type`, `period`, `status`, `amount`, or `currency`), and any model claim without a verbatim quote from the candidate text is rejected.
 
 ### Verified live example (Standard Chartered Bank Kenya FY2024)
-Running `filing-extract` offline on Standard Chartered Kenya's four-page FY2024 results PDF returns:
+Running `filing-extract` (or `financials-extract`) offline on Standard Chartered Kenya's four-page FY2024 results PDF returns:
 - `coverage.status == "complete"` (all 4 pages `readable`)
-- **Exactly 2 events** with zero uncertainties:
-  - `SCBK-2024-final`: `amount = 37`, `currency = KES`, `status = proposed` (page 2, ignores KES 5.00 par value and KES 45.00 annual total)
-  - `SCBK-2024-interim`: `amount = 8`, `currency = KES`, `status = paid` (page 2, `"was declared and paid"`)
+- **Dividends (Page 2):** Exactly 2 events with zero uncertainties:
+  - `SCBK-2024-final`: `amount = 37`, `currency = KES`, `status = proposed` (ignores KES 5.00 par value and KES 45.00 annual total)
+  - `SCBK-2024-interim`: `amount = 8`, `currency = KES`, `status = paid` (`"was declared and paid"`)
+- **Financials (Page 3, stacked `KShs million` header with unscaled EPS):**
+  - `revenue` (Total operating income): `KES 50,677,000,000` (prior `2023`: `41,728,000,000`)
+  - `profit_before_tax`: `KES 28,208,000,000` (`2023`: `19,668,000,000`)
+  - `profit_after_tax`: `KES 20,060,000,000` (`2023`: `13,835,000,000`)
+  - `eps`: `52.7 KES/share` (`2023`: `36.2 KES/share`, kept unscaled)
+  - `loans_and_advances`: `KES 151,647,000,000`, `customer_deposits`: `KES 295,690,000,000`
 
 ---
 

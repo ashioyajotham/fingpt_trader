@@ -137,6 +137,7 @@ Extract cited dividend events directly from complete issuer PDFs, promote review
 ```sh
 python3 -m pip install -e '.[filings]'
 python3 -m asof filing-extract --pdf scbk-fy24.pdf --symbol SCBK --source "$ISSUER_URL" > scbk.json
+python3 -m asof financials-extract --pdf scbk-fy24.pdf --symbol SCBK --source "$ISSUER_URL"
 python3 -m asof filing-extract --pdf scbk-fy24.pdf --symbol SCBK --source "$ISSUER_URL" --vertex-project YOUR_PROJECT
 python3 -m asof catalog-add --report scbk.json --notice-date 2025-03-19 --catalog ./my-catalog
 python3 -m asof actions --as-of 2025-03-20 --symbol SCBK --catalog ./my-catalog

@@ -37,7 +37,7 @@ def get_parser():
     actions.add_argument("--history", action="store_true")
     actions.add_argument("--clock", choices=("disclosure", "observed"), default="disclosure")
     actions.add_argument("--catalog", type=Path, help="optional local catalog directory (default: bundled fixture)")
-    filing = commands.add_parser("filing-extract", help="extract cited dividend events from a complete issuer PDF")
+    filing = commands.add_parser("filing-extract", help="extract cited dividend events and financials from a complete issuer PDF")
     filing.add_argument("--pdf", type=Path, required=True)
     filing.add_argument("--symbol", required=True)
     filing.add_argument("--source", required=True, help="immutable issuer URL or source identifier")
@@ -46,6 +46,10 @@ def get_parser():
     filing_backend.add_argument("--gguf", type=Path, help="optional local GGUF fallback for uncertain candidates")
     filing.add_argument("--vertex-model", default="gemini-3.5-flash-lite")
     filing.add_argument("--max-calls", type=int, default=12, help="maximum hosted Gemini fallback requests")
+    fin_ext = commands.add_parser("financials-extract", help="extract cited revenue, PAT, EPS, and balance-sheet figures from a PDF")
+    fin_ext.add_argument("--pdf", type=Path, required=True)
+    fin_ext.add_argument("--symbol", required=True)
+    fin_ext.add_argument("--source", required=True, help="immutable issuer URL or source identifier")
     promote = commands.add_parser("catalog-add", help="promote filing-extract output into a local dividend catalog")
     promote.add_argument("--report", type=Path, required=True, help="JSON report produced by filing-extract")
     promote.add_argument("--notice-date", required=True, help="issuer disclosure date (YYYY-MM-DD)")
@@ -118,6 +122,9 @@ def run(args):
         elif args.gguf:
             model = LocalFinGPT(args.gguf, structured=True)
         return extract_filing(prepared, model=model, fallback_only=True)
+    if args.command == "financials-extract":
+        from .filings import extract_filing_financials
+        return extract_filing_financials(args.pdf, args.symbol, args.source)
     if args.command == "catalog-add":
         from .dividends import promote_filing
         report = json.loads(args.report.read_text())
