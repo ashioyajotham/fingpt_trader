@@ -99,7 +99,15 @@ python3 main.py portfolio --spec examples/kes-portfolio.json
 
 The public sample is a single Safaricom observation checked against the NSE price list dated September 2, 2026. Its opening price is unknown. Its VWAP can value a holding but cannot execute a paper order. The captured document gives the dividend amount and book closure. Posting a payment requires separately verified entitlement terms.
 
-The [example study](examples/kes-portfolio.json) pre-funds two books in KES and USDT. FX is quoted as base currency per unit of listing currency. Each translation uses a rate available at the valuation time. Missing rates, stale rates and stale held-position marks stop the study. Weights must total one. Books have separate cash and position limits. This first version assumes frictionless initial FX conversion and excludes collateral transfers, settlement lags and taxes.
+The [example study](examples/kes-portfolio.json) pre-funds two books in KES and USDT. FX is quoted as base currency per unit of listing currency. Each translation uses a rate available at the valuation time. Missing rates, stale rates and stale held-position marks stop the study. Weights must total one. Optional study fields enable periodic cross-sleeve cash rebalancing (`"rebalance": "daily" | "weekly" | "monthly"`), single-name concentration caps (`"max_single_weight"`), and passive benchmark attribution (`"benchmark"`), reporting Sharpe, Sortino, HHI concentration, per-sleeve `days_to_exit`, tracking error, information ratio, and beta.
+
+## Local Web Workstation
+
+Launch a local, read-only, paper-only web workstation (pure Python stdlib, zero external server dependencies) to explore point-in-time `actions`, inspect market/liquidity tapes, and run stressed-cost paper simulations in your browser:
+
+```sh
+python3 -m asof serve --port 8765
+```
 
 A short sale requires explicit dated loan inventory. A schedule sets maximum outstanding units, an annual rate, expiry and a buy-in premium. Loan fees accrue ACT/365 on the preceding mark, including weekends. A reduction in the allowed outstanding quantity or an expiry triggers a buy-in subject to tradable volume. The last known loan rate continues on overdue units. Short holders owe any eligible dividend. For a single book pass `paper --policy short_hold --borrow loan.json`, with `instrument` and a `records` array using the example's borrow fields. The included FX and borrowing terms are synthetic scenario assumptions.
 

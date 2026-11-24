@@ -69,6 +69,10 @@ def get_parser():
     bench.add_argument("--max-calls", type=int, default=24, help="maximum Vertex requests")
     basket = commands.add_parser("portfolio", help="aggregate separately funded listings in a base currency")
     basket.add_argument("--spec", type=Path, required=True)
+    web = commands.add_parser("serve", help="start the local read-only AsOf web workstation")
+    web.add_argument("--host", default="127.0.0.1")
+    web.add_argument("--port", type=int, default=8765)
+    web.add_argument("--catalog", type=Path, help="optional local dividend catalog directory")
     for name in ("replay", "evidence", "evaluate", "features", "paper", "compare"):
         cmd = commands.add_parser(name)
         cmd.add_argument("--dataset", default="binance" if name in {"replay", "paper"} else "nse",
@@ -137,6 +141,11 @@ def run(args):
     if args.command == "portfolio":
         from .portfolio import portfolio
         return portfolio(args.spec)
+    if args.command == "serve":
+        from .dividends import CORPUS
+        from .web import serve
+        serve(host=args.host, port=args.port, catalog_root=args.catalog or CORPUS)
+        return None
     if getattr(args, "structured", False) and not args.gguf:
         raise ValueError("--structured requires a local model")
     if args.command == "evaluate" and args.corpus:
