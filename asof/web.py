@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 from .data import FIXTURES, instant, load_dataset, number
 from .dividends import CORPUS, actions, promote_filing
 from .experiments import compare, dataset_hash, simulate
+from .factor_backtest import FactorBacktestConfig, backtest_factor
 from .factors import evaluate_factors, load_universe, universe_snapshot
 from .filings import extract_filing, prepare_filing
 from .financials import query_financials
@@ -93,6 +94,7 @@ HTML = """<!doctype html>
     <button class="active" data-tab="workbench">Filing Workbench</button>
     <button data-tab="actions">As-Of Explorer</button>
     <button data-tab="market">Market &amp; Liquidity</button>
+    <button data-tab="factors">Factor Lab</button>
     <button data-tab="paper">Paper Risk Lab</button>
   </nav>
   <main>
@@ -153,6 +155,47 @@ HTML = """<!doctype html>
       <table><thead><tr><th>Session</th><th>Open</th><th>High</th><th>Low</th><th>Close / VWAP</th><th>Volume</th><th>Type</th><th>Status</th></tr></thead><tbody id="mkt-rows" class="mono"></tbody></table>
     </section>
 
+    <section id="tab-factors" class="hidden">
+      <div class="controls">
+        <label>Factor<select id="fac-name">
+          <option value="dividend_yield">dividend_yield</option>
+          <option value="momentum_20d" selected>momentum_20d</option>
+          <option value="momentum_60d">momentum_60d</option>
+          <option value="earnings_yield">earnings_yield</option>
+          <option value="liquidity_adv20">liquidity_adv20</option>
+        </select></label>
+        <label>Direction<select id="fac-dir"><option value="top">Top (Long High)</option><option value="bottom" selected>Bottom (Reversal / Low)</option></select></label>
+        <label>Top N<select id="fac-topn"><option value="3">3</option><option value="5" selected>5</option><option value="8">8</option><option value="10">10</option></select></label>
+        <label>Weighting<select id="fac-wt"><option value="equal">Equal</option><option value="rank">Rank</option></select></label>
+        <label>Rebalance<select id="fac-reb"><option value="monthly" selected>Monthly</option><option value="weekly">Weekly</option><option value="daily">Daily</option></select></label>
+        <label>Min 20D ADV (KES)<select id="fac-adv"><option value="0">0</option><option value="500000" selected>500,000</option><option value="2000000">2,000,000</option><option value="10000000">10,000,000</option></select></label>
+        <label>Cost Regime<select id="fac-cost"><option value="base">Baseline (10/5 bps)</option><option value="nse">NSE Retail (180/15 bps)</option></select></label>
+        <button class="primary" onclick="loadFactorLab()">Run Factor Backtest</button>
+      </div>
+      <div id="fac-kpis" class="grid"></div>
+      <div style="display:flex;gap:14px;font-size:11px;color:var(--muted);margin-bottom:6px">
+        <span><b style="color:var(--cyan)">━━</b> Factor Strategy NAV</span>
+        <span><b style="color:var(--amber)">┅┅</b> Equal-Weight Liquid Universe Benchmark</span>
+      </div>
+      <svg id="fac-chart" class="chart" viewBox="0 0 800 180" preserveAspectRatio="none"></svg>
+      <div class="split">
+        <div>
+          <h3>Final Holdings &amp; Exit Liquidity</h3>
+          <table>
+            <thead><tr><th>Symbol</th><th>Units</th><th>Close</th><th>Value (KES)</th><th>Weight</th><th>DTE</th></tr></thead>
+            <tbody id="fac-hold" class="mono"></tbody>
+          </table>
+        </div>
+        <div>
+          <h3>Cross-Sectional Rank-IC Diagnostics (20D Horizon)</h3>
+          <table>
+            <thead><tr><th>Factor</th><th>Sessions</th><th>Avg N</th><th>Mean IC</th><th>IC IR</th><th>Hit Rate</th><th>Spread</th></tr></thead>
+            <tbody id="fac-ic" class="mono"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <section id="tab-paper" class="hidden">
       <div class="controls">
         <label>Dataset<select id="pap-ds"><option value="nse">nse</option><option value="binance">binance</option></select></label>
@@ -178,9 +221,10 @@ function showOk(msg) { const e = document.getElementById("ok"); e.textContent = 
 document.querySelectorAll("nav button").forEach(btn => btn.onclick = () => {
   document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
   btn.classList.add("active");
-  ["workbench","actions","market","paper"].forEach(t => document.getElementById("tab-" + t).classList.toggle("hidden", t !== btn.dataset.tab));
+  ["workbench","actions","market","factors","paper"].forEach(t => document.getElementById("tab-" + t).classList.toggle("hidden", t !== btn.dataset.tab));
   if (btn.dataset.tab === "actions") loadActions();
   if (btn.dataset.tab === "market") loadMarket();
+  if (btn.dataset.tab === "factors") loadFactorLab();
   if (btn.dataset.tab === "paper") loadPaper();
 });
 
@@ -285,7 +329,8 @@ async function loadMarket() {
     const sec = document.getElementById("uni-section");
     if (uni.rows && uni.rows.length) {
       sec.classList.remove("hidden");
-      document.getElementById("uni-rows").innerHTML = uni.rows.map(r => {
+      const sortedRows = [...uni.rows].sort((a, b) => (b.adv20_kes || 0) - (a.adv20_kes || 0));
+      document.getElementById("uni-rows").innerHTML = sortedRows.map(r => {
         const ylds = `${fmtPct(r.dividend_yield)} / ${fmtPct(r.earnings_yield)}`;
         const st = r.stale ? `<span class="badge b-partial">STALE</span>` : `<span class="badge b-readable">ACTIVE</span>`;
         const dte = r.days_to_exit_100k == null ? "—" : Number(r.days_to_exit_100k).toFixed(2) + "d";
@@ -306,6 +351,44 @@ async function loadMarket() {
   document.getElementById("mkt-rows").innerHTML = data.observations.map(b =>
     `<tr><td>${esc(b.session)}</td><td>${b.open ?? "—"}</td><td>${b.high}</td><td>${b.low}</td><td>${b.close}</td><td>${fmtNum(b.volume)}</td><td>${esc(b.price_type)}</td><td>${esc(b.status)}</td></tr>`
   ).join("");
+}
+async function loadFactorLab() {
+  const f = document.getElementById("fac-name").value;
+  const dir = document.getElementById("fac-dir").value;
+  const topn = document.getElementById("fac-topn").value;
+  const wt = document.getElementById("fac-wt").value;
+  const reb = document.getElementById("fac-reb").value;
+  const adv = document.getElementById("fac-adv").value;
+  const cost = document.getElementById("fac-cost").value === "nse" ? "&fee_bps=180&slippage_bps=15" : "&fee_bps=10&slippage_bps=5";
+  const [bt, ic] = await Promise.all([
+    api(`/api/factor-backtest?factor=${encodeURIComponent(f)}&direction=${dir}&top_n=${topn}&weighting=${wt}&rebalance=${reb}&min_adv=${adv}${cost}`),
+    api(`/api/factors?horizons=20&min_adv=${adv}`),
+  ]);
+  const attr = bt.benchmark_attribution || {};
+  document.getElementById("fac-kpis").innerHTML = `
+    <div class="card"><div class="kpi-label">Net Return</div><div class="kpi-val mono" style="color:${Number(bt.net_return)>=0?'var(--emerald)':'var(--crimson)'}">${fmtPct(bt.net_return)}</div></div>
+    <div class="card"><div class="kpi-label">CAGR</div><div class="kpi-val mono">${fmtPct(bt.cagr)}</div></div>
+    <div class="card"><div class="kpi-label">Max Drawdown</div><div class="kpi-val mono">${fmtPct(bt.max_drawdown)}</div></div>
+    <div class="card"><div class="kpi-label">Sharpe / Sortino</div><div class="kpi-val mono">${bt.sharpe_ratio==null?'—':Number(bt.sharpe_ratio).toFixed(2)} / ${bt.sortino_ratio==null?'—':Number(bt.sortino_ratio).toFixed(2)}</div></div>
+    <div class="card"><div class="kpi-label">Active vs EW Univ</div><div class="kpi-val mono" style="color:${Number(attr.active_return)>=0?'var(--emerald)':'var(--crimson)'}">${fmtPct(attr.active_return)}</div></div>
+    <div class="card"><div class="kpi-label">Rebalances / Trades</div><div class="kpi-val mono">${bt.rebalance_count} / ${bt.trades_count}</div></div>`;
+  const sNavs = bt.ledger.map(r => Number(r.nav));
+  const bNavs = bt.ledger.map(r => Number(r.benchmark_nav));
+  const svg = document.getElementById("fac-chart");
+  if (sNavs.length > 1) {
+    const all = [...sNavs, ...bNavs];
+    const min = Math.min(...all), max = Math.max(...all), span = (max - min) || 1;
+    const toPts = arr => arr.map((v, i) => `${(i / (arr.length - 1)) * 780 + 10},${165 - ((v - min) / span) * 145}`).join(" ");
+    svg.innerHTML = `<polyline fill="none" stroke="#f59e0b" stroke-width="1.6" stroke-dasharray="5,4" points="${toPts(bNavs)}" />`
+      + `<polyline fill="none" stroke="#38bdf8" stroke-width="2.2" points="${toPts(sNavs)}" />`;
+  } else { svg.innerHTML = ""; }
+  document.getElementById("fac-hold").innerHTML = (bt.final_holdings || []).map(h =>
+    `<tr><td><b>${esc(h.symbol)}</b></td><td>${fmtNum(h.units)}</td><td>${esc(h.price)}</td><td>${fmtNum(h.market_value)}</td><td>${fmtPct(h.weight)}</td><td>${h.days_to_exit==null?'—':Number(h.days_to_exit).toFixed(2)+'d'}</td></tr>`
+  ).join("") || `<tr><td colspan="6" style="color:var(--muted)">100% cash at final session.</td></tr>`;
+  document.getElementById("fac-ic").innerHTML = Object.entries(ic.factors || {}).map(([name, horizons]) => {
+    const m = horizons["20"] || {};
+    return `<tr><td><b>${esc(name)}</b></td><td>${m.evaluated_sessions ?? 0}</td><td>${m.avg_universe_size ? Number(m.avg_universe_size).toFixed(1) : "—"}</td><td>${m.mean_ic==null?'—':Number(m.mean_ic).toFixed(4)}</td><td>${m.ic_ir==null?'—':Number(m.ic_ir).toFixed(2)}</td><td>${fmtPct(m.hit_rate)}</td><td>${fmtPct(m.mean_spread)}</td></tr>`;
+  }).join("");
 }
 async function loadPaper() {
   const ds = document.getElementById("pap-ds").value;
@@ -394,6 +477,25 @@ def dispatch(path, query, *, catalog_root=CORPUS, universe_root=None):
             min_adv = float(query.get("min_adv", ["0"])[0])
             payload = evaluate_factors(load_universe(universe_root), catalog_dir=catalog_root,
                                        horizons=horizons, min_adv=min_adv)
+        elif path == "/api/factor-backtest":
+            if universe_root is None:
+                raise ValueError("start `asof serve --universe DIR` to run cross-sectional factor backtests")
+            cfg = FactorBacktestConfig(
+                factor=query.get("factor", ["momentum_20d"])[0],
+                direction=query.get("direction", ["top"])[0],
+                top_n=int(query.get("top_n", ["5"])[0]),
+                weighting=query.get("weighting", ["equal"])[0],
+                rebalance=query.get("rebalance", ["monthly"])[0],
+                min_adv=float(query.get("min_adv", ["0"])[0]),
+                cash=number(query.get("cash", ["1000000"])[0]),
+                fee_bps=number(query.get("fee_bps", ["10"])[0]),
+                slippage_bps=number(query.get("slippage_bps", ["5"])[0]),
+                participation=number(query.get("participation", ["0.05"])[0]),
+                max_weight=number(query.get("max_weight", ["0.35"])[0]),
+                start=query.get("start", [""])[0] or None,
+                end=query.get("end", [""])[0] or None,
+            )
+            payload = backtest_factor(load_universe(universe_root), cfg, catalog_dir=catalog_root)
         elif path == "/api/replay":
             ds_name = query.get("dataset", ["nse"])[0]
             dataset = load_dataset(_resolve_dataset(ds_name))

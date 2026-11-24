@@ -51,6 +51,23 @@ python3 -m asof financials-add \
 # 3. Query strictly point-in-time (--as-of) under the Nairobi midnight disclosure clock:
 python3 -m asof actions --as-of 2025-03-20 --symbol SCBK --catalog ./local-data/catalog
 python3 -m asof financials --as-of 2025-03-20 --symbol SCBK --catalog ./local-data/catalog
+
+# 4. Evaluate cross-sectional factors and run a zero-lookahead factor portfolio backtest:
+python3 -m asof factors \
+  --universe ./local-data/universe \
+  --catalog ./local-data/catalog \
+  --min-adv 500000
+
+python3 -m asof factor-backtest \
+  --universe ./local-data/universe \
+  --catalog ./local-data/catalog \
+  --factor momentum_20d --direction bottom --top-n 5 --rebalance monthly \
+  --min-adv 500000 --fee-bps 180 --slippage-bps 15
+
+# 5. Launch the local workstation pointed at your real NSE universe and catalog:
+python3 -m asof serve \
+  --universe ./local-data/universe \
+  --catalog ./local-data/catalog
 ```
 
 ### Real-World Kenyan PDF Notes

@@ -106,6 +106,24 @@ def get_parser():
     fac.add_argument("--catalog", type=Path, help="optional local dividend/financials catalog directory")
     fac.add_argument("--horizons", default="1,5,20", help="comma-separated forward session horizons")
     fac.add_argument("--min-adv", type=float, default=0.0, help="minimum 20-day KES turnover filter")
+    fbt = commands.add_parser("factor-backtest", help="run a point-in-time cross-sectional factor portfolio backtest")
+    fbt.add_argument("--universe", type=Path, required=True, help="multi-ticker universe directory")
+    fbt.add_argument("--catalog", type=Path, help="optional local dividend/financials catalog directory")
+    fbt.add_argument("--factor", default="momentum_20d",
+                     choices=("momentum_20d", "momentum_60d", "liquidity_adv20", "dividend_yield", "earnings_yield"))
+    fbt.add_argument("--direction", default="top", choices=("top", "bottom"),
+                     help="long highest factor scores (top) or lowest scores (bottom, e.g. reversal)")
+    fbt.add_argument("--top-n", type=int, default=5, help="number of ranked listings held per rebalance")
+    fbt.add_argument("--weighting", default="equal", choices=("equal", "rank"))
+    fbt.add_argument("--rebalance", default="monthly", choices=("daily", "weekly", "monthly"))
+    fbt.add_argument("--min-adv", type=float, default=0.0, help="minimum 20-day KES turnover filter")
+    fbt.add_argument("--cash", type=number, default=Decimal("1000000"))
+    fbt.add_argument("--fee-bps", type=number, default=Decimal("10"))
+    fbt.add_argument("--slippage-bps", type=number, default=Decimal("5"))
+    fbt.add_argument("--participation", type=number, default=Decimal("0.05"))
+    fbt.add_argument("--max-weight", type=number, default=Decimal("0.35"))
+    fbt.add_argument("--start", help="optional inclusive start session (YYYY-MM-DD)")
+    fbt.add_argument("--end", help="optional inclusive end session (YYYY-MM-DD)")
     web = commands.add_parser("serve", help="start the local AsOf web workstation")
     web.add_argument("--host", default="127.0.0.1")
     web.add_argument("--port", type=int, default=8765)
@@ -205,6 +223,17 @@ def run(args):
             raise ValueError("horizons must be positive integers")
         return evaluate_factors(load_universe(args.universe), catalog_dir=args.catalog,
                                 horizons=horizons, min_adv=args.min_adv)
+    if args.command == "factor-backtest":
+        from .factor_backtest import FactorBacktestConfig, backtest_factor
+        from .factors import load_universe
+        cfg = FactorBacktestConfig(
+            factor=args.factor, direction=args.direction, top_n=args.top_n,
+            weighting=args.weighting, rebalance=args.rebalance, min_adv=args.min_adv,
+            cash=args.cash, fee_bps=args.fee_bps, slippage_bps=args.slippage_bps,
+            participation=args.participation, max_weight=args.max_weight,
+            start=args.start, end=args.end,
+        )
+        return backtest_factor(load_universe(args.universe), cfg, catalog_dir=args.catalog)
     if args.command == "serve":
         from .dividends import CORPUS
         from .web import serve
