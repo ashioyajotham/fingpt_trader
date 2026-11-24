@@ -7,11 +7,21 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
+from . import TAGLINE, __version__
 from .data import FIXTURES, instant, load_dataset, number
 from .evidence import LocalFinGPT, extract_rules, evaluate_documents
 from .experiments import compare, dataset_hash, load_features, model_features, simulate
 from .forward import ForwardBook
 from .paper import Assumptions
+
+BANNER = (
+    "    ___          ____  ____\n"
+    "   /   |  _____ / __ \\/ __/\n"
+    "  / /| | / ___// / / / /_\n"
+    " / ___ |(__  )/ /_/ / __/\n"
+    "/_/  |_/____/ \\____/_/\n"
+    f"\n{TAGLINE}"
+)
 
 
 def encode(value):
@@ -27,7 +37,12 @@ def emit(value, streaming=False):
 
 
 def get_parser():
-    parser = argparse.ArgumentParser(description="Point-in-time market research and paper simulation")
+    parser = argparse.ArgumentParser(
+        prog="asof",
+        description=BANNER,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--version", action="version", version=f"asof {__version__} — {TAGLINE}")
     commands = parser.add_subparsers(dest="command", required=True)
     from .dividends import STATUSES
     actions = commands.add_parser("actions", help="query the sourced dividend catalog")
@@ -256,7 +271,7 @@ def run(args):
 
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
-    if not args or (args[0].startswith("-") and args[0] not in {"--help", "-h"}):
+    if not args or (args[0].startswith("-") and args[0] not in {"--help", "-h", "--version"}):
         args.insert(0, "replay")
     parser = get_parser()
     try:

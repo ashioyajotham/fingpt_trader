@@ -60,7 +60,7 @@ def read_pdf(path):
         from pypdf import PdfReader
         from pypdf.errors import PdfReadError
     except ImportError as exc:
-        raise ImportError("install asof[filings] to read source PDFs") from exc
+        raise ImportError("install asof-research[filings] to read source PDFs") from exc
 
     data = Path(path).read_bytes()
     try:

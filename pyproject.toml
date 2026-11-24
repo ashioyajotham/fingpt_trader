@@ -3,9 +3,9 @@ requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "asof"
-version = "0.4.0"
-description = "Point-in-time market intelligence, filing evidence, and paper portfolio simulation"
+name = "asof-research"
+version = "0.4.1"
+description = "Point-in-time market intelligence, cited filings, and paper research — zero look-ahead, zero broker."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE.md", "NOTICE"]
