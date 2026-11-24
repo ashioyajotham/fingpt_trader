@@ -13,18 +13,18 @@ from .data import load_dataset
 from .filing_pdf import read_pdf
 
 KNOWN_ISSUERS = {
-    "SCOM": {"isin": "KE1000001402", "issuer": "Safaricom PLC", "aliases": ("safaricom", "scom")},
-    "EQTY": {"isin": "KE0000000554", "issuer": "Equity Group Holdings PLC", "aliases": ("equity group", "eqty")},
-    "KCB": {"isin": "KE0000000315", "issuer": "KCB Group PLC", "aliases": ("kcb group", "kcb")},
-    "SCBK": {"isin": "KE0000000448", "issuer": "Standard Chartered Bank Kenya Ltd", "aliases": ("standard chartered", "scbk")},
-    "EABL": {"isin": "KE0000000216", "issuer": "East African Breweries PLC", "aliases": ("east african breweries", "eabl")},
-    "BAT": {"isin": "KE0000000075", "issuer": "British American Tobacco Kenya PLC", "aliases": ("british american tobacco", "bat kenya", "bat")},
-    "KPLC": {"isin": "KE0000000349", "issuer": "Kenya Power & Lighting Co PLC", "aliases": ("kenya power", "kplc")},
-    "KEGN": {"isin": "KE0000000547", "issuer": "Kenya Electricity Generating Co PLC", "aliases": ("kengen", "kenya electricity generating", "kegn")},
-    "IMH": {"isin": "KE0000000604", "issuer": "I&M Group PLC", "aliases": ("i&m group", "i&m holdings", "imh")},
-    "ABSA": {"isin": "KE0000000067", "issuer": "Absa Bank Kenya PLC", "aliases": ("absa bank kenya", "absa")},
-    "COOP": {"isin": "KE1000001568", "issuer": "Co-operative Bank of Kenya Ltd", "aliases": ("co-operative bank", "coop")},
-    "NCBA": {"isin": "KE0000000406", "issuer": "NCBA Group PLC", "aliases": ("ncba group", "ncba")},
+    "SCOM": {"isin": "KE1000001402", "issuer": "Safaricom PLC", "sector": "Telecommunication", "aliases": ("safaricom", "scom")},
+    "EQTY": {"isin": "KE0000000554", "issuer": "Equity Group Holdings PLC", "sector": "Banking", "aliases": ("equity group", "eqty")},
+    "KCB": {"isin": "KE0000000315", "issuer": "KCB Group PLC", "sector": "Banking", "aliases": ("kcb group", "kcb")},
+    "SCBK": {"isin": "KE0000000448", "issuer": "Standard Chartered Bank Kenya Ltd", "sector": "Banking", "aliases": ("standard chartered", "scbk")},
+    "EABL": {"isin": "KE0000000216", "issuer": "East African Breweries PLC", "sector": "Manufacturing and Allied", "aliases": ("east african breweries", "eabl")},
+    "BAT": {"isin": "KE0000000075", "issuer": "British American Tobacco Kenya PLC", "sector": "Manufacturing and Allied", "aliases": ("british american tobacco", "bat kenya", "bat")},
+    "KPLC": {"isin": "KE0000000349", "issuer": "Kenya Power & Lighting Co PLC", "sector": "Energy and Petroleum", "aliases": ("kenya power", "kplc")},
+    "KEGN": {"isin": "KE0000000547", "issuer": "Kenya Electricity Generating Co PLC", "sector": "Energy and Petroleum", "aliases": ("kengen", "kenya electricity generating", "kegn")},
+    "IMH": {"isin": "KE0000000604", "issuer": "I&M Group PLC", "sector": "Banking", "aliases": ("i&m group", "i&m holdings", "imh")},
+    "ABSA": {"isin": "KE0000000067", "issuer": "Absa Bank Kenya PLC", "sector": "Banking", "aliases": ("absa bank kenya", "absa")},
+    "COOP": {"isin": "KE1000001568", "issuer": "Co-operative Bank of Kenya Ltd", "sector": "Banking", "aliases": ("co-operative bank", "coop")},
+    "NCBA": {"isin": "KE0000000406", "issuer": "NCBA Group PLC", "sector": "Banking", "aliases": ("ncba group", "ncba")},
 }
 
 DATE_PATTERNS = (
@@ -195,10 +195,39 @@ def parse_nse_csv(csv_path, symbol, *, isin=None, session_date=None):
     return rows
 
 
-def import_nse_universe(input_path, out_dir, *, symbols=None, source_url=None, ingested_at=None):
+def _load_sector_map(csv_paths):
+    """Parse NSE sector mapping CSV(s) (Sector / Market Sector, Code / Stock Code) into {SYMBOL: sector}."""
+    sectors = {}
+    for path in csv_paths:
+        if not path or not Path(path).exists():
+            continue
+        with Path(path).open(encoding="utf-8-sig", newline="") as stream:
+            reader = csv.DictReader(stream)
+            if not reader.fieldnames:
+                continue
+            headers = {_norm_header(h): h for h in reader.fieldnames if h}
+            for raw in reader:
+                norm = {k: (raw[orig] or "").strip() for k, orig in headers.items()}
+                sym = (_col(norm, "code", "stock_code", "symbol", "ticker") or "").upper()
+                sec = _col(norm, "sector", "market_sector", "industry", "segment")
+                if sym and sec:
+                    sectors[sym] = sec
+    return sectors
+
+
+def import_nse_universe(input_path, out_dir, *, symbols=None, source_url=None, ingested_at=None, sectors_csv=None):
     """Bulk-import multi-ticker NSE All-Stocks CSV(s) into a validated multi-ticker universe directory."""
     src = Path(input_path)
-    files = sorted(src.glob("*.csv")) if src.is_dir() else [src]
+    if src.is_dir():
+        all_csvs = sorted(src.glob("*.csv"))
+        sector_files = [f for f in all_csvs if "sector" in f.name.lower()]
+        files = [f for f in all_csvs if "sector" not in f.name.lower()]
+    else:
+        sector_files = []
+        files = [src]
+    if sectors_csv:
+        sector_files.append(Path(sectors_csv))
+    sector_map = _load_sector_map(sector_files)
     if not files:
         raise ValueError(f"no CSV files found at {src}")
     wanted = {s.strip().upper() for s in symbols} if symbols else None
@@ -283,11 +312,13 @@ def import_nse_universe(input_path, out_dir, *, symbols=None, source_url=None, i
             docs_path.write_text("[]\n")
         instrument = f"XNAI:{detected_isin}" if detected_isin else f"XNAI:{sym}"
         issuer_name = known.get("issuer") or issuers.get(sym) or sym
+        sector_name = sector_map.get(sym) or known.get("sector") or "Unclassified"
         manifest = {
             "adapter": "nse-daily",
             "instrument": instrument,
             "venue": "Nairobi Securities Exchange",
             "issuer": issuer_name,
+            "sector": sector_name,
             "currency": "KES",
             "price_basis": "raw",
             "lot_size": "1",
@@ -302,6 +333,7 @@ def import_nse_universe(input_path, out_dir, *, symbols=None, source_url=None, i
             "path": sym,
             "instrument": instrument,
             "issuer": issuer_name,
+            "sector": sector_name,
             "sessions": len(ordered_days),
             "first_session": ordered_days[0],
             "last_session": ordered_days[-1],
@@ -319,6 +351,7 @@ def import_nse_universe(input_path, out_dir, *, symbols=None, source_url=None, i
         "universe": str(root),
         "tickers_imported": len(grouped),
         "tickers_total": len(universe_manifest["tickers"]),
+        "sectors_mapped": sum(1 for info in tickers_meta.values() if info.get("sector") != "Unclassified"),
         "symbols": sorted(grouped),
     }
 

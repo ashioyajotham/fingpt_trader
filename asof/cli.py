@@ -87,6 +87,7 @@ def get_parser():
     nse_imp.add_argument("--out", type=Path, help="target single-listing dataset directory")
     nse_imp.add_argument("--universe", type=Path, help="bulk-import multi-ticker CSV(s) into a universe directory")
     nse_imp.add_argument("--symbols", help="optional comma-separated ticker filter for --universe")
+    nse_imp.add_argument("--sectors", type=Path, help="optional NSE market sectors CSV (auto-detected in --input dir)")
     nse_imp.add_argument("--issuer", help="override issuer legal name (single-listing mode)")
     nse_imp.add_argument("--isin", help="override security ISIN (single-listing mode)")
     nse_imp.add_argument("--session", help="override session date (YYYY-MM-DD) for single file")
@@ -106,11 +107,13 @@ def get_parser():
     fac.add_argument("--catalog", type=Path, help="optional local dividend/financials catalog directory")
     fac.add_argument("--horizons", default="1,5,20", help="comma-separated forward session horizons")
     fac.add_argument("--min-adv", type=float, default=0.0, help="minimum 20-day KES turnover filter")
+    fac.add_argument("--blend", help="optional composite factor blend, e.g. 'dividend_yield:0.5,momentum_20d:-0.5'")
     fbt = commands.add_parser("factor-backtest", help="run a point-in-time cross-sectional factor portfolio backtest")
     fbt.add_argument("--universe", type=Path, required=True, help="multi-ticker universe directory")
     fbt.add_argument("--catalog", type=Path, help="optional local dividend/financials catalog directory")
     fbt.add_argument("--factor", default="momentum_20d",
                      choices=("momentum_20d", "momentum_60d", "liquidity_adv20", "dividend_yield", "earnings_yield"))
+    fbt.add_argument("--factor-blend", help="optional composite factor blend, e.g. 'dividend_yield:0.5,momentum_20d:-0.5'")
     fbt.add_argument("--direction", default="top", choices=("top", "bottom"),
                      help="long highest factor scores (top) or lowest scores (bottom, e.g. reversal)")
     fbt.add_argument("--top-n", type=int, default=5, help="number of ranked listings held per rebalance")
@@ -122,6 +125,9 @@ def get_parser():
     fbt.add_argument("--slippage-bps", type=number, default=Decimal("5"))
     fbt.add_argument("--participation", type=number, default=Decimal("0.05"))
     fbt.add_argument("--max-weight", type=number, default=Decimal("0.35"))
+    fbt.add_argument("--max-sector-weight", type=number, help="optional maximum aggregate weight per sector, e.g. 0.40")
+    fbt.add_argument("--wht-pct", type=number, default=Decimal("5"), help="dividend withholding tax percent (default: 5)")
+    fbt.add_argument("--no-dividends", action="store_true", help="disable catalog cash dividend crediting (price-only)")
     fbt.add_argument("--start", help="optional inclusive start session (YYYY-MM-DD)")
     fbt.add_argument("--end", help="optional inclusive end session (YYYY-MM-DD)")
     web = commands.add_parser("serve", help="start the local AsOf web workstation")
@@ -196,7 +202,8 @@ def run(args):
         from .nse_pricelist import import_nse_pricelist, import_nse_universe
         if args.universe:
             syms = [s.strip() for s in args.symbols.split(",") if s.strip()] if args.symbols else None
-            return import_nse_universe(args.input_path, args.universe, symbols=syms, source_url=args.source)
+            return import_nse_universe(args.input_path, args.universe, symbols=syms,
+                                       source_url=args.source, sectors_csv=args.sectors)
         if not args.symbol or not args.out:
             raise ValueError("nse-import requires either --universe DIR or both --symbol and --out")
         return import_nse_pricelist(
@@ -222,15 +229,17 @@ def run(args):
         if not horizons or any(h <= 0 for h in horizons):
             raise ValueError("horizons must be positive integers")
         return evaluate_factors(load_universe(args.universe), catalog_dir=args.catalog,
-                                horizons=horizons, min_adv=args.min_adv)
+                                horizons=horizons, min_adv=args.min_adv, blend=args.blend)
     if args.command == "factor-backtest":
         from .factor_backtest import FactorBacktestConfig, backtest_factor
         from .factors import load_universe
         cfg = FactorBacktestConfig(
-            factor=args.factor, direction=args.direction, top_n=args.top_n,
-            weighting=args.weighting, rebalance=args.rebalance, min_adv=args.min_adv,
+            factor=args.factor, factor_blend=args.factor_blend, direction=args.direction,
+            top_n=args.top_n, weighting=args.weighting, rebalance=args.rebalance, min_adv=args.min_adv,
             cash=args.cash, fee_bps=args.fee_bps, slippage_bps=args.slippage_bps,
             participation=args.participation, max_weight=args.max_weight,
+            max_sector_weight=args.max_sector_weight,
+            include_dividends=not args.no_dividends, wht_pct=args.wht_pct,
             start=args.start, end=args.end,
         )
         return backtest_factor(load_universe(args.universe), cfg, catalog_dir=args.catalog)

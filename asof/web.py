@@ -143,7 +143,7 @@ HTML = """<!doctype html>
       <div id="uni-section" class="hidden" style="margin-bottom:18px">
         <h3>Multi-Ticker NSE Market &amp; Liquidity Board</h3>
         <table>
-          <thead><tr><th>Symbol</th><th>ISIN</th><th>Latest</th><th>Close / VWAP</th><th>Volume</th><th>20D ADV (KES)</th><th>DTE (100k)</th><th>Div / Earn Yld</th><th>State</th></tr></thead>
+          <thead><tr><th>Symbol</th><th>Sector</th><th>Latest</th><th>Close / VWAP</th><th>Volume</th><th>20D ADV (KES)</th><th>DTE (100k)</th><th>Div / Earn Yld</th><th>State</th></tr></thead>
           <tbody id="uni-rows" class="mono"></tbody>
         </table>
       </div>
@@ -157,7 +157,8 @@ HTML = """<!doctype html>
 
     <section id="tab-factors" class="hidden">
       <div class="controls">
-        <label>Factor<select id="fac-name">
+        <label>Factor / Composite<select id="fac-name">
+          <option value="blend:dividend_yield:0.5,momentum_20d:-0.5">Composite: Yield + 20D Reversal</option>
           <option value="dividend_yield">dividend_yield</option>
           <option value="momentum_20d" selected>momentum_20d</option>
           <option value="momentum_60d">momentum_60d</option>
@@ -166,23 +167,32 @@ HTML = """<!doctype html>
         </select></label>
         <label>Direction<select id="fac-dir"><option value="top">Top (Long High)</option><option value="bottom" selected>Bottom (Reversal / Low)</option></select></label>
         <label>Top N<select id="fac-topn"><option value="3">3</option><option value="5" selected>5</option><option value="8">8</option><option value="10">10</option></select></label>
-        <label>Weighting<select id="fac-wt"><option value="equal">Equal</option><option value="rank">Rank</option></select></label>
+        <label>Sector Cap<select id="fac-sec"><option value="">No Cap</option><option value="0.4" selected>40%</option><option value="0.5">50%</option><option value="0.6">60%</option></select></label>
         <label>Rebalance<select id="fac-reb"><option value="monthly" selected>Monthly</option><option value="weekly">Weekly</option><option value="daily">Daily</option></select></label>
-        <label>Min 20D ADV (KES)<select id="fac-adv"><option value="0">0</option><option value="500000" selected>500,000</option><option value="2000000">2,000,000</option><option value="10000000">10,000,000</option></select></label>
+        <label>Min 20D ADV<select id="fac-adv"><option value="0">0</option><option value="500000" selected>500,000</option><option value="2000000">2,000,000</option><option value="10000000">10,000,000</option></select></label>
         <label>Cost Regime<select id="fac-cost"><option value="base">Baseline (10/5 bps)</option><option value="nse">NSE Retail (180/15 bps)</option></select></label>
+        <label>Dividends / WHT<select id="fac-div"><option value="5" selected>Total Return (5% KE WHT)</option><option value="15">Total Return (15% Foreign)</option><option value="off">Price Return Only</option></select></label>
         <button class="primary" onclick="loadFactorLab()">Run Factor Backtest</button>
       </div>
       <div id="fac-kpis" class="grid"></div>
       <div style="display:flex;gap:14px;font-size:11px;color:var(--muted);margin-bottom:6px">
         <span><b style="color:var(--cyan)">━━</b> Factor Strategy NAV</span>
         <span><b style="color:var(--amber)">┅┅</b> Equal-Weight Liquid Universe Benchmark</span>
+        <span id="fac-basis" class="mono"></span>
       </div>
       <svg id="fac-chart" class="chart" viewBox="0 0 800 180" preserveAspectRatio="none"></svg>
+      <div style="margin-bottom:16px">
+        <h3>Calendar-Year Regime Breakdown</h3>
+        <table>
+          <thead><tr><th>Year</th><th>Sessions</th><th>Strategy</th><th>EW Bench</th><th>Active</th><th>Max DD</th><th>Sharpe</th><th>Net Divs (KES)</th></tr></thead>
+          <tbody id="fac-yr" class="mono"></tbody>
+        </table>
+      </div>
       <div class="split">
         <div>
-          <h3>Final Holdings &amp; Exit Liquidity</h3>
+          <h3>Final Holdings &amp; Sector / Exit Liquidity</h3>
           <table>
-            <thead><tr><th>Symbol</th><th>Units</th><th>Close</th><th>Value (KES)</th><th>Weight</th><th>DTE</th></tr></thead>
+            <thead><tr><th>Symbol</th><th>Sector</th><th>Units</th><th>Close</th><th>Weight</th><th>DTE</th></tr></thead>
             <tbody id="fac-hold" class="mono"></tbody>
           </table>
         </div>
@@ -334,7 +344,7 @@ async function loadMarket() {
         const ylds = `${fmtPct(r.dividend_yield)} / ${fmtPct(r.earnings_yield)}`;
         const st = r.stale ? `<span class="badge b-partial">STALE</span>` : `<span class="badge b-readable">ACTIVE</span>`;
         const dte = r.days_to_exit_100k == null ? "—" : Number(r.days_to_exit_100k).toFixed(2) + "d";
-        return `<tr><td><b>${esc(r.symbol)}</b></td><td>${esc(r.instrument)}</td><td>${esc(r.latest_session)}</td><td>${esc(r.close)}</td><td>${fmtNum(r.volume)}</td><td>${fmtNum(r.adv20_kes)}</td><td>${dte}</td><td>${ylds}</td><td>${st}</td></tr>`;
+        return `<tr><td><b>${esc(r.symbol)}</b></td><td>${esc(r.sector || "—")}</td><td>${esc(r.latest_session)}</td><td>${esc(r.close)}</td><td>${fmtNum(r.volume)}</td><td>${fmtNum(r.adv20_kes)}</td><td>${dte}</td><td>${ylds}</td><td>${st}</td></tr>`;
       }).join("");
     } else { sec.classList.add("hidden"); }
   } catch (_) {}
@@ -353,25 +363,34 @@ async function loadMarket() {
   ).join("");
 }
 async function loadFactorLab() {
-  const f = document.getElementById("fac-name").value;
-  const dir = document.getElementById("fac-dir").value;
+  const rawF = document.getElementById("fac-name").value;
+  const isBlend = rawF.startsWith("blend:");
+  const blendSpec = isBlend ? rawF.slice(6) : "";
+  const dir = isBlend ? "top" : document.getElementById("fac-dir").value;
+  if (isBlend) document.getElementById("fac-dir").value = "top";
   const topn = document.getElementById("fac-topn").value;
-  const wt = document.getElementById("fac-wt").value;
+  const sec = document.getElementById("fac-sec").value;
   const reb = document.getElementById("fac-reb").value;
   const adv = document.getElementById("fac-adv").value;
   const cost = document.getElementById("fac-cost").value === "nse" ? "&fee_bps=180&slippage_bps=15" : "&fee_bps=10&slippage_bps=5";
+  const divMode = document.getElementById("fac-div").value;
+  const divQ = divMode === "off" ? "&include_dividends=0" : `&include_dividends=1&wht_pct=${divMode}`;
+  const fQ = isBlend ? `factor_blend=${encodeURIComponent(blendSpec)}` : `factor=${encodeURIComponent(rawF)}`;
+  const secQ = sec ? `&max_sector_weight=${sec}` : "";
+  const icBlendQ = `&blend=${encodeURIComponent(blendSpec || "dividend_yield:0.5,momentum_20d:-0.5")}`;
   const [bt, ic] = await Promise.all([
-    api(`/api/factor-backtest?factor=${encodeURIComponent(f)}&direction=${dir}&top_n=${topn}&weighting=${wt}&rebalance=${reb}&min_adv=${adv}${cost}`),
-    api(`/api/factors?horizons=20&min_adv=${adv}`),
+    api(`/api/factor-backtest?${fQ}&direction=${dir}&top_n=${topn}&rebalance=${reb}&min_adv=${adv}${secQ}${cost}${divQ}`),
+    api(`/api/factors?horizons=20&min_adv=${adv}${icBlendQ}`),
   ]);
   const attr = bt.benchmark_attribution || {};
+  document.getElementById("fac-basis").textContent = `· ${bt.return_basis} · ${bt.dividend_events_count || 0} div payout(s)`;
   document.getElementById("fac-kpis").innerHTML = `
     <div class="card"><div class="kpi-label">Net Return</div><div class="kpi-val mono" style="color:${Number(bt.net_return)>=0?'var(--emerald)':'var(--crimson)'}">${fmtPct(bt.net_return)}</div></div>
     <div class="card"><div class="kpi-label">CAGR</div><div class="kpi-val mono">${fmtPct(bt.cagr)}</div></div>
     <div class="card"><div class="kpi-label">Max Drawdown</div><div class="kpi-val mono">${fmtPct(bt.max_drawdown)}</div></div>
     <div class="card"><div class="kpi-label">Sharpe / Sortino</div><div class="kpi-val mono">${bt.sharpe_ratio==null?'—':Number(bt.sharpe_ratio).toFixed(2)} / ${bt.sortino_ratio==null?'—':Number(bt.sortino_ratio).toFixed(2)}</div></div>
     <div class="card"><div class="kpi-label">Active vs EW Univ</div><div class="kpi-val mono" style="color:${Number(attr.active_return)>=0?'var(--emerald)':'var(--crimson)'}">${fmtPct(attr.active_return)}</div></div>
-    <div class="card"><div class="kpi-label">Rebalances / Trades</div><div class="kpi-val mono">${bt.rebalance_count} / ${bt.trades_count}</div></div>`;
+    <div class="card"><div class="kpi-label">Net Divs (KES)</div><div class="kpi-val mono">${fmtNum(bt.total_dividends_net)}</div></div>`;
   const sNavs = bt.ledger.map(r => Number(r.nav));
   const bNavs = bt.ledger.map(r => Number(r.benchmark_nav));
   const svg = document.getElementById("fac-chart");
@@ -382,8 +401,11 @@ async function loadFactorLab() {
     svg.innerHTML = `<polyline fill="none" stroke="#f59e0b" stroke-width="1.6" stroke-dasharray="5,4" points="${toPts(bNavs)}" />`
       + `<polyline fill="none" stroke="#38bdf8" stroke-width="2.2" points="${toPts(sNavs)}" />`;
   } else { svg.innerHTML = ""; }
+  document.getElementById("fac-yr").innerHTML = (bt.yearly || []).map(y =>
+    `<tr><td><b>${esc(y.year)}</b></td><td>${y.sessions}</td><td style="color:${Number(y.net_return)>=0?'var(--emerald)':'var(--crimson)'}">${fmtPct(y.net_return)}</td><td>${fmtPct(y.benchmark_return)}</td><td>${fmtPct(y.active_return)}</td><td>${fmtPct(y.max_drawdown)}</td><td>${y.sharpe_ratio==null?'—':Number(y.sharpe_ratio).toFixed(2)}</td><td>${fmtNum(y.dividends_net)}</td></tr>`
+  ).join("");
   document.getElementById("fac-hold").innerHTML = (bt.final_holdings || []).map(h =>
-    `<tr><td><b>${esc(h.symbol)}</b></td><td>${fmtNum(h.units)}</td><td>${esc(h.price)}</td><td>${fmtNum(h.market_value)}</td><td>${fmtPct(h.weight)}</td><td>${h.days_to_exit==null?'—':Number(h.days_to_exit).toFixed(2)+'d'}</td></tr>`
+    `<tr><td><b>${esc(h.symbol)}</b></td><td>${esc(h.sector || "—")}</td><td>${fmtNum(h.units)}</td><td>${esc(h.price)}</td><td>${fmtPct(h.weight)}</td><td>${h.days_to_exit==null?'—':Number(h.days_to_exit).toFixed(2)+'d'}</td></tr>`
   ).join("") || `<tr><td colspan="6" style="color:var(--muted)">100% cash at final session.</td></tr>`;
   document.getElementById("fac-ic").innerHTML = Object.entries(ic.factors || {}).map(([name, horizons]) => {
     const m = horizons["20"] || {};
@@ -475,13 +497,17 @@ def dispatch(path, query, *, catalog_root=CORPUS, universe_root=None):
                 raise ValueError("start `asof serve --universe DIR` to evaluate cross-sectional factors")
             horizons = tuple(int(h.strip()) for h in query.get("horizons", ["1,5,20"])[0].split(",") if h.strip())
             min_adv = float(query.get("min_adv", ["0"])[0])
+            blend = query.get("blend", [""])[0] or None
             payload = evaluate_factors(load_universe(universe_root), catalog_dir=catalog_root,
-                                       horizons=horizons, min_adv=min_adv)
+                                       horizons=horizons, min_adv=min_adv, blend=blend)
         elif path == "/api/factor-backtest":
             if universe_root is None:
                 raise ValueError("start `asof serve --universe DIR` to run cross-sectional factor backtests")
+            sec_raw = query.get("max_sector_weight", [""])[0]
+            inc_div = query.get("include_dividends", ["1"])[0] not in {"0", "false", "no"}
             cfg = FactorBacktestConfig(
                 factor=query.get("factor", ["momentum_20d"])[0],
+                factor_blend=query.get("factor_blend", [""])[0] or None,
                 direction=query.get("direction", ["top"])[0],
                 top_n=int(query.get("top_n", ["5"])[0]),
                 weighting=query.get("weighting", ["equal"])[0],
@@ -492,6 +518,9 @@ def dispatch(path, query, *, catalog_root=CORPUS, universe_root=None):
                 slippage_bps=number(query.get("slippage_bps", ["5"])[0]),
                 participation=number(query.get("participation", ["0.05"])[0]),
                 max_weight=number(query.get("max_weight", ["0.35"])[0]),
+                max_sector_weight=number(sec_raw) if sec_raw else None,
+                include_dividends=inc_div,
+                wht_pct=number(query.get("wht_pct", ["5"])[0]),
                 start=query.get("start", [""])[0] or None,
                 end=query.get("end", [""])[0] or None,
             )

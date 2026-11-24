@@ -137,3 +137,118 @@ def test_promote_filing_into_seeded_corpus_inherits_split_and_preserves_adjudica
     assert not (local_cat / "adjudication.json").exists()
     out = actions("2025-03-20", symbol="SCBK", root=local_cat)
     assert any(r["event"] == "SCBK-2024-final" for r in out["rows"])
+
+
+def test_sector_cap_composite_blend_dividends_wht_and_yearly_breakdown(tmp_path):
+    """Verify NSE sector CSV import, max_sector_weight cap, composite blend, PIT cash dividends + WHT, and yearly stats."""
+    raw_dir = tmp_path / "raw_csvs"
+    raw_dir.mkdir()
+    (raw_dir / "NSE_data_stock_market_sectors_2025.csv").write_text(
+        "Sector,Stock_code,Stock_name\n"
+        "Banking,EQTY,Equity Group\n"
+        "Banking,KCB,KCB Group\n"
+        "Banking,SCBK,Standard Chartered\n"
+        "Manufacturing and Allied,EABL,EABL\n"
+        "Telecommunication,SCOM,Safaricom\n"
+    )
+    lines = ["Date,Code,Name,Day Low,Day High,Day Price,Previous,Volume"]
+    specs = [
+        ("EQTY", "Equity Group", 50.0, 0.008, 2_000_000),
+        ("KCB", "KCB Group", 40.0, 0.007, 2_000_000),
+        ("SCBK", "Standard Chartered", 200.0, 0.006, 1_000_000),
+        ("EABL", "EABL", 150.0, 0.004, 1_000_000),
+        ("SCOM", "Safaricom", 20.0, 0.002, 5_000_000),
+    ]
+    days = []
+    cur = date(2024, 11, 18)
+    while len(days) < 45:
+        if cur.weekday() < 5:
+            days.append(cur)
+        cur += timedelta(days=1)
+    for code, name, p0, drift, vol in specs:
+        prev = p0
+        for idx, d in enumerate(days):
+            price = round(p0 * ((1.0 + drift) ** idx), 2)
+            lines.append(f"{d.isoformat()},{code},{name},{round(price*0.99,2)},{round(price*1.01,2)},{price},{prev},{vol}")
+            prev = price
+    (raw_dir / "NSE_data_all_stocks_2024_2025.csv").write_text("\n".join(lines) + "\n")
+
+    uni_dir = tmp_path / "universe"
+    imp = import_nse_universe(raw_dir, uni_dir)
+    assert imp["sectors_mapped"] == 5
+
+    # Promote an approved dividend for EQTY paid late in the window (eligible before days[30], paid on days[35]).
+    cat_dir = tmp_path / "catalog"
+    promote_filing({
+        "symbol": "EQTY", "source": "https://example.test/eqty.pdf", "pdf_sha256": "abc",
+        "events": [{
+            "event_id": "ev1",
+            "fields": {
+                "status": {"value": "approved", "citations": [{"page": 1, "quote": "approved final dividend of KES 5.00"}]},
+                "amount": {"value": "5.00", "citations": [{"page": 1, "quote": "approved final dividend of KES 5.00"}]},
+                "currency": {"value": "KES", "citations": [{"page": 1, "quote": "approved final dividend of KES 5.00"}]},
+                "record_date": {"value": days[30].isoformat(), "citations": [{"page": 1, "quote": "approved final dividend of KES 5.00"}]},
+                "payment_date": {"value": days[35].isoformat(), "citations": [{"page": 1, "quote": "approved final dividend of KES 5.00"}]},
+                "distribution_type": {"value": "final", "citations": [{"page": 1, "quote": "approved final dividend of KES 5.00"}]},
+                "period": {"value": "2024", "citations": [{"page": 1, "quote": "approved final dividend of KES 5.00"}]},
+            },
+        }],
+    }, days[28].isoformat(), cat_dir)
+
+    universe = load_universe(uni_dir)
+    # Composite blend + 40% sector cap: even though 3 banks top momentum_20d, Banking weight must stay <= 0.40!
+    rep = backtest_factor(
+        universe,
+        FactorBacktestConfig(
+            factor_blend="momentum_20d:0.7,liquidity_adv20:0.3",
+            top_n=4, rebalance="monthly", max_weight=Decimal("0.35"),
+            max_sector_weight=Decimal("0.40"), wht_pct=Decimal("5"),
+        ),
+        catalog_dir=cat_dir,
+    )
+    assert rep["factor"] == "composite"
+    assert rep["return_basis"] == "total_return_net_of_costs_and_wht"
+    assert rep["sector_exposure"].get("Banking", 0.0) <= 0.42  # minor post-rebalance price drift allowed
+    assert rep["total_dividends_net"] > 0
+    assert rep["total_wht_paid"] > 0
+    # Verify exact 5% WHT math on credited dividend event.
+    ev = rep["dividend_events"][0]
+    assert ev["net"] == ev["gross"] * Decimal("0.95")
+    # Spans 2024 and 2025 -> yearly breakdown must have both years.
+    assert [y["year"] for y in rep["yearly"]] == ["2024", "2025"]
+
+
+def test_multiday_liquidation_carryover_exits_illiquid_holding(tmp_path):
+    """When ADV participation caps a sell on t+1, the remaining shares carry over and liquidate on t+2."""
+    csv_path = tmp_path / "illiquid.csv"
+    lines = ["Date,Code,Name,Day Low,Day High,Day Price,Previous,Volume"]
+    # Day 0: AAA has higher ADV (selected). Day 1: BBB overtakes AAA (sell AAA, buy BBB).
+    # Day 2 & Day 3: AAA trades tiny volume so 50% participation takes 2 sessions to exit completely.
+    rows = [
+        ("2025-01-02", "AAA", 10.0, 200_000),
+        ("2025-01-02", "BBB", 10.0, 100_000),
+        ("2025-01-03", "AAA", 10.0, 200_000),  # fills AAA (~50,000 shares for 500k KES)
+        ("2025-01-03", "BBB", 10.0, 900_000),  # BBB ADV jumps above AAA -> signal to rotate to BBB
+        ("2025-01-06", "AAA", 10.0, 60_000),   # 50% participation = 30,000 shares sold (partial exit!)
+        ("2025-01-06", "BBB", 10.0, 900_000),
+        ("2025-01-07", "AAA", 10.0, 60_000),   # carries remaining ~20,000 shares and finishes exit!
+        ("2025-01-07", "BBB", 10.0, 900_000),
+    ]
+    for d, code, p, vol in rows:
+        lines.append(f"{d},{code},{code},{p},{p},{p},{p},{vol}")
+    csv_path.write_text("\n".join(lines) + "\n")
+    uni_dir = tmp_path / "uni"
+    import_nse_universe(csv_path, uni_dir)
+
+    rep = backtest_factor(
+        load_universe(uni_dir),
+        FactorBacktestConfig(
+            factor="liquidity_adv20", direction="top", top_n=1, rebalance="daily",
+            cash=Decimal("500000"), max_weight=Decimal("1"), participation=Decimal("0.5"),
+            fee_bps=Decimal("0"), slippage_bps=Decimal("0"), include_dividends=False,
+        ),
+    )
+    # AAA must be completely exited by 2025-01-07 via 2-day carry-over (zero zombie tail!).
+    final_syms = {h["symbol"] for h in rep["final_holdings"]}
+    assert final_syms == {"BBB"}
+
