@@ -1,8 +1,8 @@
 import pytest
 
-from fingpt_research.cli import get_parser, run as run_cli
-from fingpt_research.data import load_dataset
-from fingpt_research.nse_pricelist import extract_session_date, import_nse_pricelist, parse_nse_pricelist_text
+from asof.cli import get_parser, run as run_cli
+from asof.data import load_dataset
+from asof.nse_pricelist import extract_session_date, import_nse_pricelist, parse_nse_pricelist_text
 
 
 def _write_text_pdf(path, lines):
@@ -89,3 +89,56 @@ def test_nse_import_rejects_image_only_scanned_pdf(tmp_path):
     writer.write(scanned)
     with pytest.raises(ValueError, match="no selectable text layer"):
         import_nse_pricelist(scanned, "SCOM", tmp_path / "out")
+
+
+def test_nse_import_supports_multi_ticker_and_single_ticker_csv(tmp_path):
+    csv_dir = tmp_path / "csvs"
+    csv_dir.mkdir()
+    # Multi-ticker daily list CSV (VWAP, no open)
+    (csv_dir / "2026-09-02.csv").write_text(
+        'Date,Symbol,ISIN,High,Low,VWAP,Prev,Volume\n'
+        '02-SEP-26,SCOM,KE1000001402,39.00,38.10,38.65,38.50,"6,097,383"\n'
+        '02-SEP-26,EQTY,KE0000000554,48.00,46.50,47.25,47.00,1200000\n'
+    )
+    # Single-ticker historical OHLC CSV (with open -> price_type="close")
+    (csv_dir / "2026-09-03.csv").write_text(
+        "Date,Open,High,Low,Close,Volume\n"
+        "2026-09-03,38.70,39.50,38.60,39.10,4120000\n"
+    )
+    out = tmp_path / "scom-csv"
+    res = run_cli(get_parser().parse_args([
+        "nse-import", "--input", str(csv_dir), "--symbol", "SCOM", "--out", str(out),
+    ]))
+    assert res["sessions_total"] == 2
+    ds = load_dataset(out)
+    assert ds.bars[0].price_type == "vwap" and ds.bars[0].open is None
+    assert ds.bars[1].price_type == "close" and str(ds.bars[1].open) == "38.70"
+
+
+def test_nse_import_ocr_cmd_recovers_scanned_pdf(tmp_path):
+    pytest.importorskip("pypdf")
+    pytest.importorskip("pypdfium2")
+    import sys
+    from pypdf import PdfWriter
+
+    scanned = tmp_path / "02-SEP-26.pdf"
+    writer = PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    writer.write(scanned)
+
+    readable = tmp_path / "readable.pdf"
+    _write_text_pdf(readable, [
+        "NAIROBI SECURITIES EXCHANGE DAILY EQUITY PRICE LIST",
+        "Date: 02-SEP-26",
+        "Safaricom Plc KE1000001402 39.00 38.10 38.65 38.50 6,097,383",
+    ])
+    ocr_script = tmp_path / "fake_ocr.py"
+    ocr_script.write_text(
+        f"import shutil, sys; shutil.copyfile({str(readable)!r}, sys.argv[2])\n"
+    )
+    out = tmp_path / "scom-ocr"
+    summary = import_nse_pricelist(
+        scanned, "SCOM", out, ocr_cmd=f"{sys.executable} {ocr_script} {{in}} {{out}}"
+    )
+    assert summary["sessions_total"] == 1
+    assert load_dataset(out).bars[0].session == "2026-09-02"

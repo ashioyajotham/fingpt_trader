@@ -2,9 +2,9 @@ from copy import deepcopy
 
 import pytest
 
-from fingpt_research.cli import get_parser, run
-from fingpt_research.dividend_eval import evaluate, predict
-from fingpt_research.dividends import actions, load_corpus
+from asof.cli import get_parser, run
+from asof.dividend_eval import evaluate, predict
+from asof.dividends import actions, load_corpus
 from tools.dividend_review import packet, reconcile
 
 

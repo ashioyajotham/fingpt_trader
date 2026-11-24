@@ -3,8 +3,8 @@ from collections import Counter
 
 import pytest
 
-from fingpt_research.cli import get_parser, run as run_cli
-from fingpt_research.filing_events import discover, extract_events
+from asof.cli import get_parser, run as run_cli
+from asof.filing_events import discover, extract_events
 
 
 def extract(*pages, model=None, fallback_only=False):

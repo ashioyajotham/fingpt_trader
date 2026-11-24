@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 
-from fingpt_research.dividends import CORPUS, FIELDS, load_corpus
+from asof.dividends import CORPUS, FIELDS, load_corpus
 
 
 def packet():

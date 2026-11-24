@@ -1,6 +1,6 @@
-# FinGPT Trader License
+# AsOf License
 
-Copyright (c) 2024 Victor Jotham Ashioya
+Copyright (c) 2024–2026 Victor Jotham Ashioya
 
 ## Permissions
 
@@ -28,24 +28,24 @@ THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. THE AUTHORS TAK
 If you use this software or derivatives in academic or research work, please cite:
 
 ```
-@software{fingpt_trader,
+@software{asof,
   author = {Victor Jotham Ashioya},
-  title = {FinGPT Trader},
-  year = {2024},
-  url = {https://github.com/ashioyajotham/fingpt-trader}
+  title = {AsOf: Point-in-Time Market Intelligence and Paper Research},
+  year = {2026},
+  url = {https://github.com/ashioyajotham/fingpt_trader}
 }
 ```
 
 ## Third-Party Acknowledgments
 
-This project includes code from the following open-source projects:
-- FinGPT (Apache 2.0 License)
-- Transformers (Apache 2.0 License)
-- CCXT (MIT License)
+This project builds on open-source research and libraries including:
+- FinGPT research concepts (AI4Finance Foundation, Apache 2.0)
+- pypdf and pypdfium2
+- llama.cpp (optional local inference)
 
 ## Additional Terms
 
-1. Any models trained using this code must be used responsibly and in accordance with applicable laws and regulations.
+1. Any models used with this code must be used responsibly and in accordance with applicable laws and regulations.
 2. Users must implement appropriate risk management measures.
 3. The software may not be used for market manipulation or other illegal trading activities.
 

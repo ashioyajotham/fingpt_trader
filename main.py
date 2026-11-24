@@ -1,6 +1,6 @@
-"""Run a finite point-in-time financial research command."""
+"""Run a finite point-in-time AsOf research command."""
 
-from fingpt_research.cli import main
+from asof.cli import main
 
 
 if __name__ == "__main__":

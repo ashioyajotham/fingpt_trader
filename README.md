@@ -1,6 +1,6 @@
-# FinGPT Trader
+# AsOf
 
-FinGPT Trader replays market data and issuer documents as they became available, preserves source citations, and simulates paper portfolios. Individual books use their listing currency. A portfolio study can combine separately funded books in one base currency. Python 3.11 or later runs the research commands with the standard library.
+**AsOf** *(formerly FinGPT Trader)* is a broker-free, point-in-time market intelligence, filing evidence, and paper portfolio simulation engine. It replays market data and issuer documents strictly as they became available, preserves verbatim source citations, and simulates paper portfolios with exact `Decimal` accounting. Individual books use their listing currency, and portfolio studies combine separately funded books in one base currency. Python 3.11+ runs the core research CLI with the standard library.
 
 ## Architecture
 
@@ -65,7 +65,7 @@ The default replay contains 12 captured Binance BTC/USDT daily bars. The NSE exa
 
 ## Import local data
 
-Copy a [sample dataset](fingpt_research/fixtures/nse) and pass its directory to `--dataset`. Keep privately licensed source files locally. One manifest identifies the stable listing, issuer, currency, venue, lot size, adapter, source, capture time and calendar version. Use raw prices with separately recorded dividends. A single-listing report uses its listing currency. The portfolio command translates the funded books using dated FX observations.
+Copy a [sample dataset](asof/fixtures/nse) and pass its directory to `--dataset`. Keep privately licensed source files locally. One manifest identifies the stable listing, issuer, currency, venue, lot size, adapter, source, capture time and calendar version. Use raw prices with separately recorded dividends and split/bonus corporate actions. A single-listing report uses its listing currency. The portfolio command translates the funded books using dated FX observations.
 
 | File | Contents |
 | --- | --- |
@@ -105,15 +105,15 @@ A short sale requires explicit dated loan inventory. A schedule sets maximum out
 
 ## Historical dividend research
 
-Query dated issuer disclosures with `python -m fingpt_research actions --as-of 2026-06-30 --status approved`. Add `--symbol EQTY --history` to inspect a single issuer over time. The offline catalog covers nine Kenyan issuers. Each field retains its supporting source, and inference runs separately. [Disclosure clocks, corpus and model comparisons](docs/dividend-catalog.md)
+Query dated issuer disclosures with `python3 -m asof actions --as-of 2026-06-30 --status approved`. Add `--symbol EQTY --history` to inspect a single issuer over time. The offline catalog covers nine Kenyan issuers. Each field retains its supporting source, and inference runs separately. [Disclosure clocks, corpus and model comparisons](docs/dividend-catalog.md)
 
-## FinGPT experiments
+## Optional model experiments
 
-Supply a locally merged FinGPT GGUF for model experiments. Install `.[model]` in a virtual environment. The model file digest identifies the weights. The evaluator compares FinGPT and the deterministic parser against the same reference fields with field accuracy, citation precision, abstentions, elapsed time and model tokens.
+Supply a hosted Gemini project (`--vertex-project`) or a locally merged GGUF (`--gguf`, install `.[model]`) for optional model experiments. The evaluator compares models against the deterministic parser with field accuracy, citation precision, abstentions, elapsed time and token counts.
 
 ```sh
 python3 main.py evaluate --dataset nse --gguf /models/fingpt.gguf --structured
-python3 main.py evaluate --corpus fingpt_research/fixtures/issuer-excerpts --gguf /models/fingpt.gguf --structured
+python3 main.py evaluate --corpus asof/fixtures/issuer-excerpts --gguf /models/fingpt.gguf --structured
 python3 main.py features --dataset nse --gguf /models/fingpt.gguf --structured --model-available-at 2024-12-01T00:00:00Z --latency-seconds 60 > features.json
 python3 main.py compare --dataset nse --features features.json
 ```
@@ -124,19 +124,19 @@ Use the actual model availability date and a defensible inference delay in an ex
 
 ## Full-filing PDF extraction and NSE price lists
 
-Extract cited dividend events directly from complete issuer PDFs, promote reviewed outputs into a local corporate-actions catalog, and import standard NSE Daily Equity Price List PDFs into `nse-daily` datasets:
+Extract cited dividend events directly from complete issuer PDFs, promote reviewed outputs into a local corporate-actions catalog, and import standard NSE Daily Equity Price List PDFs or CSVs into `nse-daily` datasets:
 
 ```sh
 python3 -m pip install -e '.[filings]'
-python3 -m fingpt_research filing-extract --pdf scbk-fy24.pdf --symbol SCBK --source "$ISSUER_URL" > scbk.json
-python3 -m fingpt_research filing-extract --pdf scbk-fy24.pdf --symbol SCBK --source "$ISSUER_URL" --vertex-project YOUR_PROJECT
-python3 -m fingpt_research catalog-add --report scbk.json --notice-date 2025-03-19 --catalog ./my-catalog
-python3 -m fingpt_research actions --as-of 2025-03-20 --symbol SCBK --catalog ./my-catalog
-python3 -m fingpt_research nse-import --pdf ./nse-daily-lists --symbol SCOM --out ./datasets/scom
-python3 -m fingpt_research replay --dataset ./datasets/scom
+python3 -m asof filing-extract --pdf scbk-fy24.pdf --symbol SCBK --source "$ISSUER_URL" > scbk.json
+python3 -m asof filing-extract --pdf scbk-fy24.pdf --symbol SCBK --source "$ISSUER_URL" --vertex-project YOUR_PROJECT
+python3 -m asof catalog-add --report scbk.json --notice-date 2025-03-19 --catalog ./my-catalog
+python3 -m asof actions --as-of 2025-03-20 --symbol SCBK --catalog ./my-catalog
+python3 -m asof nse-import --input ./nse-daily-lists --symbol SCOM --out ./datasets/scom
+python3 -m asof replay --dataset ./datasets/scom
 ```
 
-Deterministic rules run first. When `--vertex-project` (hosted Gemini) or `--gguf` is supplied, the model is invoked only as a fallback for candidates missing a core field. See [Full-filing PDF extraction and NSE price lists](docs/full-filing-ingestion.md) for coverage checks, live examples, and scanned-PDF handling.
+Deterministic rules run first. When `--vertex-project` (hosted Gemini) or `--gguf` is supplied, the model is invoked only as a fallback for candidates missing a core field. See [Full-filing PDF extraction and NSE price lists](docs/full-filing-ingestion.md) for coverage checks, CSV/OCR intake, live examples, and scanned-PDF handling.
 
 ## Development
 

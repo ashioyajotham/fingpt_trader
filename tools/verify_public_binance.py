@@ -6,7 +6,7 @@ import sys
 from urllib.request import urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from fingpt_research.data import FIXTURES
+from asof.data import FIXTURES
 
 
 def verify():

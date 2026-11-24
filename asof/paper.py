@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal, ROUND_CEILING
 
 from .data import number
-from .risk import drawdown, exposures
+from .risk import days_to_exit, drawdown, exposures, sharpe_ratio
 
 ZERO = Decimal("0")
 ONE = Decimal("1")
@@ -101,10 +101,43 @@ class PaperEngine:
         self.previous = None
         self.held = {}
         self.paid = {}
+        self.applied_splits = set()
+        self.split_events = []
+        self.volumes = []
         self.ledger = []
         self.fills = []
         self.cash_events = []
         self.signals = []
+
+    def apply_splits(self, bar, documents):
+        """Apply approved stock splits and bonus issues once on/after ex-date, conserving NAV."""
+        actions = {}
+        for doc in documents:
+            if "split" in doc and doc["available_at"] <= bar.close_time:
+                action = doc["split"]
+                actions[action["id"]] = action
+        for key, action in actions.items():
+            if key in self.applied_splits or action["status"] != "approved" or action["ex_date"] > bar.session:
+                continue
+            self.applied_splits.add(key)
+            if not self.units:
+                continue
+            num, den = number(action["numerator"]), number(action["denominator"])
+            ratio = num / den
+            old_units = self.units
+            sign = ONE if old_units > 0 else -ONE
+            new_units = sign * ((abs(old_units) * num) // (den * self.lot)) * self.lot
+            cash_in_lieu = ((old_units * num - new_units * den) * bar.close) / den
+            self.units = new_units
+            self.cash += cash_in_lieu
+            if self.pending and self.pending.decided_at < bar.close_time:
+                psign = ONE if self.pending.quantity >= 0 else -ONE
+                adj_qty = psign * ((abs(self.pending.quantity) * num) // (den * self.lot)) * self.lot
+                self.pending = ApprovedIntent(self.pending.instrument, self.pending.decided_at, adj_qty)
+            self.split_events.append({
+                "action": key, "session": bar.session, "kind": action["kind"], "ratio": ratio,
+                "old_units": old_units, "new_units": new_units, "cash_in_lieu": cash_in_lieu,
+            })
 
     def dividends(self, bar, documents):
         actions = {}
@@ -188,6 +221,8 @@ class PaperEngine:
             self.cash -= fee
             self.borrow_cost += fee
         self.last_mark = bar
+        self.volumes.append(bar.volume)
+        self.apply_splits(bar, documents)
         accrued = self.dividends(bar, documents)
         self.fill(bar, accrued)
         position = self.units * bar.close
@@ -215,8 +250,11 @@ class PaperEngine:
     def report(self):
         nav = self.ledger[-1]["nav"] if self.ledger else self.config.cash
         turnover = sum(abs(f["quantity"]) * f["price"] for f in self.fills)
+        nav_series = [self.config.cash, *(row["nav"] for row in self.ledger)]
+        dte = days_to_exit(self.units, self.volumes[-20:], self.config.participation)
         return {"mode": "paper", "policy": self.policy, "assumptions": asdict(self.config),
                 "net_return": nav / self.config.cash - 1, "max_drawdown": self.worst,
-                "currency_borrow_fees": self.borrow_cost, "turnover_over_initial_nav": turnover / self.config.cash, "ledger": self.ledger,
-                "fills": self.fills, "dividends": self.cash_events,
-                "signals": [asdict(s) for s in self.signals]}
+                "sharpe_ratio": sharpe_ratio(nav_series), "days_to_exit": dte,
+                "currency_borrow_fees": self.borrow_cost, "turnover_over_initial_nav": turnover / self.config.cash,
+                "ledger": self.ledger, "fills": self.fills, "dividends": self.cash_events,
+                "splits": self.split_events, "signals": [asdict(s) for s in self.signals]}

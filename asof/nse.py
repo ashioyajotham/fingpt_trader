@@ -71,8 +71,18 @@ def read_nse(root, meta):
                     action["status"] not in {"proposed", "approved", "cancelled"} or
                     date.fromisoformat(action["pay_date"]) < date.fromisoformat(action["ex_date"])):
                 raise ValueError("invalid curated dividend terms")
+        if "split" in doc:
+            action = doc["split"]
+            if doc["kind"] not in {"corporate_action", "split_notice", "bonus_notice", "dividend_notice"}:
+                raise ValueError("split/bonus corporate action requires a corporate action notice kind")
+            if (not action["id"] or action.get("kind") not in {"split", "bonus", "reverse_split"} or
+                    action["status"] not in {"proposed", "approved", "cancelled"} or
+                    number(action["numerator"]) <= 0 or number(action["denominator"]) <= 0):
+                raise ValueError("invalid curated split or bonus terms")
+            date.fromisoformat(action["ex_date"])
     documents.sort(key=lambda d: (d["available_at"], d["id"]))
     seen = {}
+    seen_splits = {}
     predecessors = {}
     for doc in documents:
         if "supersedes" in doc:
@@ -85,4 +95,9 @@ def read_nse(root, meta):
             if seen.get(key) == doc["available_at"]:
                 raise ValueError(f"ambiguous simultaneous dividend revisions: {key}")
             seen[key] = doc["available_at"]
+        if "split" in doc:
+            key = doc["split"]["id"]
+            if seen_splits.get(key) == doc["available_at"]:
+                raise ValueError(f"ambiguous simultaneous split revisions: {key}")
+            seen_splits[key] = doc["available_at"]
     return bars, documents
