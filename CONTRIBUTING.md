@@ -32,6 +32,7 @@ asof/
 ├── filing_statements.py # Cited income-statement, EPS & balance-sheet table extraction (scale-aware)
 ├── filings.py          # Single-filing extraction orchestration (dividends + financials)
 ├── dividends.py        # Point-in-time dividend catalog queries & filing promotion
+├── financials.py       # Point-in-time persisted financial-statement catalog & --as-of queries
 ├── dividend_eval.py    # Frozen passage benchmark scoring
 ├── evidence.py         # Passage-grounded extraction & optional LocalFinGPT backend
 ├── vertex.py           # Optional hosted Vertex AI Gemini fallback backend
@@ -66,4 +67,4 @@ python3 -I -m asof replay --dataset nse --as-of 2025-01-08T12:00:00Z
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License. See [LICENSE.md](LICENSE.md).
+By contributing, you agree that your contributions will be licensed under the Apache License, Version 2.0. See [LICENSE.md](LICENSE.md) and [NOTICE](NOTICE).

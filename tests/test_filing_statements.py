@@ -50,3 +50,33 @@ def test_extracts_thousands_corporate_table_and_negative_loss():
     assert fin["total_equity"]["value"] == "215400000000"
     assert fin["revenue"]["period"] == "2025"
     assert fin["revenue"]["prior_period"] == "2024"
+
+
+def test_real_nse_press_ad_quirks_two_column_cbk_and_prose_scale_guard():
+    # Regression covering EABL "Kshs 'M" + "Net revenue", KPLC prose "KShs 14 billion" guard,
+    # and CBK bank format ("Profit/ (loss) before tax and exceptional items", "EARNINGS PER SHARE - BASIC & DILUTED").
+    eabl_like = (
+        "Commentary: revenue reached Kshs 109.6bn despite macro headwinds.\n"
+        "                        Kshs 'M        Kshs 'M          Management commentary on liquidity.\n"
+        "                        2023           2022\n"
+        "Net revenue             109,649        109,409          Strong brand momentum across East Africa.\n"
+        "Profit for the year      12,323         15,574          Resilient margins.\n"
+    )
+    eabl = extract_financials([eabl_like])
+    assert eabl["revenue"]["value"] == "109649000000"
+    assert eabl["profit_after_tax"]["value"] == "12323000000"
+
+    cbk_like = (
+        "Audited financial statements for the year ended 31 December 2021\n"
+        "KShs. '000\n"
+        "Shareholders' funds rose steadily since 2018 due to retained earnings.\n"
+        "TOTAL SHAREHOLDERS' EQUITY                         52,479,395     50,218,630\n"
+        "Profit/ (loss) before tax and exceptional items    12,141,504      7,018,311\n"
+        "Profit/ (loss) after tax and exceptional items      8,980,536      5,329,501\n"
+        "EARNINGS PER SHARE - BASIC & DILUTED (KShs)             23.32          13.66\n"
+    )
+    cbk = extract_financials([cbk_like])
+    assert cbk["total_equity"]["value"] == "52479395000"
+    assert cbk["profit_before_tax"]["value"] == "12141504000"
+    assert cbk["profit_after_tax"]["value"] == "8980536000"
+    assert cbk["eps"]["value"] == "23.32"

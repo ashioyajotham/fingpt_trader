@@ -147,7 +147,7 @@ python3 -m asof nse-import --input ./nse-daily-lists --symbol SCOM --out ./datas
 python3 -m asof replay --dataset ./datasets/scom
 ```
 
-Deterministic rules run first. When `--vertex-project` (hosted Gemini) or `--gguf` is supplied, the model is invoked only as a fallback for candidates missing a core field. See [Full-filing PDF extraction and NSE price lists](docs/full-filing-ingestion.md) for coverage checks, CSV/OCR intake, live examples, and scanned-PDF handling.
+Deterministic rules run first. When `--vertex-project` (hosted Gemini) or `--gguf` is supplied, the model is invoked only as a fallback for candidates missing a core field. See [Full-filing PDF extraction and NSE price lists](docs/full-filing-ingestion.md) and [Working with real NSE data](docs/real-nse-data.md) for bulk `--universe` CSV import, persisted `financials --as-of` catalogs, and scanned-PDF handling.
 
 ## Development
 
@@ -160,7 +160,7 @@ New read-only adapters can be supplied to `load_dataset(..., adapters={...})`. C
 
 ## License
 
-MIT License - See [LICENSE](LICENSE.md) for details.
+Apache License 2.0 — see [LICENSE.md](LICENSE.md) and [NOTICE](NOTICE) for details.
 
 ## Acknowledgements
 
