@@ -54,13 +54,26 @@ def get_parser():
     promote.add_argument("--report", type=Path, required=True, help="JSON report produced by filing-extract")
     promote.add_argument("--notice-date", required=True, help="issuer disclosure date (YYYY-MM-DD)")
     promote.add_argument("--catalog", type=Path, required=True, help="target local catalog directory")
-    nse_imp = commands.add_parser("nse-import", help="import NSE Daily Price List PDF/CSV file(s) into an nse-daily dataset")
+    fin_add = commands.add_parser("financials-add", help="promote extracted financials into a local point-in-time catalog")
+    fin_add.add_argument("--report", type=Path, required=True, help="JSON report from filing-extract or financials-extract")
+    fin_add.add_argument("--notice-date", required=True, help="issuer disclosure date (YYYY-MM-DD)")
+    fin_add.add_argument("--catalog", type=Path, required=True, help="target local catalog directory")
+    fin_q = commands.add_parser("financials", help="query persisted financial statements as of a date")
+    fin_q.add_argument("--as-of", required=True, help="inclusive Nairobi day or timestamp with offset")
+    fin_q.add_argument("--catalog", type=Path, required=True, help="local catalog directory")
+    fin_q.add_argument("--symbol")
+    fin_q.add_argument("--metric")
+    fin_q.add_argument("--history", action="store_true")
+    fin_q.add_argument("--clock", choices=("disclosure", "observed"), default="disclosure")
+    nse_imp = commands.add_parser("nse-import", help="import NSE Daily Price List PDF/CSV file(s) into dataset or universe")
     nse_imp.add_argument("--input", "--pdf", dest="input_path", type=Path, required=True,
                          help="NSE daily price list PDF/CSV file or directory")
-    nse_imp.add_argument("--symbol", required=True, help="NSE ticker symbol, e.g. SCOM, EQTY, SCBK")
-    nse_imp.add_argument("--out", type=Path, required=True, help="target dataset directory")
-    nse_imp.add_argument("--issuer", help="override issuer legal name")
-    nse_imp.add_argument("--isin", help="override security ISIN")
+    nse_imp.add_argument("--symbol", help="single NSE ticker symbol, e.g. SCOM, EQTY, SCBK")
+    nse_imp.add_argument("--out", type=Path, help="target single-listing dataset directory")
+    nse_imp.add_argument("--universe", type=Path, help="bulk-import multi-ticker CSV(s) into a universe directory")
+    nse_imp.add_argument("--symbols", help="optional comma-separated ticker filter for --universe")
+    nse_imp.add_argument("--issuer", help="override issuer legal name (single-listing mode)")
+    nse_imp.add_argument("--isin", help="override security ISIN (single-listing mode)")
     nse_imp.add_argument("--session", help="override session date (YYYY-MM-DD) for single file")
     nse_imp.add_argument("--source", help="provenance URL for the price list")
     nse_imp.add_argument("--ocr-cmd", help="optional OCR shell template for image-only PDFs using {in} and {out}")
@@ -129,8 +142,23 @@ def run(args):
         from .dividends import promote_filing
         report = json.loads(args.report.read_text())
         return promote_filing(report, args.notice_date, args.catalog)
+    if args.command == "financials-add":
+        from .financials import promote_financials
+        report = json.loads(args.report.read_text())
+        return promote_financials(report, args.notice_date, args.catalog)
+    if args.command == "financials":
+        from .financials import query_financials
+        return query_financials(
+            args.as_of, root=args.catalog, symbol=args.symbol, metric=args.metric,
+            history=args.history, clock=args.clock,
+        )
     if args.command == "nse-import":
-        from .nse_pricelist import import_nse_pricelist
+        from .nse_pricelist import import_nse_pricelist, import_nse_universe
+        if args.universe:
+            syms = [s.strip() for s in args.symbols.split(",") if s.strip()] if args.symbols else None
+            return import_nse_universe(args.input_path, args.universe, symbols=syms, source_url=args.source)
+        if not args.symbol or not args.out:
+            raise ValueError("nse-import requires either --universe DIR or both --symbol and --out")
         return import_nse_pricelist(
             args.input_path, args.symbol, args.out,
             issuer=args.issuer, isin=args.isin, session_date=args.session,

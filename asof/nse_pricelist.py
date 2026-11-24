@@ -140,6 +140,31 @@ def _col(row_map, *names):
     return None
 
 
+def _norm_header(name):
+    return re.sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_")
+
+
+def _extract_csv_row(norm, *, symbol, default_isin, fallback_day, csv_path):
+    raw_date = _col(norm, "session", "date", "trade_date", "trading_date")
+    day = _parse_date_string(raw_date) if raw_date else fallback_day
+    if not day:
+        raise ValueError(f"missing session date in CSV {csv_path}; pass --session YYYY-MM-DD")
+    row_isin = _col(norm, "isin") or default_isin
+    op = _parse_decimal(_col(norm, "open", "open_price"))
+    hi = _parse_decimal(_col(norm, "high", "day_high", "day_highprice", "day_s_high_price"))
+    lo = _parse_decimal(_col(norm, "low", "day_low", "day_lowprice", "day_s_low_price"))
+    vwap_raw = _col(norm, "vwap")
+    close_raw = _col(norm, "close", "closing_price", "day_price", "day_final_price", "day_s_final_price", "last", "price")
+    close_val = _parse_decimal(close_raw if close_raw is not None else vwap_raw)
+    prev_val = _parse_decimal(_col(norm, "prev", "previous", "prev_close", "previous_price", "previous_traded_price"))
+    vol = _parse_decimal(_col(norm, "volume", "volume_traded", "shares", "shares_traded", "qty"))
+    ptype = "vwap" if (vwap_raw is not None and close_raw is None) or op is None else "close"
+    return _normalize_bar_row(
+        symbol, day, isin=row_isin, open_val=op, high=hi, low=lo,
+        close=close_val, prev=prev_val, volume=vol, price_type=ptype, source_page=None,
+    )
+
+
 def parse_nse_csv(csv_path, symbol, *, isin=None, session_date=None):
     """Parse a single-ticker or multi-ticker NSE daily price list CSV into bar observations."""
     symbol = symbol.strip().upper()
@@ -150,41 +175,152 @@ def parse_nse_csv(csv_path, symbol, *, isin=None, session_date=None):
         reader = csv.DictReader(stream)
         if not reader.fieldnames:
             raise ValueError(f"empty CSV file: {csv_path}")
-        headers = {h.strip().lower().replace(" ", "_"): h for h in reader.fieldnames if h}
-        has_id_col = any(k in headers for k in ("symbol", "ticker", "code", "security", "issuer", "isin"))
+        headers = {_norm_header(h): h for h in reader.fieldnames if h}
+        has_id_col = any(k in headers for k in ("symbol", "ticker", "code", "stock_code", "security", "issuer", "name", "stock_name", "isin"))
         for raw in reader:
             norm = {k: (raw[orig] or "").strip() for k, orig in headers.items()}
             if has_id_col:
                 identity = " ".join(filter(None, (
-                    _col(norm, "symbol", "ticker", "code"),
-                    _col(norm, "security", "issuer"),
+                    _col(norm, "symbol", "ticker", "code", "stock_code"),
+                    _col(norm, "security", "issuer", "name", "stock_name"),
                     _col(norm, "isin"),
                 )))
                 if not _row_matches(identity, symbol, isin):
                     continue
-            raw_date = _col(norm, "session", "date", "trade_date", "trading_date")
-            day = _parse_date_string(raw_date) if raw_date else fallback_day
-            if not day:
-                raise ValueError(f"missing session date in CSV {csv_path}; pass --session YYYY-MM-DD")
-            row_isin = _col(norm, "isin") or default_isin
-            op = _parse_decimal(_col(norm, "open", "open_price"))
-            hi = _parse_decimal(_col(norm, "high", "day_high"))
-            lo = _parse_decimal(_col(norm, "low", "day_low"))
-            vwap_raw = _col(norm, "vwap")
-            close_raw = _col(norm, "close", "closing_price", "last", "price")
-            close_val = _parse_decimal(close_raw if close_raw is not None else vwap_raw)
-            prev_val = _parse_decimal(_col(norm, "prev", "previous", "prev_close", "previous_price"))
-            vol = _parse_decimal(_col(norm, "volume", "shares", "shares_traded", "qty"))
-            ptype = "vwap" if (vwap_raw is not None and close_raw is None) or op is None else "close"
-            bar = _normalize_bar_row(
-                symbol, day, isin=row_isin, open_val=op, high=hi, low=lo,
-                close=close_val, prev=prev_val, volume=vol, price_type=ptype, source_page=None,
-            )
+            bar = _extract_csv_row(norm, symbol=symbol, default_isin=default_isin, fallback_day=fallback_day, csv_path=csv_path)
             if bar is not None:
                 rows.append(bar)
     if not rows:
         raise ValueError(f"no matching NSE price rows for {symbol} in {csv_path}")
     return rows
+
+
+def import_nse_universe(input_path, out_dir, *, symbols=None, source_url=None, ingested_at=None):
+    """Bulk-import multi-ticker NSE All-Stocks CSV(s) into a validated multi-ticker universe directory."""
+    src = Path(input_path)
+    files = sorted(src.glob("*.csv")) if src.is_dir() else [src]
+    if not files:
+        raise ValueError(f"no CSV files found at {src}")
+    wanted = {s.strip().upper() for s in symbols} if symbols else None
+    captured = ingested_at or datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    grouped = {}
+    issuers = {}
+    for file in files:
+        fallback_day = _parse_date_string(file.name)
+        with file.open(encoding="utf-8-sig", newline="") as stream:
+            reader = csv.DictReader(stream)
+            if not reader.fieldnames:
+                continue
+            headers = {_norm_header(h): h for h in reader.fieldnames if h}
+            for raw in reader:
+                norm = {k: (raw[orig] or "").strip() for k, orig in headers.items()}
+                sym = (_col(norm, "code", "stock_code", "symbol", "ticker") or "").upper()
+                if not sym or not re.fullmatch(r"[A-Z0-9.-]+", sym):
+                    continue
+                if wanted and sym not in wanted:
+                    continue
+                name = _col(norm, "name", "stock_name", "security", "issuer")
+                if name and sym not in issuers:
+                    issuers[sym] = name
+                known = KNOWN_ISSUERS.get(sym, {})
+                bar = _extract_csv_row(
+                    norm, symbol=sym, default_isin=known.get("isin"),
+                    fallback_day=fallback_day, csv_path=file,
+                )
+                if bar is not None:
+                    grouped.setdefault(sym, {})[bar["session"]] = bar
+
+    if not grouped:
+        raise ValueError(f"no valid NSE equity rows found in {src}")
+
+    root = Path(out_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    index_path = root / "manifest.json"
+    existing_index = json.loads(index_path.read_text()) if index_path.exists() else {}
+    tickers_meta = existing_index.get("tickers", {})
+
+    for sym, new_bars in sorted(grouped.items()):
+        known = KNOWN_ISSUERS.get(sym, {})
+        sym_dir = root / sym
+        sym_dir.mkdir(parents=True, exist_ok=True)
+        sessions = _read_csv_map(sym_dir / "sessions.csv", "session")
+        prices = _read_csv_map(sym_dir / "prices.csv", "session")
+        detected_isin = known.get("isin")
+        for day, row in sorted(new_bars.items()):
+            detected_isin = detected_isin or row["isin"]
+            sessions[day] = {
+                "session": day,
+                "open_time": f"{day}T09:00:00+03:00",
+                "close_time": f"{day}T15:00:00+03:00",
+            }
+            prices[day] = {
+                "session": day,
+                "open": row["open"],
+                "high": row["high"],
+                "low": row["low"],
+                "close": row["close"],
+                "volume": row["volume"],
+                "status": row["status"],
+                "price_type": row["price_type"],
+                "available_at": f"{day}T15:00:00+03:00",
+            }
+        ordered_days = sorted(sessions)
+        with (sym_dir / "sessions.csv").open("w", encoding="utf-8", newline="") as stream:
+            w = csv.DictWriter(stream, fieldnames=["session", "open_time", "close_time"])
+            w.writeheader()
+            for day in ordered_days:
+                w.writerow(sessions[day])
+        with (sym_dir / "prices.csv").open("w", encoding="utf-8", newline="") as stream:
+            w = csv.DictWriter(stream, fieldnames=[
+                "session", "open", "high", "low", "close", "volume", "status", "price_type", "available_at",
+            ])
+            w.writeheader()
+            for day in ordered_days:
+                w.writerow(prices[day])
+        docs_path = sym_dir / "documents.json"
+        if not docs_path.exists():
+            docs_path.write_text("[]\n")
+        instrument = f"XNAI:{detected_isin}" if detected_isin else f"XNAI:{sym}"
+        issuer_name = known.get("issuer") or issuers.get(sym) or sym
+        manifest = {
+            "adapter": "nse-daily",
+            "instrument": instrument,
+            "venue": "Nairobi Securities Exchange",
+            "issuer": issuer_name,
+            "currency": "KES",
+            "price_basis": "raw",
+            "lot_size": "1",
+            "calendar_version": f"NSE regular local sessions ({ordered_days[0]} to {ordered_days[-1]})",
+            "source": source_url or str(src.resolve()),
+            "ingested_at": captured,
+            "coverage": "Raw NSE daily observations imported from multi-ticker CSV (Adjusted Price excluded).",
+        }
+        (sym_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        load_dataset(sym_dir)
+        tickers_meta[sym] = {
+            "path": sym,
+            "instrument": instrument,
+            "issuer": issuer_name,
+            "sessions": len(ordered_days),
+            "first_session": ordered_days[0],
+            "last_session": ordered_days[-1],
+        }
+
+    universe_manifest = {
+        "venue": "Nairobi Securities Exchange",
+        "currency": "KES",
+        "source": source_url or str(src.resolve()),
+        "ingested_at": captured,
+        "tickers": {k: tickers_meta[k] for k in sorted(tickers_meta)},
+    }
+    index_path.write_text(json.dumps(universe_manifest, indent=2) + "\n")
+    return {
+        "universe": str(root),
+        "tickers_imported": len(grouped),
+        "tickers_total": len(universe_manifest["tickers"]),
+        "symbols": sorted(grouped),
+    }
 
 
 def _read_csv_map(path, key_field):

@@ -1,0 +1,19 @@
+AsOf — Point-in-Time Market Intelligence and Paper Research
+Copyright 2024-2026 Victor Jotham Ashioya
+https://github.com/ashioyajotham/asof
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE.md).
+
+Research & Trading Disclaimer
+-----------------------------
+AsOf is a broker-free financial research and paper simulation tool. Nothing in
+this software, its documentation, or its bundled fixtures constitutes
+investment, financial, legal, or tax advice. Securities and digital asset
+markets involve substantial risk of loss; users are solely responsible for
+independently verifying source filings, market data, and corporate actions.
+
+Third-Party Research & Library Acknowledgments
+----------------------------------------------
+- FinGPT research concepts (AI4Finance Foundation, Apache 2.0)
+- pypdf and pypdfium2 (optional PDF parsing and dual-decoder coverage)
+- llama.cpp (optional local GGUF inference)

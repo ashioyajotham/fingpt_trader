@@ -8,10 +8,11 @@ PERIOD_INLINE = re.compile(
 HEADER_YEARS = re.compile(r"\b(?:FY\s*|\d{1,2}[./-]\d{1,2}[./-])?(20\d{2})\b", re.I)
 NUM_CELL = re.compile(r"^(?:\([\d,]+(?:\.\d+)?\)|-?[\d,]+(?:\.\d+)?%?|-)$")
 
+# Scale headers must NOT have a numeric quantity between currency and unit (rejects prose like "KShs 109.6bn").
 SCALE_PATTERNS = (
-    (re.compile(r"\b(?:kshs?|shs|kes)\.?\s*(?:billions?|bn)\b", re.I), Decimal("1000000000")),
-    (re.compile(r"\b(?:kshs?|shs|kes)\.?\s*(?:millions?|mn|m)\b", re.I), Decimal("1000000")),
-    (re.compile(r"\b(?:kshs?|shs|kes)\.?\s*(?:'000|’000|000s?|thousands?)\b", re.I), Decimal("1000")),
+    (re.compile(r"\b(?:kshs?|shs|kes)\.?\s*(?:'|’)?(?:billions?|bn)\b", re.I), Decimal("1000000000")),
+    (re.compile(r"\b(?:kshs?|shs|kes)\.?\s*(?:'|’)?(?:millions?|mn|m)\b", re.I), Decimal("1000000")),
+    (re.compile(r"\b(?:kshs?|shs|kes)\.?\s*(?:'|’)?(?:000s?|thousands?)\b", re.I), Decimal("1000")),
 )
 STACKED_CURRENCY = re.compile(r"\b(?:kshs?|shs|kes)\.?\b", re.I)
 STACKED_UNIT = (
@@ -20,16 +21,32 @@ STACKED_UNIT = (
     (re.compile(r"(?:'000|’000|\bthousands?\b)", re.I), Decimal("1000")),
 )
 
-# Ordered specifically so more exact labels match before shorter prefixes.
+# Ordered so more specific labels match before shorter prefixes.
 LINE_ITEMS = (
-    ("revenue", re.compile(r"^(?:total\s+operating\s+income|total\s+revenue|service\s+revenue|total\s+income|revenue|turnover)\b", re.I), False),
-    ("profit_before_tax", re.compile(r"^(?:profit\s+before\s+(?:income\s+)?tax(?:ation)?)\b", re.I), False),
-    ("profit_after_tax", re.compile(r"^(?:profit\s+after\s+tax(?:ation)?|profit\s+for\s+the\s+(?:year|period)|net\s+profit)\b", re.I), False),
-    ("eps", re.compile(r"^(?:(?:basic(?:\s+and\s+diluted)?\s+)?earnings\s+per\s+share)\b", re.I), True),
+    ("revenue", re.compile(
+        r"^(?:total\s+operating\s+income|total\s+revenue|net\s+revenue|service\s+revenue|total\s+income|revenue|turnover)\b",
+        re.I), False),
+    ("profit_before_tax", re.compile(
+        r"^(?:profit\s*/?\s*\(loss\)\s+before\s+(?:income\s+)?tax(?:ation)?(?:\s+and\s+exceptional\s+items)?"
+        r"|profit\s+before\s+(?:income\s+)?tax(?:ation)?(?:\s+and\s+exceptional\s+items)?)\b",
+        re.I), False),
+    ("profit_after_tax", re.compile(
+        r"^(?:profit\s*/?\s*\(loss\)\s+after\s+tax(?:ation)?(?:\s+and\s+exceptional\s+items)?"
+        r"|profit\s+after\s+tax(?:ation)?(?:\s+and\s+exceptional\s+items)?"
+        r"|profit\s+for\s+the\s+(?:year|period)|net\s+profit)\b",
+        re.I), False),
+    ("eps", re.compile(
+        r"^(?:(?:basic(?:\s+(?:and|&)\s+diluted)?\s+)?earnings\s+per\s+share"
+        r"(?:\s*[-–]\s*basic(?:\s*(?:and|&)\s*diluted)?)?)\b",
+        re.I), True),
     ("total_assets", re.compile(r"^total\s+assets\b", re.I), False),
-    ("total_equity", re.compile(r"^(?:total\s+(?:shareholders['’]?\s+)?(?:equity|funds)|shareholders['’]?\s+funds)\b", re.I), False),
-    ("loans_and_advances", re.compile(r"^(?:net\s+)?loans\s+and\s+advances(?:\s+to\s+customers)?\b", re.I), False),
-    ("customer_deposits", re.compile(r"^(?:customer\s+deposits|deposits\s+from\s+customers)\b", re.I), False),
+    ("total_equity", re.compile(
+        r"^(?:total\s+(?:shareholders['’]?\s+)?(?:equity|funds)|shareholders['’]?\s+(?:equity|funds))\b",
+        re.I), False),
+    ("loans_and_advances", re.compile(
+        r"^(?:net\s+)?loans\s+and\s+advances(?:\s+to\s+customers)?\b", re.I), False),
+    ("customer_deposits", re.compile(
+        r"^(?:customer\s+deposits|deposits\s+from\s+customers)\b", re.I), False),
 )
 
 
@@ -48,35 +65,49 @@ def _parse_amount(token):
     return -val if negative else val
 
 
+def _is_header_like(line):
+    """True for compact table/section headers, False for multi-word prose sentences."""
+    words = [w for w in line.split() if re.search(r"[A-Za-z]", w)]
+    return len(words) <= 10 and not line.rstrip().endswith(".")
+
+
 def _detect_scale(lines, idx):
-    """Inspect a line and the next line for currency + scale unit headers (e.g., KShs / million)."""
-    line = lines[idx]
-    for pattern, mult in SCALE_PATTERNS:
-        if pattern.search(line):
-            return mult
-    if STACKED_CURRENCY.search(line) and idx + 1 < len(lines):
-        nxt = lines[idx + 1]
-        for pattern, mult in STACKED_UNIT:
-            if pattern.search(nxt):
+    """Inspect a header line (or column chunk) and next line for currency + scale unit."""
+    chunks = [c.strip() for c in re.split(r"\s{6,}", lines[idx]) if c.strip()]
+    for chunk in chunks:
+        if not _is_header_like(chunk):
+            continue
+        for pattern, mult in SCALE_PATTERNS:
+            if pattern.search(chunk):
                 return mult
+    line = lines[idx].strip()
+    if _is_header_like(line) and STACKED_CURRENCY.search(line) and idx + 1 < len(lines):
+        nxt = lines[idx + 1].strip()
+        if _is_header_like(nxt):
+            for pattern, mult in STACKED_UNIT:
+                if pattern.search(nxt):
+                    return mult
     return None
 
 
 def _detect_periods(line):
+    if not _is_header_like(line):
+        return None
     years = HEADER_YEARS.findall(line)
-    # Ignore comparison headers like "2024 vs 2023" where both years appear in one label;
-    # prefer headers containing at least two distinct column years separated by whitespace.
     distinct = []
     for y in years:
         if y not in distinct:
             distinct.append(y)
-    if len(distinct) >= 2 and " vs " not in line.lower() or (len(distinct) >= 2 and re.search(r"20\d{2}\s{2,}(?:\d{1,2}[./-]\d{1,2}[./-])?20\d{2}", line)):
+    if len(distinct) >= 2 and (
+        " vs " not in line.lower()
+        or re.search(r"20\d{2}\s{2,}(?:FY\s*|\d{1,2}[./-]\d{1,2}[./-])?20\d{2}", line, re.I)
+    ):
         return distinct[0], distinct[1]
     return None
 
 
 def _norm_decimal(val):
-    return format(val.normalize(), "f") if val == val.to_integral() else format(val.normalize(), "f")
+    return format(val.normalize(), "f")
 
 
 def extract_financials(pages):
@@ -114,10 +145,19 @@ def extract_financials(pages):
                 if not m:
                     continue
                 tail = stripped[m.end():].strip()
-                # Skip leading unit tags like "(KShs)" or "(KES)" before the numbers (never numeric losses like "(1,250)").
+                # Strip leading unit/qualifier tags like "(KShs)" or "(Shs)" — never numeric losses like "(1,250)".
                 tail = re.sub(r"^\([A-Za-z][^)]*\)\s*", "", tail)
                 tokens = tail.split()
-                nums = [_parse_amount(t) for t in tokens if NUM_CELL.match(t)]
+                # Table rows begin immediately with numeric cells (rejects prose sentences, tolerates 2-column text to the right).
+                if not tokens or not NUM_CELL.match(tokens[0]):
+                    continue
+                leading = []
+                for tok in tokens:
+                    if NUM_CELL.match(tok):
+                        leading.append(tok)
+                    else:
+                        break
+                nums = [_parse_amount(t) for t in leading]
                 nums = [n for n in nums if n is not None]
                 if not nums:
                     continue
