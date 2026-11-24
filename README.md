@@ -101,14 +101,20 @@ The public sample is a single Safaricom observation checked against the NSE pric
 
 The [example study](examples/kes-portfolio.json) pre-funds two books in KES and USDT. FX is quoted as base currency per unit of listing currency. Each translation uses a rate available at the valuation time. Missing rates, stale rates and stale held-position marks stop the study. Weights must total one. Optional study fields enable periodic cross-sleeve cash rebalancing (`"rebalance": "daily" | "weekly" | "monthly"`), single-name concentration caps (`"max_single_weight"`), and passive benchmark attribution (`"benchmark"`), reporting Sharpe, Sortino, HHI concentration, per-sleeve `days_to_exit`, tracking error, information ratio, and beta.
 
-## Local Web Workstation
+## Cross-sectional factor research & local web workstation
 
-Launch the local, paper-only web workstation (pure Python stdlib, zero external server dependencies) to drop issuer PDFs into the **Filing Workbench** (dividends, financial statements, dual-decoder page coverage, and one-click promotion to a local catalog), explore point-in-time `actions`, inspect market/liquidity tapes, and run stressed-cost paper simulations in your browser:
+Evaluate strictly point-in-time cross-sectional factors (`momentum_20d`, `momentum_60d`, `liquidity_adv20`, `dividend_yield`, `earnings_yield`) with Spearman Rank-IC, IC-IR, hit rate, and quantile spreads across a multi-ticker NSE universe:
+
+```sh
+python3 -m asof factors --universe ./local-data/universe --catalog ./local-data/catalog --horizons 1,5,20 --min-adv 100000
+```
+
+Launch the local, paper-only web workstation (pure Python stdlib, loopback-only by default) with **Filing Workbench**, **As-Of Explorer**, **Multi-Ticker Market & Liquidity Board**, and **Paper Risk Lab**:
 
 ```sh
 python3 -m asof serve --port 8765
-# Pass --catalog DIR to enable one-click promotion from the Filing Workbench:
-python3 -m asof serve --port 8765 --catalog ./my-catalog
+# Enable one-click catalog promotion and the multi-ticker NSE Board:
+python3 -m asof serve --port 8765 --catalog ./local-data/catalog --universe ./local-data/universe
 ```
 
 A short sale requires explicit dated loan inventory. A schedule sets maximum outstanding units, an annual rate, expiry and a buy-in premium. Loan fees accrue ACT/365 on the preceding mark, including weekends. A reduction in the allowed outstanding quantity or an expiry triggers a buy-in subject to tradable volume. The last known loan rate continues on overdue units. Short holders owe any eligible dividend. For a single book pass `paper --policy short_hold --borrow loan.json`, with `instrument` and a `records` array using the example's borrow fields. The included FX and borrowing terms are synthetic scenario assumptions.
