@@ -1,6 +1,23 @@
+```text
+    ___          ____  ____
+   /   |  _____ / __ \/ __/
+  / /| | / ___// / / / /_
+ / ___ |(__  )/ /_/ / __/
+/_/  |_/____/ \____/_/
+```
+
 # AsOf
 
-**AsOf** *(formerly FinGPT Trader)* is a broker-free, point-in-time market intelligence, filing evidence, and paper portfolio simulation engine. It replays market data and issuer documents strictly as they became available, preserves verbatim source citations, and simulates paper portfolios with exact `Decimal` accounting. Individual books use their listing currency, and portfolio studies combine separately funded books in one base currency. Python 3.11+ runs the core research CLI with the standard library.
+> **Point-in-time market intelligence, cited filings, and paper research — zero look-ahead, zero broker.**
+
+**AsOf** *(PyPI: `asof-research`, formerly FinGPT Trader)* replays market data and issuer documents strictly as they became available, preserves verbatim source citations, and simulates paper portfolios with exact `Decimal` accounting. Individual books use their listing currency, and portfolio studies combine separately funded books in one base currency. Python 3.11+ runs the core research CLI with the standard library.
+
+```sh
+# Install the CLI tool (stdlib-only core, or add [filings] for PDF parsing):
+pip install asof-research
+uv tool install 'asof-research[filings]'
+asof --help
+```
 
 ## Architecture
 
