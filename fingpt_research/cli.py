@@ -29,6 +29,20 @@ def emit(value, streaming=False):
 def get_parser():
     parser = argparse.ArgumentParser(description="Point-in-time market research and paper simulation")
     commands = parser.add_subparsers(dest="command", required=True)
+    from .dividends import STATUSES
+    actions = commands.add_parser("actions", help="query the sourced dividend catalog")
+    actions.add_argument("--as-of", required=True, help="inclusive Nairobi day or timestamp with offset")
+    actions.add_argument("--symbol")
+    actions.add_argument("--status", choices=STATUSES)
+    actions.add_argument("--history", action="store_true")
+    actions.add_argument("--clock", choices=("disclosure", "observed"), default="disclosure")
+    bench = commands.add_parser("notice-eval", help="evaluate frozen dividend passages")
+    bench.add_argument("--split", choices=("development", "holdout", "prospective"), default="prospective")
+    backend = bench.add_mutually_exclusive_group()
+    backend.add_argument("--gguf", type=Path)
+    backend.add_argument("--vertex-project", help="explicitly enable paid Vertex requests")
+    bench.add_argument("--vertex-model", default="gemini-3.5-flash-lite")
+    bench.add_argument("--max-calls", type=int, default=24, help="maximum Vertex requests")
     basket = commands.add_parser("portfolio", help="aggregate separately funded listings in a base currency")
     basket.add_argument("--spec", type=Path, required=True)
     for name in ("replay", "evidence", "evaluate", "features", "paper", "compare"):
@@ -62,6 +76,18 @@ def get_parser():
 
 
 def run(args):
+    if args.command == "actions":
+        from .dividends import actions
+        return actions(args.as_of, args.symbol, args.status, args.history, args.clock)
+    if args.command == "notice-eval":
+        from .dividend_eval import evaluate
+        model = None
+        if args.gguf:
+            model = LocalFinGPT(args.gguf, structured=True)
+        elif args.vertex_project:
+            from .vertex import VertexModel
+            model = VertexModel(args.vertex_project, args.vertex_model, args.max_calls)
+        return evaluate(args.split, model)
     if args.command == "portfolio":
         from .portfolio import portfolio
         return portfolio(args.spec)

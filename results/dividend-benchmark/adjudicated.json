@@ -1,0 +1,579 @@
+{
+  "reference_status": "adjudicated",
+  "corpus_sha256": "f29311b2abfed6c161f3187223f6ab8eb24d0ca7349b9b0c6307aea425804e21",
+  "original_corpus_sha256": "1d93d4559cb0fce1dc54e9e548599473b77dd2a7b8fe4710a9fcc2594357a542",
+  "runs": {
+    "local-holdout.json": {
+      "rules": {
+        "totals": {
+          "expected": 54,
+          "returned": 54,
+          "correct": 54,
+          "cited": 54,
+          "abstentions": 0
+        },
+        "fields": {
+          "status": {
+            "expected": 17,
+            "returned": 17,
+            "correct": 17,
+            "cited": 17,
+            "abstentions": 0
+          },
+          "amount": {
+            "expected": 15,
+            "returned": 15,
+            "correct": 15,
+            "cited": 15,
+            "abstentions": 0
+          },
+          "currency": {
+            "expected": 15,
+            "returned": 15,
+            "correct": 15,
+            "cited": 15,
+            "abstentions": 0
+          },
+          "record_date": {
+            "expected": 3,
+            "returned": 3,
+            "correct": 3,
+            "cited": 3,
+            "abstentions": 0
+          },
+          "payment_date": {
+            "expected": 4,
+            "returned": 4,
+            "correct": 4,
+            "cited": 4,
+            "abstentions": 0
+          }
+        },
+        "false_approvals": 0
+      },
+      "model": {
+        "totals": {
+          "expected": 54,
+          "returned": 56,
+          "correct": 33,
+          "cited": 31,
+          "abstentions": 16
+        },
+        "fields": {
+          "status": {
+            "expected": 17,
+            "returned": 15,
+            "correct": 13,
+            "cited": 11,
+            "abstentions": 2
+          },
+          "amount": {
+            "expected": 15,
+            "returned": 8,
+            "correct": 3,
+            "cited": 3,
+            "abstentions": 9
+          },
+          "currency": {
+            "expected": 15,
+            "returned": 15,
+            "correct": 13,
+            "cited": 13,
+            "abstentions": 2
+          },
+          "record_date": {
+            "expected": 3,
+            "returned": 10,
+            "correct": 2,
+            "cited": 2,
+            "abstentions": 1
+          },
+          "payment_date": {
+            "expected": 4,
+            "returned": 8,
+            "correct": 2,
+            "cited": 2,
+            "abstentions": 2
+          }
+        },
+        "false_approvals": 2
+      },
+      "hybrid": {
+        "totals": {
+          "expected": 54,
+          "returned": 60,
+          "correct": 54,
+          "cited": 54,
+          "abstentions": 0
+        },
+        "fields": {
+          "status": {
+            "expected": 17,
+            "returned": 17,
+            "correct": 17,
+            "cited": 17,
+            "abstentions": 0
+          },
+          "amount": {
+            "expected": 15,
+            "returned": 17,
+            "correct": 15,
+            "cited": 15,
+            "abstentions": 0
+          },
+          "currency": {
+            "expected": 15,
+            "returned": 17,
+            "correct": 15,
+            "cited": 15,
+            "abstentions": 0
+          },
+          "record_date": {
+            "expected": 3,
+            "returned": 4,
+            "correct": 3,
+            "cited": 3,
+            "abstentions": 0
+          },
+          "payment_date": {
+            "expected": 4,
+            "returned": 5,
+            "correct": 4,
+            "cited": 4,
+            "abstentions": 0
+          }
+        },
+        "false_approvals": 0
+      }
+    },
+    "local-prospective.json": {
+      "rules": {
+        "totals": {
+          "expected": 20,
+          "returned": 19,
+          "correct": 18,
+          "cited": 18,
+          "abstentions": 1
+        },
+        "fields": {
+          "status": {
+            "expected": 6,
+            "returned": 5,
+            "correct": 4,
+            "cited": 4,
+            "abstentions": 1
+          },
+          "amount": {
+            "expected": 6,
+            "returned": 6,
+            "correct": 6,
+            "cited": 6,
+            "abstentions": 0
+          },
+          "currency": {
+            "expected": 6,
+            "returned": 6,
+            "correct": 6,
+            "cited": 6,
+            "abstentions": 0
+          },
+          "record_date": {
+            "expected": 1,
+            "returned": 1,
+            "correct": 1,
+            "cited": 1,
+            "abstentions": 0
+          },
+          "payment_date": {
+            "expected": 1,
+            "returned": 1,
+            "correct": 1,
+            "cited": 1,
+            "abstentions": 0
+          }
+        },
+        "false_approvals": 0
+      },
+      "model": {
+        "totals": {
+          "expected": 20,
+          "returned": 21,
+          "correct": 13,
+          "cited": 9,
+          "abstentions": 6
+        },
+        "fields": {
+          "status": {
+            "expected": 6,
+            "returned": 5,
+            "correct": 4,
+            "cited": 4,
+            "abstentions": 1
+          },
+          "amount": {
+            "expected": 6,
+            "returned": 3,
+            "correct": 3,
+            "cited": 1,
+            "abstentions": 3
+          },
+          "currency": {
+            "expected": 6,
+            "returned": 6,
+            "correct": 5,
+            "cited": 3,
+            "abstentions": 1
+          },
+          "record_date": {
+            "expected": 1,
+            "returned": 4,
+            "correct": 1,
+            "cited": 1,
+            "abstentions": 0
+          },
+          "payment_date": {
+            "expected": 1,
+            "returned": 3,
+            "correct": 0,
+            "cited": 0,
+            "abstentions": 1
+          }
+        },
+        "false_approvals": 0
+      },
+      "hybrid": {
+        "totals": {
+          "expected": 20,
+          "returned": 23,
+          "correct": 19,
+          "cited": 19,
+          "abstentions": 0
+        },
+        "fields": {
+          "status": {
+            "expected": 6,
+            "returned": 6,
+            "correct": 5,
+            "cited": 5,
+            "abstentions": 0
+          },
+          "amount": {
+            "expected": 6,
+            "returned": 6,
+            "correct": 6,
+            "cited": 6,
+            "abstentions": 0
+          },
+          "currency": {
+            "expected": 6,
+            "returned": 7,
+            "correct": 6,
+            "cited": 6,
+            "abstentions": 0
+          },
+          "record_date": {
+            "expected": 1,
+            "returned": 2,
+            "correct": 1,
+            "cited": 1,
+            "abstentions": 0
+          },
+          "payment_date": {
+            "expected": 1,
+            "returned": 2,
+            "correct": 1,
+            "cited": 1,
+            "abstentions": 0
+          }
+        },
+        "false_approvals": 0
+      }
+    },
+    "vertex-holdout.json": {
+      "rules": {
+        "totals": {
+          "expected": 54,
+          "returned": 54,
+          "correct": 54,
+          "cited": 54,
+          "abstentions": 0
+        },
+        "fields": {
+          "status": {
+            "expected": 17,
+            "returned": 17,
+            "correct": 17,
+            "cited": 17,
+            "abstentions": 0
+          },
+          "amount": {
+            "expected": 15,
+            "returned": 15,
+            "correct": 15,
+            "cited": 15,
+            "abstentions": 0
+          },
+          "currency": {
+            "expected": 15,
+            "returned": 15,
+            "correct": 15,
+            "cited": 15,
+            "abstentions": 0
+          },
+          "record_date": {
+            "expected": 3,
+            "returned": 3,
+            "correct": 3,
+            "cited": 3,
+            "abstentions": 0
+          },
+          "payment_date": {
+            "expected": 4,
+            "returned": 4,
+            "correct": 4,
+            "cited": 4,
+            "abstentions": 0
+          }
+        },
+        "false_approvals": 0
+      },
+      "model": {
+        "totals": {
+          "expected": 54,
+          "returned": 49,
+          "correct": 48,
+          "cited": 46,
+          "abstentions": 6
+        },
+        "fields": {
+          "status": {
+            "expected": 17,
+            "returned": 17,
+            "correct": 17,
+            "cited": 15,
+            "abstentions": 0
+          },
+          "amount": {
+            "expected": 15,
+            "returned": 12,
+            "correct": 12,
+            "cited": 12,
+            "abstentions": 3
+          },
+          "currency": {
+            "expected": 15,
+            "returned": 13,
+            "correct": 12,
+            "cited": 12,
+            "abstentions": 3
+          },
+          "record_date": {
+            "expected": 3,
+            "returned": 3,
+            "correct": 3,
+            "cited": 3,
+            "abstentions": 0
+          },
+          "payment_date": {
+            "expected": 4,
+            "returned": 4,
+            "correct": 4,
+            "cited": 4,
+            "abstentions": 0
+          }
+        },
+        "false_approvals": 0
+      },
+      "hybrid": {
+        "totals": {
+          "expected": 54,
+          "returned": 55,
+          "correct": 54,
+          "cited": 54,
+          "abstentions": 0
+        },
+        "fields": {
+          "status": {
+            "expected": 17,
+            "returned": 17,
+            "correct": 17,
+            "cited": 17,
+            "abstentions": 0
+          },
+          "amount": {
+            "expected": 15,
+            "returned": 15,
+            "correct": 15,
+            "cited": 15,
+            "abstentions": 0
+          },
+          "currency": {
+            "expected": 15,
+            "returned": 16,
+            "correct": 15,
+            "cited": 15,
+            "abstentions": 0
+          },
+          "record_date": {
+            "expected": 3,
+            "returned": 3,
+            "correct": 3,
+            "cited": 3,
+            "abstentions": 0
+          },
+          "payment_date": {
+            "expected": 4,
+            "returned": 4,
+            "correct": 4,
+            "cited": 4,
+            "abstentions": 0
+          }
+        },
+        "false_approvals": 0
+      }
+    },
+    "vertex-prospective.json": {
+      "rules": {
+        "totals": {
+          "expected": 20,
+          "returned": 19,
+          "correct": 18,
+          "cited": 18,
+          "abstentions": 1
+        },
+        "fields": {
+          "status": {
+            "expected": 6,
+            "returned": 5,
+            "correct": 4,
+            "cited": 4,
+            "abstentions": 1
+          },
+          "amount": {
+            "expected": 6,
+            "returned": 6,
+            "correct": 6,
+            "cited": 6,
+            "abstentions": 0
+          },
+          "currency": {
+            "expected": 6,
+            "returned": 6,
+            "correct": 6,
+            "cited": 6,
+            "abstentions": 0
+          },
+          "record_date": {
+            "expected": 1,
+            "returned": 1,
+            "correct": 1,
+            "cited": 1,
+            "abstentions": 0
+          },
+          "payment_date": {
+            "expected": 1,
+            "returned": 1,
+            "correct": 1,
+            "cited": 1,
+            "abstentions": 0
+          }
+        },
+        "false_approvals": 0
+      },
+      "model": {
+        "totals": {
+          "expected": 20,
+          "returned": 17,
+          "correct": 17,
+          "cited": 17,
+          "abstentions": 3
+        },
+        "fields": {
+          "status": {
+            "expected": 6,
+            "returned": 6,
+            "correct": 6,
+            "cited": 6,
+            "abstentions": 0
+          },
+          "amount": {
+            "expected": 6,
+            "returned": 5,
+            "correct": 5,
+            "cited": 5,
+            "abstentions": 1
+          },
+          "currency": {
+            "expected": 6,
+            "returned": 5,
+            "correct": 5,
+            "cited": 5,
+            "abstentions": 1
+          },
+          "record_date": {
+            "expected": 1,
+            "returned": 0,
+            "correct": 0,
+            "cited": 0,
+            "abstentions": 1
+          },
+          "payment_date": {
+            "expected": 1,
+            "returned": 1,
+            "correct": 1,
+            "cited": 1,
+            "abstentions": 0
+          }
+        },
+        "false_approvals": 0
+      },
+      "hybrid": {
+        "totals": {
+          "expected": 20,
+          "returned": 20,
+          "correct": 19,
+          "cited": 19,
+          "abstentions": 0
+        },
+        "fields": {
+          "status": {
+            "expected": 6,
+            "returned": 6,
+            "correct": 5,
+            "cited": 5,
+            "abstentions": 0
+          },
+          "amount": {
+            "expected": 6,
+            "returned": 6,
+            "correct": 6,
+            "cited": 6,
+            "abstentions": 0
+          },
+          "currency": {
+            "expected": 6,
+            "returned": 6,
+            "correct": 6,
+            "cited": 6,
+            "abstentions": 0
+          },
+          "record_date": {
+            "expected": 1,
+            "returned": 1,
+            "correct": 1,
+            "cited": 1,
+            "abstentions": 0
+          },
+          "payment_date": {
+            "expected": 1,
+            "returned": 1,
+            "correct": 1,
+            "cited": 1,
+            "abstentions": 0
+          }
+        },
+        "false_approvals": 0
+      }
+    }
+  }
+}

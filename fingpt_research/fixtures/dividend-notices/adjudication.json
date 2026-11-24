@@ -1,0 +1,14 @@
+{
+  "original_corpus_sha256": "1d93d4559cb0fce1dc54e9e548599473b77dd2a7b8fe4710a9fcc2594357a542",
+  "reviewed_passages": 42,
+  "evidence_span_only_differences": 51,
+  "accepted_fields": {
+    "passage-40": {
+      "amount": {
+        "value": "8",
+        "span": "KShs 8.00"
+      }
+    }
+  },
+  "decision": "Page 2 of the FY2024 issuer release reconciles the KES 8 interim and KES 37 final dividend to KES 45 per ordinary share. The per-share unit is established by the surrounding paragraph. The original reference spans remain the citation anchors for fields with agreed values."
+}

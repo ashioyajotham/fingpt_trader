@@ -1,0 +1,584 @@
+{
+  "passage-01": {
+    "status": {
+      "value": "proposed",
+      "span": "recommended"
+    },
+    "amount": {
+      "value": "5.75",
+      "span": "Kshs 5.75"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "Kshs"
+    }
+  },
+  "passage-02": {
+    "status": {
+      "value": "approved",
+      "span": "Shareholders approved"
+    },
+    "amount": {
+      "value": "5.75",
+      "span": "Kshs. 5.75"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "Kshs."
+    },
+    "payment_date": {
+      "value": "2026-06-30",
+      "span": "30th June 2026"
+    }
+  },
+  "passage-03": {
+    "status": {
+      "value": "proposed",
+      "span": "proposing"
+    },
+    "amount": {
+      "value": "4.25",
+      "span": "Kshs 4.25"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "Kshs"
+    }
+  },
+  "passage-04": {
+    "status": {
+      "value": "approved",
+      "span": "Shareholders approved"
+    },
+    "amount": {
+      "value": "4.25",
+      "span": "Kshs. 4.25"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "Kshs."
+    }
+  },
+  "passage-05": {
+    "status": {
+      "value": "approved",
+      "span": "Passed"
+    },
+    "amount": {
+      "value": "4",
+      "span": "KES 4"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KES"
+    }
+  },
+  "passage-06": {},
+  "passage-07": {
+    "status": {
+      "value": "proposed",
+      "span": "To approve"
+    },
+    "amount": {
+      "value": "5.5",
+      "span": "Kshs 5.50"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "Kshs"
+    }
+  },
+  "passage-08": {
+    "status": {
+      "value": "approved",
+      "span": "PASSED"
+    },
+    "amount": {
+      "value": "5.5",
+      "span": "Kshs 5.50"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "Kshs"
+    }
+  },
+  "passage-09": {
+    "status": {
+      "value": "proposed",
+      "span": "recommends"
+    },
+    "amount": {
+      "value": "2.5",
+      "span": "Kshs 2.50"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "Kshs"
+    },
+    "payment_date": {
+      "value": "2025-04-30",
+      "span": "30th April 2025"
+    },
+    "record_date": {
+      "value": "2025-02-21",
+      "span": "21st February 2025"
+    }
+  },
+  "passage-10": {
+    "status": {
+      "value": "paid",
+      "span": "was paid"
+    },
+    "payment_date": {
+      "value": "2025-04-28",
+      "span": "28th April 2025"
+    },
+    "record_date": {
+      "value": "2025-02-16",
+      "span": "16th February 2025"
+    }
+  },
+  "passage-11": {
+    "status": {
+      "value": "proposed",
+      "span": "To approve"
+    },
+    "amount": {
+      "value": "1.75",
+      "span": "Kshs 1.75"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "Kshs"
+    },
+    "record_date": {
+      "value": "2023-09-14",
+      "span": "14th September 2023"
+    }
+  },
+  "passage-12": {
+    "status": {
+      "value": "proposed",
+      "span": "recommended"
+    },
+    "amount": {
+      "value": "1.75",
+      "span": "Kshs 1.75"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "Kshs"
+    }
+  },
+  "passage-13": {
+    "status": {
+      "value": "approved",
+      "span": "PASSED"
+    },
+    "amount": {
+      "value": "6",
+      "span": "Kshs 6"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "Kshs"
+    },
+    "payment_date": {
+      "value": "2024-10-28",
+      "span": "28th October 2024"
+    }
+  },
+  "passage-14": {
+    "status": {
+      "value": "proposed",
+      "span": "recommended"
+    },
+    "amount": {
+      "value": "1.2",
+      "span": "Kshs.1.20"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "Kshs."
+    }
+  },
+  "passage-15": {
+    "status": {
+      "value": "declared",
+      "span": "announce"
+    },
+    "amount": {
+      "value": "0.3",
+      "span": "KSh.0.30"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KSh."
+    }
+  },
+  "passage-16": {
+    "status": {
+      "value": "proposed",
+      "span": "recommend"
+    },
+    "amount": {
+      "value": "0.8",
+      "span": "KShs.0.80"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KShs."
+    }
+  },
+  "passage-17": {
+    "status": {
+      "value": "paid",
+      "span": "was paid"
+    },
+    "amount": {
+      "value": "0.2",
+      "span": "KShs.0.20"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KShs."
+    }
+  },
+  "passage-18": {
+    "status": {
+      "value": "proposed",
+      "span": "recommend"
+    },
+    "amount": {
+      "value": "0.7",
+      "span": "KShs.0.70"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KShs."
+    }
+  },
+  "passage-19": {
+    "status": {
+      "value": "paid",
+      "span": "was paid"
+    },
+    "payment_date": {
+      "value": "2026-03-27",
+      "span": "27ᵗʰ March 2026"
+    }
+  },
+  "passage-20": {
+    "status": {
+      "value": "proposed",
+      "span": "To approve"
+    },
+    "amount": {
+      "value": "1.2",
+      "span": "Shs. 1.20"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "Shs."
+    }
+  },
+  "passage-21": {
+    "status": {
+      "value": "proposed",
+      "span": "recommended"
+    }
+  },
+  "passage-22": {
+    "status": {
+      "value": "proposed",
+      "span": "proposed"
+    },
+    "amount": {
+      "value": "2.25",
+      "span": "KES 2.25"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KES"
+    }
+  },
+  "passage-23": {
+    "status": {
+      "value": "approved",
+      "span": "PASSED"
+    },
+    "amount": {
+      "value": "2.25",
+      "span": "Kshs. 2.25"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "Kshs."
+    }
+  },
+  "passage-24": {
+    "status": {
+      "value": "approved",
+      "span": "approved"
+    },
+    "amount": {
+      "value": "1.5",
+      "span": "KES 1.50"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KES"
+    }
+  },
+  "passage-25": {
+    "status": {
+      "value": "proposed",
+      "span": "proposed"
+    },
+    "amount": {
+      "value": "1.7",
+      "span": "KES 1.70"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KES"
+    }
+  },
+  "passage-26": {
+    "status": {
+      "value": "approved",
+      "span": "shareholders approved"
+    },
+    "amount": {
+      "value": "0.75",
+      "span": "Ksh.0.75"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "Ksh."
+    },
+    "payment_date": {
+      "value": "2027-01-21",
+      "span": "January 21, 2027"
+    }
+  },
+  "passage-27": {
+    "status": {
+      "value": "approved",
+      "span": "endorsed"
+    },
+    "amount": {
+      "value": "0.9",
+      "span": "Ksh.0.90"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "Ksh."
+    }
+  },
+  "passage-28": {
+    "status": {
+      "value": "proposed",
+      "span": "recommend"
+    },
+    "amount": {
+      "value": "0.9",
+      "span": "KShs 0.90"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KShs"
+    }
+  },
+  "passage-29": {
+    "status": {
+      "value": "proposed",
+      "span": "recommend"
+    },
+    "amount": {
+      "value": "0.65",
+      "span": "KShs 0.65"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KShs"
+    }
+  },
+  "passage-30": {
+    "status": {
+      "value": "paid",
+      "span": "successful payout"
+    },
+    "amount": {
+      "value": "0.3",
+      "span": "Ksh.0.3"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "Ksh."
+    }
+  },
+  "passage-31": {
+    "status": {
+      "value": "approved",
+      "span": "resolved by majority"
+    },
+    "amount": {
+      "value": "0.65",
+      "span": "KShs 0.65"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KShs"
+    }
+  },
+  "passage-32": {
+    "status": {
+      "value": "proposed",
+      "span": "recommend"
+    },
+    "amount": {
+      "value": "0.65",
+      "span": "KShs 0.65"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KShs"
+    }
+  },
+  "passage-33": {
+    "status": {
+      "value": "proposed",
+      "span": "To approve"
+    },
+    "amount": {
+      "value": "0.65",
+      "span": "KShs 0.65"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KShs"
+    }
+  },
+  "passage-34": {
+    "status": {
+      "value": "approved",
+      "span": "shareholders approved"
+    },
+    "amount": {
+      "value": "1.5",
+      "span": "KShs 1.50"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KShs"
+    },
+    "payment_date": {
+      "value": "2025-05-23",
+      "span": "May 23, 2025"
+    }
+  },
+  "passage-35": {
+    "status": {
+      "value": "proposed",
+      "span": "proposed"
+    },
+    "amount": {
+      "value": "3",
+      "span": "KShs. 3"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KShs."
+    }
+  },
+  "passage-36": {
+    "status": {
+      "value": "proposed",
+      "span": "proposed"
+    },
+    "amount": {
+      "value": "45",
+      "span": "KShs 45.00"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KShs"
+    },
+    "record_date": {
+      "value": "2025-05-23",
+      "span": "23 May 2025"
+    }
+  },
+  "passage-37": {
+    "status": {
+      "value": "proposed",
+      "span": "proposed"
+    },
+    "amount": {
+      "value": "60",
+      "span": "KShs 60"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KShs"
+    },
+    "payment_date": {
+      "value": "2026-06-12",
+      "span": "12th June 2026"
+    }
+  },
+  "passage-38": {
+    "status": {
+      "value": "approved",
+      "span": "has approved"
+    },
+    "amount": {
+      "value": "5",
+      "span": "KShs 5.00"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KShs"
+    }
+  },
+  "passage-39": {
+    "status": {
+      "value": "proposed",
+      "span": "recommending"
+    },
+    "amount": {
+      "value": "37",
+      "span": "KShs 37.00"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KShs"
+    }
+  },
+  "passage-40": {
+    "status": {
+      "value": "paid",
+      "span": "declared and paid"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KShs"
+    }
+  },
+  "passage-41": {
+    "status": {
+      "value": "proposed",
+      "span": "recommend"
+    },
+    "amount": {
+      "value": "14",
+      "span": "KShs 14.00"
+    },
+    "currency": {
+      "value": "KES",
+      "span": "KShs"
+    }
+  },
+  "passage-42": {}
+}

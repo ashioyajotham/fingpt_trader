@@ -55,6 +55,10 @@ The [example study](examples/kes-portfolio.json) pre-funds two books in KES and 
 
 A short sale requires explicit dated loan inventory. A schedule sets maximum outstanding units, an annual rate, expiry and a buy-in premium. Loan fees accrue ACT/365 on the preceding mark, including weekends. A reduction in the allowed outstanding quantity or an expiry triggers a buy-in subject to tradable volume. The last known loan rate continues on overdue units. Short holders owe any eligible dividend. For a single book pass `paper --policy short_hold --borrow loan.json`, with `instrument` and a `records` array using the example's borrow fields. The included FX and borrowing terms are synthetic scenario assumptions.
 
+## Historical dividend research
+
+Query dated issuer disclosures with `python -m fingpt_research actions --as-of 2026-06-30 --status approved`. Add `--symbol EQTY --history` to inspect a single issuer over time. The offline catalog covers nine Kenyan issuers. Each field retains its supporting source, and inference runs separately. [Disclosure clocks, corpus and model comparisons](docs/dividend-catalog.md)
+
 ## FinGPT experiments
 
 Supply a locally merged FinGPT GGUF for model experiments. Install `.[model]` in a virtual environment. The model file digest identifies the weights. The evaluator compares FinGPT and the deterministic parser against the same reference fields with field accuracy, citation precision, abstentions, elapsed time and model tokens.

@@ -1,0 +1,112 @@
+{
+  "passage-05": {
+    "direct_fetch": "Unavailable to automated PDF reader during verification"
+  },
+  "passage-07": {
+    "pdf_sha256": "31bccedce4ee711733edca182c2019a459fbcbb0b8daf23e3d16cdf56858e4c7",
+    "page": 1
+  },
+  "passage-08": {
+    "pdf_sha256": "1581842b7edb363e75d1eda7fbedb677f311230e98ce8a140985f9e096e936e3"
+  },
+  "passage-09": {
+    "pdf_sha256": "9cbdee174699b389200570247e6bc7d2b8c0a6677f9435334ef1d7840be9bcb5",
+    "current_url": "https://www.eabl.com/~/media/Files/E/eabl/documents/investor/financial-result/2025/eabl-f25-half-year-results-press-ad-final.pdf",
+    "page": 1
+  },
+  "passage-10": {
+    "pdf_sha256": "31bccedce4ee711733edca182c2019a459fbcbb0b8daf23e3d16cdf56858e4c7",
+    "page": 1
+  },
+  "passage-11": {
+    "pdf_sha256": "f9ab7f81b372398dd335dc7802886b342716a7fdd1354a31ace9abac0f96aac4",
+    "current_url": "https://www.eabl.com/~/media/Files/E/eabl/documents/investor/agm/2023/notice-of-eabl-2023-annual-general-meeting.pdf",
+    "page": 1
+  },
+  "passage-12": {
+    "pdf_sha256": "6656cca660ec2f3cf50e517df3d0332e5b827bf2ad31af3ae9edf4378cfabfa3",
+    "current_url": "https://www.eabl.com/~/media/Files/E/eabl/documents/investor/financial-result/2023/eabl-full-2023-year-financial-results-press-ad.pdf",
+    "page": 1
+  },
+  "passage-13": {
+    "pdf_sha256": "88d1b0d57c2a7bc874c88a0e1a6bc1287d6c768af4daaa95346cf8d66973c225",
+    "current_url": "https://www.eabl.com/~/media/Files/E/eabl/documents/investor/agm/2024/eabl-agm-polling-results.pdf",
+    "page": 1
+  },
+  "passage-16": {
+    "pdf_sha256": "16c6448aa3b9ce043e7ac6132fd7800e5838b8cf1adf3982ea227977247c2ede",
+    "page": 1
+  },
+  "passage-17": {
+    "pdf_sha256": "16c6448aa3b9ce043e7ac6132fd7800e5838b8cf1adf3982ea227977247c2ede",
+    "page": 1
+  },
+  "passage-18": {
+    "pdf_sha256": "4e5909e1f6af3b773947d390a36fb830fca2c09daf5f733c1d4dfa2062d8cd70"
+  },
+  "passage-19": {
+    "pdf_sha256": "1c87b13a820e2004748d85ecf857bac80c516c42c3a9fca28bbea017ba6cef07",
+    "page": 1
+  },
+  "passage-20": {
+    "pdf_sha256": "1c87b13a820e2004748d85ecf857bac80c516c42c3a9fca28bbea017ba6cef07",
+    "page": 1
+  },
+  "passage-23": {
+    "pdf_sha256": "6975a2298671446ec92857a39144c6626fb3ef1cdae16cb4a86a3acb8cf69b32",
+    "page": 1
+  },
+  "passage-28": {
+    "direct_fetch": "Unavailable to automated PDF reader during verification",
+    "issuer_index": "https://www.kengen.co.ke/investor-relations/financial-information/"
+  },
+  "passage-29": {
+    "direct_fetch": "Unavailable to automated PDF reader during verification",
+    "issuer_index": "https://www.kengen.co.ke/investor-relations/financial-information/"
+  },
+  "passage-31": {
+    "direct_fetch": "Unavailable to automated PDF reader during verification"
+  },
+  "passage-32": {
+    "direct_fetch": "Unavailable to automated PDF reader during verification"
+  },
+  "passage-33": {
+    "direct_fetch": "Unavailable to automated PDF reader during verification"
+  },
+  "passage-34": {
+    "direct_fetch": "Unavailable to automated PDF reader during verification",
+    "issuer_index": "https://kcbgroup.com/press-release"
+  },
+  "passage-35": {
+    "direct_fetch": "Unavailable to automated PDF reader during verification",
+    "issuer_index": "https://kcbgroup.com/press-release"
+  },
+  "passage-36": {
+    "direct_fetch": "Unavailable to automated PDF reader during verification"
+  },
+  "passage-37": {
+    "direct_fetch": "Unavailable to automated PDF reader during verification"
+  },
+  "passage-38": {
+    "direct_fetch": "Unavailable to automated PDF reader during verification"
+  },
+  "passage-39": {
+    "pdf_sha256": "0f2600aaf333c2bdb636a1d25ec6d0fbac2030cc1f40002cfe6dacfd25d0ccb5",
+    "page": 2
+  },
+  "passage-40": {
+    "pdf_sha256": "0f2600aaf333c2bdb636a1d25ec6d0fbac2030cc1f40002cfe6dacfd25d0ccb5",
+    "page": 2
+  },
+  "passage-41": {
+    "pdf_sha256": "0db339e5bb89deae63e7f61d0dfbc5612cf934f07e897363f60168b7282334c8",
+    "page": 1
+  },
+  "passage-42": {
+    "pdf_sha256": "cd48fd0f6ebe45886a5d4aeb284df0db24d7f6ad7616f30dadbd17788aa5d1d6",
+    "page": 2
+  },
+  "passage-30": {
+    "scope": "Payment to private shareholders"
+  }
+}
