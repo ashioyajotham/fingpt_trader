@@ -103,10 +103,12 @@ The [example study](examples/kes-portfolio.json) pre-funds two books in KES and 
 
 ## Local Web Workstation
 
-Launch a local, read-only, paper-only web workstation (pure Python stdlib, zero external server dependencies) to explore point-in-time `actions`, inspect market/liquidity tapes, and run stressed-cost paper simulations in your browser:
+Launch the local, paper-only web workstation (pure Python stdlib, zero external server dependencies) to drop issuer PDFs into the **Filing Workbench** (dividends, financial statements, dual-decoder page coverage, and one-click promotion to a local catalog), explore point-in-time `actions`, inspect market/liquidity tapes, and run stressed-cost paper simulations in your browser:
 
 ```sh
 python3 -m asof serve --port 8765
+# Pass --catalog DIR to enable one-click promotion from the Filing Workbench:
+python3 -m asof serve --port 8765 --catalog ./my-catalog
 ```
 
 A short sale requires explicit dated loan inventory. A schedule sets maximum outstanding units, an annual rate, expiry and a buy-in premium. Loan fees accrue ACT/365 on the preceding mark, including weekends. A reduction in the allowed outstanding quantity or an expiry triggers a buy-in subject to tradable volume. The last known loan rate continues on overdue units. Short holders owe any eligible dividend. For a single book pass `paper --policy short_hold --borrow loan.json`, with `instrument` and a `records` array using the example's borrow fields. The included FX and borrowing terms are synthetic scenario assumptions.
