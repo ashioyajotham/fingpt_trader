@@ -29,7 +29,8 @@ asof/
 ├── nse_pricelist.py    # NSE Daily Equity Price List PDF/CSV parser & OCR-ready dataset importer
 ├── filing_pdf.py       # Dual-decoder (pypdf + pypdfium2) PDF text & coverage checker
 ├── filing_events.py    # Full-filing dividend discovery, rules extraction & uncertainty-routed model fallback
-├── filings.py          # Single-filing extraction orchestration
+├── filing_statements.py # Cited income-statement, EPS & balance-sheet table extraction (scale-aware)
+├── filings.py          # Single-filing extraction orchestration (dividends + financials)
 ├── dividends.py        # Point-in-time dividend catalog queries & filing promotion
 ├── dividend_eval.py    # Frozen passage benchmark scoring
 ├── evidence.py         # Passage-grounded extraction & optional LocalFinGPT backend
