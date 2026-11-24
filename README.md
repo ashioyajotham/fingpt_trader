@@ -2,6 +2,54 @@
 
 FinGPT Trader replays market data and issuer documents as they became available, preserves source citations, and simulates paper portfolios. Individual books use their listing currency. A portfolio study can combine separately funded books in one base currency. Python 3.11 or later runs the research commands with the standard library.
 
+## Architecture
+
+Research ingestion, point-in-time storage, and paper simulation are strictly separated from live broker execution. Deterministic rules run first; hosted Gemini fallback is invoked only when a filing candidate misses a core field, and every claim requires a verbatim source quote.
+
+```mermaid
+flowchart TB
+    subgraph Sources["1. External Sources (Raw)"]
+        PDF["Issuer PDFs (Results, AGMs, Notices)"]
+        PL["NSE Daily Price Lists (PDF / CSV)"]
+        CRYPTO["Binance Public Spot REST"]
+        FX["FX & Borrow Schedules"]
+    end
+
+    subgraph Ingest["2. Offline Ingestion & Verification"]
+        FE["filing-extract (pypdf + pypdfium2 + rules)"]
+        LLM["Optional Gemini Fallback (Vertex AI, uncertainty-routed)"]
+        NSE_IMP["nse-import (PDF parser + scanned-PDF guard)"]
+        BIN_AD["binance-spot-daily (stdlib REST adapter)"]
+        FE -.->|"missing core field only"| LLM
+    end
+
+    subgraph Store["3. Point-in-Time Store (No Look-Ahead)"]
+        CAT["Corporate Actions Catalog (actions + catalog-add)"]
+        MKT["Raw OHLCV / VWAP Datasets (sessions + prices)"]
+        FEAT["Timestamped Features (observed_at + latency)"]
+    end
+
+    subgraph Engine["4. Paper Research & Risk Engine"]
+        PAPER["PaperEngine (Decimal fills, fees, dividends, borrow)"]
+        PORT["Portfolio & Risk (FX marks, drawdown, exposures)"]
+        COMP["Walk-Forward Comparisons (baseline vs stressed costs)"]
+    end
+
+    PDF --> FE
+    PL --> NSE_IMP
+    CRYPTO --> BIN_AD
+    FE -->|"reviewed promotion"| CAT
+    NSE_IMP --> MKT
+    BIN_AD --> MKT
+    FX --> PORT
+
+    CAT --> PAPER
+    MKT --> PAPER
+    FEAT --> PAPER
+    PAPER --> PORT
+    PAPER --> COMP
+```
+
 ## Try the replay
 
 ```sh
