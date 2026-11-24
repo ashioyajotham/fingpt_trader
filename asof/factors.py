@@ -174,14 +174,78 @@ def compute_factor_panel(universe, *, catalog_dir=None, min_adv=0.0):
     return panel, closes_by_sym
 
 
-def evaluate_factors(universe, *, catalog_dir=None, horizons=(1, 5, 20), min_adv=0.0):
-    """Evaluate cross-sectional factors across forward horizons using Spearman Rank-IC and quantile spreads."""
+def parse_factor_blend(spec):
+    """Parse a composite factor blend spec ('dividend_yield:0.5,momentum_20d:-0.5' or dict)."""
+    if spec is None:
+        return None
+    if isinstance(spec, str):
+        raw = spec.strip()
+        if not raw:
+            return None
+        parsed = {}
+        for part in raw.split(","):
+            piece = part.strip()
+            if not piece:
+                continue
+            if ":" not in piece:
+                raise ValueError(f"invalid factor blend item {piece!r}; expected 'factor:weight'")
+            name, weight_str = piece.split(":", 1)
+            name = name.strip()
+            weight = float(weight_str.strip())
+            parsed[name] = parsed.get(name, 0.0) + weight
+    elif isinstance(spec, dict):
+        parsed = {str(k).strip(): float(v) for k, v in spec.items()}
+    else:
+        raise ValueError("factor blend must be a mapping or 'factor:weight,...' string")
+    if not parsed:
+        return None
+    for name, weight in parsed.items():
+        if name not in FACTOR_NAMES:
+            raise ValueError(f"unknown factor {name!r} in blend; expected one of {', '.join(FACTOR_NAMES)}")
+        if not isfinite(weight) or weight == 0:
+            raise ValueError(f"blend weight for {name!r} must be finite and non-zero")
+    return parsed
+
+
+def compute_composite_scores(cross, blend):
+    """Compute cross-sectional percentile-rank weighted composite scores for tickers with all blend factors."""
+    if not blend or not cross:
+        return {}
+    syms = sorted(
+        sym for sym, fdict in cross.items()
+        if all(f in fdict and fdict[f] is not None and isfinite(fdict[f]) for f in blend)
+    )
+    if not syms:
+        return {}
+    n = len(syms)
+    total_abs = sum(abs(w) for w in blend.values())
+    scores = {sym: 0.0 for sym in syms}
+    for fname, weight in blend.items():
+        vals = [cross[sym][fname] for sym in syms]
+        ranks = _average_ranks(vals)
+        for sym, rk in zip(syms, ranks):
+            pct = (rk - 0.5) / n
+            scores[sym] += (weight / total_abs) * pct
+    return scores
+
+
+def evaluate_factors(universe, *, catalog_dir=None, horizons=(1, 5, 20), min_adv=0.0, blend=None):
+    """Evaluate cross-sectional factors (and optional composite blend) using Spearman Rank-IC and spreads."""
+    parsed_blend = parse_factor_blend(blend)
     panel, closes_by_sym = compute_factor_panel(universe, catalog_dir=catalog_dir, min_adv=min_adv)
     bar_closes = {sym: [float(b.close) for b in ds.bars] for sym, ds in universe.items()}
     sessions = sorted(panel)
 
+    factor_list = list(FACTOR_NAMES)
+    if parsed_blend:
+        for session in sessions:
+            comp = compute_composite_scores(panel[session], parsed_blend)
+            for sym, val in comp.items():
+                panel[session][sym]["composite"] = val
+        factor_list.append("composite")
+
     results = {}
-    for factor in FACTOR_NAMES:
+    for factor in factor_list:
         by_horizon = {}
         for h in horizons:
             ics, spreads, sizes = [], [], []
@@ -232,13 +296,16 @@ def evaluate_factors(universe, *, catalog_dir=None, horizons=(1, 5, 20), min_adv
                     "mean_spread": sum(spreads) / len(spreads),
                 }
         results[factor] = by_horizon
-    return {
+    out = {
         "tickers": sorted(universe),
         "sessions": len(sessions),
         "horizons": list(horizons),
         "min_adv_kes": float(min_adv),
         "factors": results,
     }
+    if parsed_blend:
+        out["blend"] = parsed_blend
+    return out
 
 
 def universe_snapshot(universe, *, catalog_dir=None, stale_days=5, position_kes=100000.0):
@@ -265,6 +332,7 @@ def universe_snapshot(universe, *, catalog_dir=None, stale_days=5, position_kes=
             "symbol": sym,
             "instrument": ds.meta["instrument"],
             "issuer": ds.meta["issuer"],
+            "sector": ds.meta.get("sector") or "Unclassified",
             "currency": ds.meta["currency"],
             "sessions": len(bars),
             "latest_session": last.session,

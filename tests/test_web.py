@@ -163,12 +163,14 @@ def test_web_universe_financials_factors_and_loopback_guard(tmp_path):
 
     code, _, body = dispatch(
         "/api/factor-backtest",
-        {"factor": ["liquidity_adv20"], "direction": ["top"], "top_n": ["2"], "rebalance": ["daily"]},
+        {"factor_blend": ["liquidity_adv20:1.0"], "direction": ["top"], "top_n": ["2"],
+         "rebalance": ["daily"], "max_sector_weight": ["0.6"]},
         catalog_root=cat_dir, universe_root=uni_dir,
     )
     assert code == HTTPStatus.OK
     fbt = json.loads(body)
-    assert fbt["mode"] == "factor_backtest" and fbt["trades_count"] >= 1
+    assert fbt["mode"] == "factor_backtest" and fbt["factor"] == "composite" and fbt["trades_count"] >= 1
+    assert "yearly" in fbt and "sector_exposure" in fbt
 
     # Non-loopback host binding must be rejected unless allow_remote=True.
     with pytest.raises(ValueError, match="non-loopback"):

@@ -61,8 +61,9 @@ python3 -m asof factors \
 python3 -m asof factor-backtest \
   --universe ./local-data/universe \
   --catalog ./local-data/catalog \
-  --factor momentum_20d --direction bottom --top-n 5 --rebalance monthly \
-  --min-adv 500000 --fee-bps 180 --slippage-bps 15
+  --factor-blend "dividend_yield:0.5,momentum_20d:-0.5" \
+  --top-n 5 --max-sector-weight 0.40 --rebalance monthly \
+  --min-adv 500000 --fee-bps 180 --slippage-bps 15 --wht-pct 5
 
 # 5. Launch the local workstation pointed at your real NSE universe and catalog:
 python3 -m asof serve \
