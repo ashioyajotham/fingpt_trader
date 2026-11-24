@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "asof"
-version = "0.4.0.dev0"
+version = "0.4.0"
 description = "Point-in-time market intelligence, filing evidence, and paper portfolio simulation"
 readme = "README.md"
 license = "Apache-2.0"
@@ -22,6 +22,11 @@ classifiers = [
 dependencies = [
     "tzdata; sys_platform == 'win32'",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ashioyajotham/asof"
+Repository = "https://github.com/ashioyajotham/asof"
+Issues = "https://github.com/ashioyajotham/asof/issues"
 
 [project.optional-dependencies]
 dev = [
