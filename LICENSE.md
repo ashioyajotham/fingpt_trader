@@ -32,7 +32,7 @@ If you use this software or derivatives in academic or research work, please cit
   author = {Victor Jotham Ashioya},
   title = {AsOf: Point-in-Time Market Intelligence and Paper Research},
   year = {2026},
-  url = {https://github.com/ashioyajotham/fingpt_trader}
+  url = {https://github.com/ashioyajotham/asof}
 }
 ```
 

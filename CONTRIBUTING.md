@@ -5,8 +5,8 @@
 Python 3.11 or later runs the core research CLI using the standard library. Optional extras add PDF parsing (`filings`), local GGUF inference (`model`), and test/lint tooling (`dev`).
 
 ```sh
-git clone https://github.com/ashioyajotham/fingpt_trader.git
-cd fingpt_trader
+git clone https://github.com/ashioyajotham/asof.git
+cd asof
 python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -e '.[dev,filings]'
@@ -36,10 +36,11 @@ asof/
 ├── vertex.py           # Optional hosted Vertex AI Gemini fallback backend
 ├── paper.py            # Single-listing Decimal paper ledger (dividends, splits/bonuses, short borrow)
 ├── borrow.py           # ACT/365 short borrow schedules & forced buy-ins
-├── portfolio.py        # Multi-currency sleeve aggregation with FX staleness checks
+├── portfolio.py        # Multi-currency portfolio aggregation, periodic rebalancing & benchmark attribution
 ├── experiments.py      # Walk-forward baseline comparisons & timestamped model features
 ├── forward.py          # Append-only streaming paper book
-├── risk.py             # Drawdown, exposure, Sharpe ratio & days-to-exit liquidity metrics
+├── risk.py             # Drawdown, exposure, Sharpe/Sortino, concentration, attribution & liquidity metrics
+├── web.py              # Local read-only stdlib web workstation (asof serve)
 └── fixtures/           # Bundled offline test fixtures (binance, nse, nse-public-sample, dividend-notices)
 tests/                  # Fast offline pytest suite
 docs/                   # Design notes, validation logs & ingestion guides
