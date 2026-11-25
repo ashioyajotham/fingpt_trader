@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "asof-research"
-version = "0.6.0"
+version = "0.7.0"
 description = "Point-in-time market intelligence, cited filings, and paper research — zero look-ahead, zero broker."
 readme = "README.md"
 license = "Apache-2.0"
