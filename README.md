@@ -16,7 +16,10 @@
 # Install the CLI tool (stdlib-only core, or add [filings] for PDF parsing):
 pip install asof-research
 uv tool install 'asof-research[filings]'
-asof --help
+
+# Show status dashboard & quickstart, or configure Gemini / Vertex / GGUF & paths:
+asof
+asof config init
 ```
 
 ## Architecture
