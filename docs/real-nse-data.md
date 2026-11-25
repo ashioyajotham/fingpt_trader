@@ -23,6 +23,32 @@ python3 -m asof nse-import \
 python3 -m asof replay --dataset ./local-data/universe/SCOM
 ```
 
+## 1b. Keep Your Universe Current Daily (`asof nse-sync`)
+
+After importing historical CSVs (or to bootstrap a fresh universe from scratch), append newly closed NSE daily sessions after 15:00 EAT using the built-in append-only End-of-Day adapter:
+
+```sh
+# Public EOD sync (default: StockAnalysis NASE raw OHLCV, zero API key, ignores adjusted close):
+python3 -m asof nse-sync \
+  --universe ./local-data/universe \
+  --provider stockanalysis \
+  --range 6M
+
+# Commercial EODHD sync (uses EODHD_API_KEY from environment or --api-key):
+python3 -m asof nse-sync \
+  --universe ./local-data/universe \
+  --provider eodhd \
+  --since 2026-07-01
+
+# Remote daily CSV URL sync (e.g. NSE Data Services or broker export URL):
+python3 -m asof nse-sync \
+  --universe ./local-data/universe \
+  --provider csv-url \
+  --url "https://your-source.example/nse-daily.csv"
+```
+
+`asof nse-sync` is strictly **append-only** by default (never silently overwriting stored sessions), automatically warns if any overlapping close differs by >1% across providers, and refuses to ingest partial/unclosed intraday sessions before 15:00 EAT.
+
 ---
 
 ## 2. Extract & Persist Point-in-Time Dividends and Financials from Real Issuer PDFs

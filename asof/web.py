@@ -141,7 +141,10 @@ HTML = """<!doctype html>
 
     <section id="tab-market" class="hidden">
       <div id="uni-section" class="hidden" style="margin-bottom:18px">
-        <h3>Multi-Ticker NSE Market &amp; Liquidity Board</h3>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <h3 style="margin:0">Multi-Ticker NSE Market &amp; Liquidity Board</h3>
+          <span id="uni-asof" class="pill mono info"></span>
+        </div>
         <table>
           <thead><tr><th>Symbol</th><th>Sector</th><th>Latest</th><th>Close / VWAP</th><th>Volume</th><th>20D ADV (KES)</th><th>DTE (100k)</th><th>Div / Earn Yld</th><th>State</th></tr></thead>
           <tbody id="uni-rows" class="mono"></tbody>
@@ -339,6 +342,7 @@ async function loadMarket() {
     const sec = document.getElementById("uni-section");
     if (uni.rows && uni.rows.length) {
       sec.classList.remove("hidden");
+      document.getElementById("uni-asof").textContent = `${uni.tickers_count} TICKERS · AS OF ${uni.as_of_session || "—"}`;
       const sortedRows = [...uni.rows].sort((a, b) => (b.adv20_kes || 0) - (a.adv20_kes || 0));
       document.getElementById("uni-rows").innerHTML = sortedRows.map(r => {
         const ylds = `${fmtPct(r.dividend_yield)} / ${fmtPct(r.earnings_yield)}`;
