@@ -93,6 +93,18 @@ def get_parser():
     nse_imp.add_argument("--session", help="override session date (YYYY-MM-DD) for single file")
     nse_imp.add_argument("--source", help="provenance URL for the price list")
     nse_imp.add_argument("--ocr-cmd", help="optional OCR shell template for image-only PDFs using {in} and {out}")
+    nse_sync = commands.add_parser("nse-sync", help="append completed daily NSE EOD bars from a configured provider")
+    nse_sync.add_argument("--universe", type=Path, required=True, help="target multi-ticker universe directory")
+    nse_sync.add_argument("--provider", choices=("stockanalysis", "eodhd", "csv-url"), default="stockanalysis")
+    nse_sync.add_argument("--symbols", help="optional comma-separated tickers (default: existing universe or 12 blue-chips)")
+    nse_sync.add_argument("--range", dest="range_code", choices=("1M", "6M", "1Y", "5Y", "MAX"), default="6M",
+                          help="history window for stockanalysis provider (default: 6M)")
+    nse_sync.add_argument("--since", help="optional inclusive start date (YYYY-MM-DD)")
+    nse_sync.add_argument("--until", help="optional inclusive end date (YYYY-MM-DD, capped at last closed NSE session)")
+    nse_sync.add_argument("--api-key", help="optional API key (or set EODHD_API_KEY in environment)")
+    nse_sync.add_argument("--url", dest="csv_url", help="remote NSE daily CSV URL when --provider csv-url")
+    nse_sync.add_argument("--overwrite", action="store_true", help="allow overwriting already-stored sessions")
+    nse_sync.add_argument("--delay", type=float, default=0.15, help="seconds between per-ticker requests (default: 0.15)")
     bench = commands.add_parser("notice-eval", help="evaluate frozen dividend passages")
     bench.add_argument("--split", choices=("development", "holdout", "prospective"), default="prospective")
     backend = bench.add_mutually_exclusive_group()
@@ -210,6 +222,21 @@ def run(args):
             args.input_path, args.symbol, args.out,
             issuer=args.issuer, isin=args.isin, session_date=args.session,
             source_url=args.source, ocr_cmd=args.ocr_cmd,
+        )
+    if args.command == "nse-sync":
+        from .nse_sync import sync_nse_universe
+        syms = [s.strip() for s in args.symbols.split(",") if s.strip()] if args.symbols else None
+        return sync_nse_universe(
+            args.universe,
+            provider=args.provider,
+            symbols=syms,
+            range_code=args.range_code,
+            since=args.since,
+            until=args.until,
+            api_key=args.api_key,
+            csv_url=args.csv_url,
+            overwrite=args.overwrite,
+            delay_seconds=args.delay,
         )
     if args.command == "notice-eval":
         from .dividend_eval import evaluate
